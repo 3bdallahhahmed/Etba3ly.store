@@ -1621,7 +1621,7 @@ export default function App() {
             <directionalLight position={[-5, -5, -5]} intensity={0.3} color="#FFB347" />
             <Suspense fallback={<SceneLoader />}>
               <PrintScene />
-              <Environment preset="city" />
+              <Environment files={`${import.meta.env.BASE_URL}potsdamer_platz_1k.hdr`} />
             </Suspense>
           </Canvas>
         </div>
