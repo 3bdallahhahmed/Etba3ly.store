@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, Suspense, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Environment, Float, Html, useProgress } from "@react-three/drei";
+import { Float, Html } from "@react-three/drei";
 import * as THREE from "three";
 import STLViewer from "./slicer/STLViewer.jsx";
 import AdminSlicerModal from "./slicer/AdminSlicerModal.jsx";
@@ -85,11 +85,10 @@ function getCleanNotes(notes) {
 // 3D SCENE — Abstract Geometry + 3D Print Icons
 // ─────────────────────────────────────────────────────────
 function SceneLoader() {
-  const { progress } = useProgress();
   return (
     <Html center>
       <div style={{ color: "var(--accent)", fontWeight: "bold", fontSize: 20, whiteSpace: "nowrap", textAlign: "center" }}>
-        <div style={{ fontSize: 28, marginBottom: 6 }}>{progress.toFixed(0)}%</div>
+        <div style={{ width: 32, height: 32, border: "3px solid rgba(255,128,0,0.2)", borderTopColor: "#FF8000", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 10px" }} />
         <div style={{ fontSize: 11, color: "#999", textTransform: "uppercase", letterSpacing: "0.12em" }}>Loading</div>
       </div>
     </Html>
@@ -1617,11 +1616,11 @@ export default function App() {
             performance={{ min: 0.5 }}
           >
             <ambientLight intensity={0.5} />
+            <hemisphereLight skyColor="#b1e1ff" groundColor="#333333" intensity={0.6} />
             <directionalLight position={[10, 10, 5]} intensity={1.8} color="#ffffff" />
             <directionalLight position={[-5, -5, -5]} intensity={0.3} color="#FFB347" />
             <Suspense fallback={<SceneLoader />}>
               <PrintScene />
-              <Environment preset="city" />
             </Suspense>
           </Canvas>
         </div>
