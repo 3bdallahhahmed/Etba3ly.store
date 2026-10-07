@@ -1790,20 +1790,10 @@ export default function App() {
                          onDragOver={handleDragOver} 
                          onDragLeave={handleDragLeave} 
                          onDrop={handleDrop}
-                         style={formErrors.file ? { borderColor: "#FF3B30" } : {}}>
+                         style={{ padding: "40px", border: formErrors.file ? "2px dashed #FF3B30" : "2px dashed var(--border-glass)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.05)", textAlign: "center", cursor: "pointer" }}>
                       <input type="file" multiple accept=".stl,.zip" onChange={handleFileChange} style={{ display: 'none' }} id="fileInput" />
-                      <label htmlFor="fileInput" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ width: 38, height: 38, color: "var(--accent)" }}>
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                          <polyline points="17 8 12 3 7 8" />
-                          <line x1="12" y1="3" x2="12" y2="15" />
-                        </svg>
-                        <div style={{ fontWeight: 650, fontSize: 15, color: "var(--text-primary)" }}>
-                          {selectedFiles.length > 0 ? selectedFiles.map(f => f.name).join(", ") : "Choose Files or Drag & Drop"}
-                        </div>
-                        <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
-                          STL or ZIP archive up to 50MB
-                        </div>
+                      <label htmlFor="fileInput" style={{ cursor: 'pointer', display: 'block' }}>
+                        {selectedFiles.length > 0 ? selectedFiles.map(f => f.name).join(", ") : "Drag & Drop or Click to Upload"}
                       </label>
                     </div>
                     {fileError && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 8 }}>{fileError}</div>}
@@ -2068,10 +2058,6 @@ export default function App() {
           <>
         {/* ── HERO ── */}
         <section id="home" className="section-container animate-in">
-          <div className="hero-badge">
-            <span className="live-dot" />
-            <span>Campus 3D Fabrication Studio</span>
-          </div>
           <h1 style={{ whiteSpace: "pre-line" }}>{config.hero_title}</h1>
           <p style={{ whiteSpace: "pre-line" }}>{config.hero_subtitle}</p>
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -2091,14 +2077,14 @@ export default function App() {
           <p>{config.why_text}</p>
           <div className="feature-cards">
             {[
-              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 26, height: 26, color: "var(--accent)"}}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>, title: "Fast Turnaround", desc: "Most orders completed and inspected within 24 to 48 hours." },
-              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 26, height: 26, color: "var(--status-done)"}}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>, title: "Student Pricing", desc: `Transparent ${config.price_per_gram} EGP per gram with real-time automated slicing estimation.` },
-              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 26, height: 26, color: "var(--status-printing)"}}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>, title: "Micro-Precision", desc: "0.10mm to 0.20mm industrial tolerance on Centauri & Bambu Lab build plates." }
+              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--accent)"}}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>, title: "Fast Turnaround", desc: "Most orders done in 24–48hrs" },
+              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--status-done)"}}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>, title: "Student Pricing", desc: `Just ${config.price_per_gram} EGP/gram` },
+              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--status-printing)"}}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>, title: "Precision", desc: "0.2mm layer accuracy" }
             ].map((f, i) => (
-              <div key={i} className="card feature-card">
-                <div className="feature-icon-wrapper">{f.icon}</div>
-                <h3 style={{ marginBottom: 8 }}>{f.title}</h3>
-                <p style={{ fontSize: 14, margin: 0, color: "var(--text-secondary)", lineHeight: 1.5 }}>{f.desc}</p>
+              <div key={i} className="card" style={{ textAlign: "center", padding: 28 }}>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>{f.icon}</div>
+                <h3 style={{ marginBottom: 6 }}>{f.title}</h3>
+                <p style={{ fontSize: 13, margin: 0 }}>{f.desc}</p>
               </div>
             ))}
           </div>
