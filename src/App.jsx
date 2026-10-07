@@ -869,6 +869,9 @@ export default function App() {
       const { error: insertErr } = await supabase.from("orders").insert([payload]);
       if (insertErr) throw new Error(insertErr.message);
 
+      // Send invoice and order confirmation email via edge function
+      triggerOrderEmail("INSERT", payload);
+
       // Save user info for next time
       localStorage.setItem("jp_user_info", JSON.stringify({ name: newOrder.name, phone: newOrder.phone, email: newOrder.email }));
       
@@ -895,6 +898,22 @@ export default function App() {
     setIsUploading(false);
   }
 
+  async function triggerOrderEmail(type, orderRecord, oldRecord = null) {
+    try {
+      if (!orderRecord || !orderRecord.email) return;
+      await supabase.functions.invoke("email-notifier", {
+        body: {
+          type,
+          table: "orders",
+          record: orderRecord,
+          old_record: oldRecord
+        }
+      });
+    } catch (err) {
+      console.warn("Could not trigger email notification:", err);
+    }
+  }
+
   async function handleAdminLogout() {
     await supabase.auth.signOut();
     window.location.hash = "";
@@ -913,6 +932,9 @@ export default function App() {
     }
     await supabase.from("orders").update(updateData).eq("id", id);
     fetchOrders();
+    if (order) {
+      triggerOrderEmail("UPDATE", { ...order, ...updateData }, order);
+    }
   }
 
   async function handleDeleteOrder(id) {
@@ -1001,8 +1023,13 @@ export default function App() {
   }
 
   async function handleBulkStatus(newStatus) {
+    if (selectedOrders.length === 0) return;
+    const ordersToUpdate = orders.filter(o => selectedOrders.includes(o.id));
     await supabase.from("orders").update({ status: newStatus }).in("id", selectedOrders);
     fetchOrders();
+    ordersToUpdate.forEach(o => {
+      triggerOrderEmail("UPDATE", { ...o, status: newStatus }, o);
+    });
     setSelectedOrders([]);
     addToast(`Updated ${selectedOrders.length} orders`, "success");
   }
