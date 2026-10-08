@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef, Suspense, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Environment, Float, Html, useProgress } from "@react-three/drei";
+import { Environment, Float, Html, useProgress, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import STLViewer from "./slicer/STLViewer.jsx";
 import AdminSlicerModal from "./slicer/AdminSlicerModal.jsx";
 import MoonrakerDispatchModal from "./slicer/MoonrakerDispatchModal.jsx";
 import { generateElegooGcode } from "./slicer/slicerEngine.js";
+
+const BENCHY_URL = `${import.meta.env.BASE_URL}benchy.glb`;
+useGLTF.preload(BENCHY_URL);
 
 // ─────────────────────────────────────────────────────────
 // Supabase
@@ -133,6 +136,49 @@ function GearShape({ position, scale = 1, color = "#FF8000" }) {
   );
 }
 
+/* ── 3DBenchy Floating Model (shared geometry + crisp white filament finish) ── */
+const whiteBenchyMaterial = new THREE.MeshPhysicalMaterial({
+  color: "#ffffff",
+  roughness: 0.22,
+  metalness: 0.04,
+  clearcoat: 0.45,
+  clearcoatRoughness: 0.18,
+  reflectivity: 0.6,
+  envMapIntensity: 1.15,
+  emissive: "#ffffff",
+  emissiveIntensity: 0.07,
+});
+
+function BenchyShape({ position, rotation = [0, 0, 0], scale = 0.65, spinSpeed = 0.25 }) {
+  const meshRef = useRef();
+  const { nodes } = useGLTF(BENCHY_URL);
+  const benchyGeo = useMemo(() => {
+    const firstMesh = Object.values(nodes).find((n) => n && n.isMesh);
+    return firstMesh ? firstMesh.geometry : null;
+  }, [nodes]);
+
+  useFrame((_, delta) => {
+    if (meshRef.current) {
+      meshRef.current.rotation.y += delta * spinSpeed;
+    }
+  });
+
+  if (!benchyGeo) return null;
+
+  return (
+    <mesh
+      ref={meshRef}
+      geometry={benchyGeo}
+      material={whiteBenchyMaterial}
+      position={position}
+      rotation={rotation}
+      scale={scale}
+      castShadow
+      receiveShadow
+    />
+  );
+}
+
 /* ── Main 3D Scene ── */
 function PrintScene() {
   const groupRef = useRef();
@@ -171,6 +217,45 @@ function PrintScene() {
         </mesh>
       </Float>
 
+      {/* Small Floating White 3DBenchy Models around the central orange shape */}
+      <Suspense fallback={null}>
+        <Float speed={1.9} rotationIntensity={0.55} floatIntensity={0.85}>
+          <BenchyShape
+            position={[-1.45, 0.75, 0.45]}
+            rotation={[0.18, 0.6, -0.14]}
+            scale={0.72}
+            spinSpeed={0.28}
+          />
+        </Float>
+
+        <Float speed={2.1} rotationIntensity={0.6} floatIntensity={0.75}>
+          <BenchyShape
+            position={[1.55, 0.5, 0.3]}
+            rotation={[0.15, -2.2, 0.12]}
+            scale={0.66}
+            spinSpeed={-0.24}
+          />
+        </Float>
+
+        <Float speed={1.7} rotationIntensity={0.5} floatIntensity={0.8}>
+          <BenchyShape
+            position={[-1.0, -1.25, 0.5]}
+            rotation={[-0.16, 1.1, 0.15]}
+            scale={0.62}
+            spinSpeed={0.22}
+          />
+        </Float>
+
+        <Float speed={2.3} rotationIntensity={0.65} floatIntensity={0.9}>
+          <BenchyShape
+            position={[0.6, 1.55, -0.15]}
+            rotation={[0.25, -0.8, -0.1]}
+            scale={0.56}
+            spinSpeed={-0.3}
+          />
+        </Float>
+      </Suspense>
+
       {/* Gear 1 */}
       <Float speed={2} rotationIntensity={0.6} floatIntensity={0.8}>
         <GearShape position={[-1.8, 1.2, -0.5]} scale={0.5} color="#333333" />
@@ -181,27 +266,11 @@ function PrintScene() {
         <GearShape position={[1.5, -1, 0.3]} scale={0.35} color="#FFB347" />
       </Float>
 
-      {/* Floating Cube — representing 3D print layers */}
-      <Float speed={2.2} rotationIntensity={0.8} floatIntensity={0.9}>
-        <mesh position={[-1.2, -1.3, 0.5]} rotation={[0.5, 0.7, 0]}>
-          <boxGeometry args={[0.5, 0.5, 0.5]} />
-          <meshStandardMaterial color="#1A1A1A" metalness={0.6} roughness={0.3} />
-        </mesh>
-      </Float>
-
       {/* Floating Octahedron — geometric */}
       <Float speed={1.6} rotationIntensity={0.7} floatIntensity={0.5}>
         <mesh position={[1.8, 1.3, -0.3]} rotation={[0.3, 0.4, 0]}>
           <octahedronGeometry args={[0.4]} />
           <meshStandardMaterial color="#FF8000" metalness={0.9} roughness={0.05} envMapIntensity={3} />
-        </mesh>
-      </Float>
-
-      {/* Small Icosahedron */}
-      <Float speed={2.5} rotationIntensity={1} floatIntensity={1}>
-        <mesh position={[0.3, 1.8, 0.2]}>
-          <icosahedronGeometry args={[0.25, 0]} />
-          <meshStandardMaterial color="#E0E0E0" metalness={0.5} roughness={0.4} />
         </mesh>
       </Float>
 
@@ -240,13 +309,13 @@ const EyeSlashIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
 );
 const InstagramIcon = () => (
-  <svg viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
 );
 const WhatsAppIcon = () => (
-  <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
 );
 const EmailIcon = () => (
-  <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
 );
 const CheckIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -515,7 +584,7 @@ export default function App() {
       document.documentElement.setAttribute("data-theme", "dark");
       localStorage.setItem("theme", "dark");
     } else {
-      document.documentElement.removeAttribute("data-theme");
+      document.documentElement.setAttribute("data-theme", "light");
       localStorage.setItem("theme", "light");
     }
   }, [darkMode]);

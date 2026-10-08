@@ -1,18 +1,19 @@
 /* ===== JUST print — Liquid Glass Theme ===== */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
-:root {
-  --bg-page: #F0F0F5;
-  --bg-surface: rgba(255, 255, 255, 0.45);
-  --bg-surface-solid: #FFFFFF;
-  --bg-input: rgba(255, 255, 255, 0.6);
-  --bg-glass: rgba(255, 255, 255, 0.35);
-  --bg-glass-strong: rgba(255, 255, 255, 0.55);
-  --bg-glass-hover: rgba(255, 255, 255, 0.65);
+:root,
+[data-theme="dark"] {
+  --bg-page: #0a0a0f;
+  --bg-surface: rgba(30, 30, 40, 0.45);
+  --bg-surface-solid: #1E1E28;
+  --bg-input: rgba(40, 40, 55, 0.6);
+  --bg-glass: rgba(40, 40, 55, 0.35);
+  --bg-glass-strong: rgba(50, 50, 70, 0.55);
+  --bg-glass-hover: rgba(60, 60, 80, 0.65);
 
-  --text-primary: #1A1A1A;
-  --text-secondary: #6E6E73;
-  --text-tertiary: #AEAEB2;
+  --text-primary: #F0F0F5;
+  --text-secondary: #AEAEB2;
+  --text-tertiary: #6E6E73;
 
   --accent: #FF8000;
   --accent-light: #FFB347;
@@ -24,11 +25,11 @@
   --status-printing: #007AFF;
   --status-done: #34C759;
 
-  --border-glass: rgba(255, 255, 255, 0.6);
-  --border-glass-strong: rgba(255, 255, 255, 0.8);
-  --border-light: rgba(0, 0, 0, 0.05);
-  --shadow-glass: 0 12px 40px rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 0.8);
-  --shadow-glass-hover: 0 20px 60px rgba(0, 0, 0, 0.15), inset 0 2px 0 rgba(255, 255, 255, 1);
+  --border-glass: rgba(255, 255, 255, 0.1);
+  --border-glass-strong: rgba(255, 255, 255, 0.2);
+  --border-light: rgba(255, 255, 255, 0.05);
+  --shadow-glass: 0 12px 40px rgba(0, 0, 0, 0.4), inset 0 2px 0 rgba(255, 255, 255, 0.1);
+  --shadow-glass-hover: 0 20px 60px rgba(0, 0, 0, 0.5), inset 0 2px 0 rgba(255, 255, 255, 0.2);
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
   --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.1);
@@ -44,25 +45,25 @@
   --glass-blur: blur(48px) saturate(250%);
 }
 
-[data-theme="dark"] {
-  --bg-page: #0a0a0f;
-  --bg-surface: rgba(30, 30, 40, 0.45);
-  --bg-surface-solid: #1E1E28;
-  --bg-input: rgba(40, 40, 55, 0.6);
-  --bg-glass: rgba(40, 40, 55, 0.35);
-  --bg-glass-strong: rgba(50, 50, 70, 0.55);
-  --bg-glass-hover: rgba(60, 60, 80, 0.65);
+[data-theme="light"] {
+  --bg-page: #F0F0F5;
+  --bg-surface: rgba(255, 255, 255, 0.45);
+  --bg-surface-solid: #FFFFFF;
+  --bg-input: rgba(255, 255, 255, 0.6);
+  --bg-glass: rgba(255, 255, 255, 0.35);
+  --bg-glass-strong: rgba(255, 255, 255, 0.55);
+  --bg-glass-hover: rgba(255, 255, 255, 0.65);
 
-  --text-primary: #F0F0F5;
-  --text-secondary: #AEAEB2;
-  --text-tertiary: #6E6E73;
+  --text-primary: #1A1A1A;
+  --text-secondary: #6E6E73;
+  --text-tertiary: #AEAEB2;
 
-  --border-glass: rgba(255, 255, 255, 0.1);
-  --border-glass-strong: rgba(255, 255, 255, 0.2);
-  --border-light: rgba(255, 255, 255, 0.05);
+  --border-glass: rgba(255, 255, 255, 0.6);
+  --border-glass-strong: rgba(255, 255, 255, 0.8);
+  --border-light: rgba(0, 0, 0, 0.05);
 
-  --shadow-glass: 0 12px 40px rgba(0, 0, 0, 0.4), inset 0 2px 0 rgba(255, 255, 255, 0.1);
-  --shadow-glass-hover: 0 20px 60px rgba(0, 0, 0, 0.5), inset 0 2px 0 rgba(255, 255, 255, 0.2);
+  --shadow-glass: 0 12px 40px rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 0.8);
+  --shadow-glass-hover: 0 20px 60px rgba(0, 0, 0, 0.15), inset 0 2px 0 rgba(255, 255, 255, 1);
 }
 
 /* ── Dark Mode: Form Elements ── */
@@ -415,6 +416,8 @@ label {
   width: 20px;
   height: 20px;
   flex-shrink: 0;
+  fill: currentColor;
+  display: block;
 }
 
 .btn-primary {
@@ -746,7 +749,7 @@ label {
   margin-bottom: 20px;
 }
 
-.footer-col a {
+.footer-col a:not(.social-link) {
   display: block;
   color: rgba(255, 255, 255, 0.6);
   text-decoration: none;
@@ -755,23 +758,27 @@ label {
   transition: color 0.2s;
 }
 
-.footer-col a:hover { color: #fff; }
+.footer-col a:not(.social-link):hover { color: #fff; }
 
-.social-links { display: flex; gap: 12px; margin-top: 4px; }
+.social-links { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
 
+.footer-col .social-link,
 .social-link {
   width: 42px; height: 42px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  line-height: 0;
   transition: all 0.3s var(--ease-spring);
   color: rgba(255, 255, 255, 0.6);
   text-decoration: none;
 }
 
+.footer-col .social-link:hover,
 .social-link:hover {
   background: var(--accent);
   border-color: var(--accent);
@@ -780,7 +787,7 @@ label {
   box-shadow: 0 8px 24px rgba(255, 128, 0, 0.35);
 }
 
-.social-link svg { width: 18px; height: 18px; fill: currentColor; display: block; margin: 0; padding: 0; }
+.social-link svg { width: 18px; height: 18px; fill: currentColor; display: block; margin: auto; padding: 0; flex-shrink: 0; }
 
 .footer-bottom {
   text-align: center;
