@@ -543,11 +543,14 @@ label {
 .gallery-card-img {
   width: 100%;
   aspect-ratio: 4/3;
-  background: rgba(255, 255, 255, 0.3);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 136, 15, 0.42) 0%, rgba(255, 108, 10, 0.24) 30%, rgba(255, 128, 0, 0) 65%),
+    radial-gradient(circle at 50% 50%, #5C2E0C 0%, #3A1E0C 22%, #27180D 42%, #18100E 64%, #110E0F 82%, #0A0A0F 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  position: relative;
 }
 
 .gallery-card-body { padding: 24px; }
@@ -1913,7 +1916,9 @@ label {
 .gallery-modal-viewer {
   flex: 1.4;
   position: relative;
-  background: #000;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 136, 15, 0.42) 0%, rgba(255, 108, 10, 0.24) 30%, rgba(255, 128, 0, 0) 65%),
+    radial-gradient(circle at 50% 50%, #5C2E0C 0%, #3A1E0C 22%, #27180D 42%, #18100E 64%, #110E0F 82%, #0A0A0F 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2050,7 +2055,9 @@ label {
 
 .admin-gallery-cover {
   height: 180px;
-  background: rgba(0,0,0,0.05);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 136, 15, 0.42) 0%, rgba(255, 108, 10, 0.24) 30%, rgba(255, 128, 0, 0) 65%),
+    radial-gradient(circle at 50% 50%, #5C2E0C 0%, #3A1E0C 22%, #27180D 42%, #18100E 64%, #110E0F 82%, #0A0A0F 100%);
   display: flex;
   align-items: center;
   justify-content: center;
