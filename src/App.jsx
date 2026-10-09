@@ -7,6 +7,8 @@ import STLViewer from "./slicer/STLViewer.jsx";
 import AdminSlicerModal from "./slicer/AdminSlicerModal.jsx";
 import MoonrakerDispatchModal from "./slicer/MoonrakerDispatchModal.jsx";
 import { generateElegooGcode } from "./slicer/slicerEngine.js";
+import GalleryStudioUploader from "./utils/GalleryStudioUploader.jsx";
+import { processPartImageFile } from "./utils/partImageProcessor.js";
 
 const BENCHY_URL = `${import.meta.env.BASE_URL}benchy.glb`;
 useGLTF.preload(BENCHY_URL);
@@ -136,26 +138,71 @@ function GearShape({ position, scale = 1, color = "#FF8000" }) {
   );
 }
 
-/* ── 3DBenchy Floating Model (shared geometry + crisp white filament finish) ── */
-const whiteBenchyMaterial = new THREE.MeshPhysicalMaterial({
-  color: "#ffffff",
-  roughness: 0.22,
-  metalness: 0.04,
-  clearcoat: 0.45,
-  clearcoatRoughness: 0.18,
-  reflectivity: 0.6,
-  envMapIntensity: 1.15,
-  emissive: "#ffffff",
-  emissiveIntensity: 0.07,
-});
+/* ── 3DBenchy Floating Model (shared geometry + persistent per-user random filament colors) ── */
+const BENCHY_COLOR_PALETTE = [
+  "#FFFFFF", // Pure White
+  "#00A8FF", // Electric Cyan
+  "#2ECC71", // Emerald Green
+  "#FF3B30", // Crimson Red
+  "#A855F7", // Royal Purple
+  "#FFD60A", // Cyber Yellow
+  "#00D2D3", // Teal Mint
+  "#FF6B81", // Coral Pink
+  "#3B82F6", // Cobalt Blue
+];
 
-function BenchyShape({ position, rotation = [0, 0, 0], scale = 0.65, spinSpeed = 0.25 }) {
+function getPersistentBenchyColors() {
+  const STORAGE_KEY = "etba3ly_benchy_colors_v1";
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (
+      Array.isArray(saved) &&
+      saved.length === 3 &&
+      saved.every((c) => typeof c === "string" && c.startsWith("#"))
+    ) {
+      return saved;
+    }
+  } catch {
+    // ignore storage read errors
+  }
+
+  const pool = [...BENCHY_COLOR_PALETTE];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const picked = pool.slice(0, 3);
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(picked));
+  } catch {
+    // ignore storage write errors
+  }
+  return picked;
+}
+
+function BenchyShape({ position, rotation = [0, 0, 0], scale = 0.66, spinSpeed = 0.25, color = "#ffffff" }) {
   const meshRef = useRef();
   const { nodes } = useGLTF(BENCHY_URL);
   const benchyGeo = useMemo(() => {
     const firstMesh = Object.values(nodes).find((n) => n && n.isMesh);
     return firstMesh ? firstMesh.geometry : null;
   }, [nodes]);
+
+  const material = useMemo(
+    () =>
+      new THREE.MeshPhysicalMaterial({
+        color,
+        roughness: 0.22,
+        metalness: 0.06,
+        clearcoat: 0.45,
+        clearcoatRoughness: 0.18,
+        reflectivity: 0.6,
+        envMapIntensity: 1.15,
+        emissive: color,
+        emissiveIntensity: 0.06,
+      }),
+    [color]
+  );
 
   useFrame((_, delta) => {
     if (meshRef.current) {
@@ -169,7 +216,7 @@ function BenchyShape({ position, rotation = [0, 0, 0], scale = 0.65, spinSpeed =
     <mesh
       ref={meshRef}
       geometry={benchyGeo}
-      material={whiteBenchyMaterial}
+      material={material}
       position={position}
       rotation={rotation}
       scale={scale}
@@ -182,18 +229,31 @@ function BenchyShape({ position, rotation = [0, 0, 0], scale = 0.65, spinSpeed =
 /* ── Main 3D Scene ── */
 function PrintScene() {
   const groupRef = useRef();
+  const benchyColors = useMemo(() => getPersistentBenchyColors(), []);
 
   useFrame(() => {
     if (!groupRef.current) return;
     const maxScroll = Math.max(1, document.body.scrollHeight - window.innerHeight);
     const progress = Math.min(1, Math.max(0, window.scrollY / maxScroll));
 
-    // Scale down and move right as user scrolls
-    const isMobile = window.innerWidth <= 768;
-    const mobileScale = 0.55;
-    const scale = isMobile ? mobileScale : (1 - progress * 0.4);
-    const posX = isMobile ? 0 : (2.5 + progress * 1);
-    const posY = isMobile ? 1.5 : 0;
+    // Responsive scale and position across phone, tablet, laptop, and desktop viewports
+    const vw = window.innerWidth;
+    const vh = Math.max(1, window.innerHeight);
+    const aspect = vw / vh;
+    const isMobile = vw <= 768;
+    const isSmallPhone = vw <= 480;
+
+    const frustumHalfHeight = 2.55; // camera z=7, fov=40deg
+    const frustumHalfWidth = frustumHalfHeight * aspect;
+
+    const desktopBaseScale = Math.min(0.95, Math.max(0.65, aspect * 0.55));
+    const scale = isMobile
+      ? (isSmallPhone ? 0.48 : 0.55)
+      : desktopBaseScale * (1 - progress * 0.35);
+
+    const maxSafePosX = Math.max(0.9, frustumHalfWidth - 2.35 * scale);
+    const posX = isMobile ? 0 : Math.min(2.2 + progress * 0.6, maxSafePosX);
+    const posY = isMobile ? (isSmallPhone ? 1.25 : 1.45) : 0;
     const rotY = progress * Math.PI * 0.5;
 
     groupRef.current.scale.lerp(new THREE.Vector3(scale, scale, scale), 0.08);
@@ -205,7 +265,7 @@ function PrintScene() {
   return (
     <group ref={groupRef}>
       {/* Central Torus Knot — abstract hero piece */}
-      <Float speed={1.5} rotationIntensity={0.4} floatIntensity={0.6}>
+      <Float speed={1.4} rotationIntensity={0.35} floatIntensity={0.45}>
         <mesh position={[0, 0, 0]}>
           <torusKnotGeometry args={[0.8, 0.25, 128, 32]} />
           <meshStandardMaterial
@@ -217,74 +277,71 @@ function PrintScene() {
         </mesh>
       </Float>
 
-      {/* Small Floating White 3DBenchy Models around the central orange shape */}
+      {/* 3 Same-Size Floating 3DBenchy Models in non-colliding orbits */}
       <Suspense fallback={null}>
-        <Float speed={1.9} rotationIntensity={0.55} floatIntensity={0.85}>
+        {/* Benchy 1 — Top sector */}
+        <Float speed={1.6} rotationIntensity={0.3} floatIntensity={0.35}>
           <BenchyShape
-            position={[-1.45, 0.75, 0.45]}
-            rotation={[0.18, 0.6, -0.14]}
-            scale={0.72}
-            spinSpeed={0.28}
-          />
-        </Float>
-
-        <Float speed={2.1} rotationIntensity={0.6} floatIntensity={0.75}>
-          <BenchyShape
-            position={[1.55, 0.5, 0.3]}
-            rotation={[0.15, -2.2, 0.12]}
+            position={[0.1, 1.92, 0.2]}
+            rotation={[0.2, -0.65, -0.1]}
             scale={0.66}
-            spinSpeed={-0.24}
+            spinSpeed={-0.25}
+            color={benchyColors[0]}
           />
         </Float>
 
-        <Float speed={1.7} rotationIntensity={0.5} floatIntensity={0.8}>
+        {/* Benchy 2 — Bottom-left sector */}
+        <Float speed={1.7} rotationIntensity={0.3} floatIntensity={0.35}>
           <BenchyShape
-            position={[-1.0, -1.25, 0.5]}
-            rotation={[-0.16, 1.1, 0.15]}
-            scale={0.62}
+            position={[-1.58, -1.22, 0.35]}
+            rotation={[-0.14, 0.85, 0.12]}
+            scale={0.66}
             spinSpeed={0.22}
+            color={benchyColors[1]}
           />
         </Float>
 
-        <Float speed={2.3} rotationIntensity={0.65} floatIntensity={0.9}>
+        {/* Benchy 3 — Right sector */}
+        <Float speed={1.8} rotationIntensity={0.3} floatIntensity={0.35}>
           <BenchyShape
-            position={[0.6, 1.55, -0.15]}
-            rotation={[0.25, -0.8, -0.1]}
-            scale={0.56}
-            spinSpeed={-0.3}
+            position={[1.95, 0.08, 0.25]}
+            rotation={[0.15, -2.15, 0.1]}
+            scale={0.66}
+            spinSpeed={-0.22}
+            color={benchyColors[2]}
           />
         </Float>
       </Suspense>
 
-      {/* Gear 1 */}
-      <Float speed={2} rotationIntensity={0.6} floatIntensity={0.8}>
-        <GearShape position={[-1.8, 1.2, -0.5]} scale={0.5} color="#333333" />
+      {/* Gear 1 — Top-left sector */}
+      <Float speed={1.8} rotationIntensity={0.4} floatIntensity={0.4}>
+        <GearShape position={[-1.92, 1.2, -0.45]} scale={0.5} color="#333333" />
       </Float>
 
-      {/* Gear 2 — smaller */}
-      <Float speed={1.8} rotationIntensity={0.5} floatIntensity={0.7}>
-        <GearShape position={[1.5, -1, 0.3]} scale={0.35} color="#FFB347" />
+      {/* Gear 2 — Bottom-right sector */}
+      <Float speed={1.6} rotationIntensity={0.4} floatIntensity={0.4}>
+        <GearShape position={[1.65, -1.25, 0.25]} scale={0.35} color="#FFB347" />
       </Float>
 
-      {/* Floating Octahedron — geometric */}
-      <Float speed={1.6} rotationIntensity={0.7} floatIntensity={0.5}>
-        <mesh position={[1.8, 1.3, -0.3]} rotation={[0.3, 0.4, 0]}>
-          <octahedronGeometry args={[0.4]} />
+      {/* Floating Octahedron — Upper-right sector */}
+      <Float speed={1.5} rotationIntensity={0.5} floatIntensity={0.35}>
+        <mesh position={[1.82, 1.42, -0.35]} rotation={[0.3, 0.4, 0]}>
+          <octahedronGeometry args={[0.38]} />
           <meshStandardMaterial color="#FF8000" metalness={0.9} roughness={0.05} envMapIntensity={3} />
         </mesh>
       </Float>
 
-      {/* Small Torus — ring detail */}
-      <Float speed={1.4} rotationIntensity={0.3} floatIntensity={0.4}>
-        <mesh position={[-0.5, -0.2, 1]} rotation={[Math.PI / 3, 0, 0]}>
-          <torusGeometry args={[0.3, 0.08, 16, 32]} />
+      {/* Small Torus — Front-left detail */}
+      <Float speed={1.3} rotationIntensity={0.25} floatIntensity={0.3}>
+        <mesh position={[-0.55, -0.15, 1.2]} rotation={[Math.PI / 3, 0, 0]}>
+          <torusGeometry args={[0.28, 0.075, 16, 32]} />
           <meshStandardMaterial color="#666666" metalness={0.7} roughness={0.2} />
         </mesh>
       </Float>
 
-      {/* Cylinder — nozzle-like */}
-      <Float speed={1.2} rotationIntensity={0.2} floatIntensity={0.6}>
-        <mesh position={[0.8, -1.6, -0.4]} rotation={[0.2, 0, 0.5]}>
+      {/* Cylinder — Bottom nozzle detail */}
+      <Float speed={1.2} rotationIntensity={0.2} floatIntensity={0.35}>
+        <mesh position={[0.55, -1.85, -0.35]} rotation={[0.2, 0, 0.5]}>
           <cylinderGeometry args={[0.06, 0.15, 0.6, 16]} />
           <meshStandardMaterial color="#FF8000" metalness={0.8} roughness={0.15} />
         </mesh>
@@ -494,12 +551,14 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [confirmModal, setConfirmModal] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
-  // Gallery state
+  // Gallery & Part Photo Studio state
   const [galleryItems, setGalleryItems] = useState([]);
   const [activeGalleryItem, setActiveGalleryItem] = useState(null);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const [editingGalleryItem, setEditingGalleryItem] = useState(null);
   const [galleryUploading, setGalleryUploading] = useState(false);
+  const [galleryProcessing, setGalleryProcessing] = useState(false);
+  const [convertingMediaUrl, setConvertingMediaUrl] = useState(null);
   const [newGalleryItem, setNewGalleryItem] = useState({ title: "", description: "" });
   const [newGalleryFiles, setNewGalleryFiles] = useState([]);
 
@@ -815,10 +874,18 @@ export default function App() {
     setGalleryUploading(true);
     try {
       const existingUrls = editingGalleryItem.media_urls ? editingGalleryItem.media_urls.split(',').filter(Boolean) : [];
-      for (const file of files) {
-        const ext = file.name.split('.').pop();
+      for (const rawFile of files) {
+        let fileToUpload = rawFile;
+        try {
+          const processed = await processPartImageFile(rawFile);
+          fileToUpload = processed.file;
+          if (processed.previewUrl) URL.revokeObjectURL(processed.previewUrl);
+        } catch (procErr) {
+          console.warn("Could not auto-process gallery image, uploading original:", procErr);
+        }
+        const ext = fileToUpload.name.split('.').pop();
         const path = `gallery_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-        const { error: uploadError } = await supabase.storage.from('gallery-media').upload(path, file);
+        const { error: uploadError } = await supabase.storage.from('gallery-media').upload(path, fileToUpload);
         if (uploadError) throw uploadError;
         const { data: { publicUrl } } = supabase.storage.from('gallery-media').getPublicUrl(path);
         existingUrls.push(publicUrl);
@@ -826,11 +893,45 @@ export default function App() {
       const updatedItem = { ...editingGalleryItem, media_urls: existingUrls.join(',') };
       if (!updatedItem.cover_url && existingUrls.length > 0) updatedItem.cover_url = existingUrls[0];
       setEditingGalleryItem(updatedItem);
-      addToast(`Added ${files.length} file(s).`, "success");
+      addToast(`Added ${files.length} glowing orange part photo(s).`, "success");
     } catch (err) {
       addToast("Upload failed: " + err.message, "error");
     }
     setGalleryUploading(false);
+  }
+
+  async function handleConvertExistingGalleryUrlToGlow(urlToConvert) {
+    if (!editingGalleryItem || !urlToConvert) return;
+    setConvertingMediaUrl(urlToConvert);
+    try {
+      const resp = await fetch(urlToConvert);
+      if (!resp.ok) throw new Error("Could not fetch image");
+      const blob = await resp.blob();
+      const tempFile = new File([blob], "gallery_part.png", { type: blob.type || "image/png" });
+      const processed = await processPartImageFile(tempFile);
+      if (processed.previewUrl) URL.revokeObjectURL(processed.previewUrl);
+
+      const path = `gallery_${Date.now()}_${Math.random().toString(36).slice(2)}_glow.png`;
+      const { error: uploadError } = await supabase.storage.from("gallery-media").upload(path, processed.file);
+      if (uploadError) throw uploadError;
+      const { data: { publicUrl } } = supabase.storage.from("gallery-media").getPublicUrl(path);
+
+      const urls = editingGalleryItem.media_urls
+        .split(",")
+        .filter(Boolean)
+        .map((u) => (u === urlToConvert ? publicUrl : u));
+      const updatedItem = {
+        ...editingGalleryItem,
+        media_urls: urls.join(","),
+        cover_url: editingGalleryItem.cover_url === urlToConvert ? publicUrl : editingGalleryItem.cover_url,
+      };
+      setEditingGalleryItem(updatedItem);
+      addToast("Converted image to Etba3ly Glowing Orange background!", "success");
+    } catch (err) {
+      console.error("Convert existing image error:", err);
+      addToast("Failed to convert image: " + err.message, "error");
+    }
+    setConvertingMediaUrl(null);
   }
 
   async function handleRemoveMediaFromGalleryItem(urlToRemove) {
@@ -1406,12 +1507,14 @@ export default function App() {
                   <div style={{ flex: 1 }}><label>Title *</label><input value={newGalleryItem.title} onChange={e => setNewGalleryItem(p => ({...p, title: e.target.value}))} placeholder="Product title" style={{ marginBottom: 12 }} /></div>
                 </div>
                 <div style={{ marginBottom: 12 }}><label>Description</label><textarea rows="2" value={newGalleryItem.description} onChange={e => setNewGalleryItem(p => ({...p, description: e.target.value}))} placeholder="Brief description..." /></div>
-                <div style={{ marginBottom: 16 }}>
-                  <label>Images / GIFs *</label>
-                  <input type="file" multiple accept="image/*,.gif" onChange={e => setNewGalleryFiles(Array.from(e.target.files))} style={{ padding: 14, border: "2px dashed var(--border-glass)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.05)" }} />
-                  {newGalleryFiles.length > 0 && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>{newGalleryFiles.length} file(s) selected</div>}
-                </div>
-                <button className="btn btn-primary" onClick={handleAddGalleryItem} disabled={galleryUploading}>{galleryUploading ? "Uploading..." : "Add to Gallery"}</button>
+                <GalleryStudioUploader
+                  files={newGalleryFiles}
+                  onProcessedFilesChange={setNewGalleryFiles}
+                  onProcessingStateChange={setGalleryProcessing}
+                />
+                <button className="btn btn-primary" onClick={handleAddGalleryItem} disabled={galleryUploading || galleryProcessing}>
+                  {galleryProcessing ? "Removing Background & Applying Glow..." : galleryUploading ? "Uploading..." : "Add to Gallery"}
+                </button>
               </div>
 
               {/* Existing Gallery Items */}
@@ -1577,12 +1680,20 @@ export default function App() {
                 <div style={{ marginBottom: 16 }}><label>Description</label><textarea rows="3" value={editingGalleryItem.description || ""} onChange={e => setEditingGalleryItem({...editingGalleryItem, description: e.target.value})} /></div>
                 
                 <label>Media Files</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
                   {editingGalleryItem.media_urls && editingGalleryItem.media_urls.split(',').filter(Boolean).map((url, idx) => (
                     <div key={idx} style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: editingGalleryItem.cover_url === url ? '3px solid var(--accent)' : '1px solid var(--border-glass)' }}>
                       <img src={url} alt="" style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block' }} />
                       <div style={{ display: 'flex', gap: 4, padding: 4 }}>
                         <button style={{ flex: 1, fontSize: 10, padding: '4px', cursor: 'pointer', background: editingGalleryItem.cover_url === url ? 'var(--accent)' : 'rgba(255,255,255,0.1)', color: editingGalleryItem.cover_url === url ? '#fff' : 'var(--text-secondary)', border: 'none', borderRadius: 4 }} onClick={() => setEditingGalleryItem({...editingGalleryItem, cover_url: url})}>Cover</button>
+                        <button
+                          style={{ flex: 1, fontSize: 10, padding: '4px', cursor: 'pointer', background: 'rgba(255,128,0,0.2)', color: 'var(--accent)', border: '1px solid rgba(255,128,0,0.4)', borderRadius: 4, fontWeight: 700 }}
+                          disabled={convertingMediaUrl === url}
+                          onClick={() => handleConvertExistingGalleryUrlToGlow(url)}
+                          title="Remove background and apply Etba3ly Glowing Orange backdrop"
+                        >
+                          {convertingMediaUrl === url ? "..." : "Glow BG"}
+                        </button>
                         <button style={{ fontSize: 10, padding: '4px 6px', cursor: 'pointer', background: '#FF3B30', color: '#fff', border: 'none', borderRadius: 4 }} onClick={() => handleRemoveMediaFromGalleryItem(url)}>X</button>
                       </div>
                     </div>
@@ -1590,9 +1701,9 @@ export default function App() {
                 </div>
 
                 <div style={{ marginBottom: 24 }}>
-                  <label>Add More Images / GIFs</label>
+                  <label>Add More Images / GIFs (Auto Background Removal + Glowing Orange BG)</label>
                   <input type="file" multiple accept="image/*,.gif" onChange={e => handleAddMediaToGalleryItem(Array.from(e.target.files))} style={{ padding: 14, border: "2px dashed var(--border-glass)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.05)" }} />
-                  {galleryUploading && <div style={{ fontSize: 12, color: 'var(--accent)', marginTop: 6 }}>Uploading...</div>}
+                  {galleryUploading && <div style={{ fontSize: 12, color: 'var(--accent)', marginTop: 6 }}>Removing background, applying orange glow, and uploading...</div>}
                 </div>
 
                 <div style={{ display: 'flex', gap: 16, justifyContent: 'flex-end' }}>
