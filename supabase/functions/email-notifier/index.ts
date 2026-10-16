@@ -88,107 +88,209 @@ Deno.serve(async (req) => {
     }
 
     // Price and weight calculations
-    const weightGrams = record.weightgrams ? `${record.weightgrams} g` : 'To be weighed';
+    const weightGrams = record.weightgrams ? `${record.weightgrams} g` : 'Slicing upon review';
     const pricePerGram = record.pricepergram ? `${record.pricepergram} EGP/g` : '3 EGP/g';
     const totalPrice = record.totalprice !== undefined && record.totalprice !== null 
       ? `${Number(record.totalprice).toFixed(2)} EGP` 
       : 'Calculated upon review';
 
-    // Build HTML Invoice Row
-    const invoiceRows = `
-      <tr>
-        <td style="padding: 10px 0; font-size: 13px; color: #888888; font-weight: 700; text-transform: uppercase; width: 140px; border-bottom: 1px solid #282828;">Project / Item:</td>
-        <td style="padding: 10px 0; font-size: 14px; color: #ffffff; font-weight: 600; border-bottom: 1px solid #282828;">${record.ordername || '3D Print Item'}</td>
-      </tr>
-      <tr>
-        <td style="padding: 10px 0; font-size: 13px; color: #888888; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid #282828;">Tracking Code:</td>
-        <td style="padding: 10px 0; font-size: 15px; color: ${accentColor}; font-family: monospace; font-weight: 800; letter-spacing: 0.05em; border-bottom: 1px solid #282828;">${record.tracking_code || 'N/A'}</td>
-      </tr>
-      <tr>
-        <td style="padding: 10px 0; font-size: 13px; color: #888888; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid #282828;">Current Status:</td>
-        <td style="padding: 10px 0; font-size: 13px; color: #ffffff; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid #282828;">${record.status || 'QUEUED'}</td>
-      </tr>
-      <tr>
-        <td style="padding: 10px 0; font-size: 13px; color: #888888; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid #282828;">Material & Color:</td>
-        <td style="padding: 10px 0; font-size: 14px; color: #ffffff; border-bottom: 1px solid #282828;">${record.material || 'Standard PLA'} (${record.color || 'Default'})</td>
-      </tr>
-      <tr>
-        <td style="padding: 10px 0; font-size: 13px; color: #888888; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid #282828;">Estimated Weight:</td>
-        <td style="padding: 10px 0; font-size: 14px; color: #ffffff; border-bottom: 1px solid #282828;">${weightGrams} (${pricePerGram})</td>
-      </tr>
-      <tr>
-        <td style="padding: 12px 0 6px 0; font-size: 14px; color: ${accentColor}; font-weight: 800; text-transform: uppercase;">Total Amount:</td>
-        <td style="padding: 12px 0 6px 0; font-size: 18px; color: #ffffff; font-weight: 900;">${totalPrice}</td>
-      </tr>
-    `;
+    const orderDate = record.createdat 
+      ? new Date(record.createdat).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+      : new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
     const htmlContent = `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${subject}</title>
 </head>
-<body style="margin: 0; padding: 0; background-color: #0b0b0b; color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased;">
-  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #0b0b0b; padding: 40px 16px;">
+<body style="margin: 0; padding: 0; background-color: #07080c; color: #f4f6fb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #07080c; padding: 36px 12px;">
     <tr>
       <td align="center">
-        <table width="100%" style="max-width: 600px; width: 100%; background-color: #141414; border: 1px solid #262626; border-radius: 12px; overflow: hidden; border-spacing: 0; box-shadow: 0 12px 40px rgba(0,0,0,0.6);">
+        <!-- Main Invoice Container -->
+        <table width="100%" style="max-width: 620px; width: 100%; background-color: #0f121b; border: 1px solid #232a3b; border-radius: 16px; overflow: hidden; border-spacing: 0; box-shadow: 0 24px 60px rgba(0,0,0,0.85);">
           
-          <!-- Brand Header -->
+          <!-- Top Accent Banner -->
           <tr>
-            <td style="background-color: #181818; padding: 26px 40px; border-bottom: 1px solid #262626; text-align: center;">
-              <span style="font-size: 22px; font-weight: 900; color: #ffffff; letter-spacing: 0.08em; text-transform: uppercase;">
-                Etba3ly <span style="color: ${accentColor};">.store</span>
-              </span>
+            <td style="height: 4px; background: linear-gradient(90deg, #FF8000 0%, #FFB347 100%);"></td>
+          </tr>
+
+          <!-- Header & Invoice Title -->
+          <tr>
+            <td style="padding: 32px 32px 24px; border-bottom: 1px solid #1a2030;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="left" style="vertical-align: top;">
+                    <div style="font-size: 24px; font-weight: 900; color: #ffffff; letter-spacing: 0.04em;">
+                      ETBA3LY <span style="color: #FF8000;">.STORE</span>
+                    </div>
+                    <div style="font-size: 11px; font-weight: 700; color: #8b95a5; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px;">
+                      Additive Manufacturing & Prototyping
+                    </div>
+                  </td>
+                  <td align="right" style="vertical-align: top;">
+                    <div style="display: inline-block; padding: 4px 12px; background: rgba(255, 128, 0, 0.14); border: 1px solid rgba(255, 128, 0, 0.35); border-radius: 6px; font-size: 11px; font-weight: 800; color: #FF8000; text-transform: uppercase; letter-spacing: 0.08em;">
+                      ${isInvoice ? 'Official Invoice' : 'Production Notice'}
+                    </div>
+                    <div style="font-size: 13px; font-family: monospace; font-weight: 700; color: #f4f6fb; margin-top: 8px;">
+                      #INV-${record.tracking_code || (record.id ? String(record.id).slice(0, 8) : 'NEW')}
+                    </div>
+                    <div style="font-size: 12px; color: #8b95a5; margin-top: 2px;">
+                      ${orderDate}
+                    </div>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
 
-          <!-- Main Body -->
+          <!-- Billing Info Header -->
           <tr>
-            <td style="padding: 36px 32px;">
-              <div style="display: inline-block; padding: 4px 12px; background: rgba(255, 128, 0, 0.12); border: 1px solid rgba(255, 128, 0, 0.3); border-radius: 20px; font-size: 11px; font-weight: 800; color: ${accentColor}; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px;">
-                ${isInvoice ? 'Official Invoice' : 'Status Notification'}
-              </div>
+            <td style="padding: 24px 32px; background-color: #131722; border-bottom: 1px solid #1a2030;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td width="50%" style="vertical-align: top; padding-right: 12px;">
+                    <div style="font-size: 11px; font-weight: 800; color: #8b95a5; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;">
+                      Billed To
+                    </div>
+                    <div style="font-size: 15px; font-weight: 800; color: #ffffff; margin-bottom: 2px;">
+                      ${record.name || 'Valued Customer'}
+                    </div>
+                    <div style="font-size: 13px; color: #a4adba; margin-bottom: 2px;">
+                      ${record.phone || 'Phone on file'}
+                    </div>
+                    ${record.email ? `<div style="font-size: 12px; color: #8b95a5;">${record.email}</div>` : ''}
+                  </td>
+                  <td width="50%" style="vertical-align: top; padding-left: 12px;">
+                    <div style="font-size: 11px; font-weight: 800; color: #8b95a5; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;">
+                      Production Order
+                    </div>
+                    <div style="font-size: 13px; color: #a4adba; margin-bottom: 4px;">
+                      Status: <strong style="color: ${record.status === 'done' ? '#10b981' : record.status === 'printing' ? '#3b82f6' : '#f59e0b'}; text-transform: uppercase;">${record.status || 'QUEUED'}</strong>
+                    </div>
+                    <div style="font-size: 13px; color: #a4adba;">
+                      Tracking Code: <strong style="color: #FF8000; font-family: monospace;">${record.tracking_code || 'N/A'}</strong>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-              <h2 style="font-size: 22px; font-weight: 800; color: #ffffff; margin-top: 0; margin-bottom: 12px;">
+          <!-- Notification Message -->
+          <tr>
+            <td style="padding: 24px 32px 16px;">
+              <h2 style="font-size: 20px; font-weight: 800; color: #ffffff; margin: 0 0 8px;">
                 ${statusTitle}
               </h2>
-              
-              <p style="font-size: 15px; line-height: 1.6; color: #cccccc; margin-top: 0; margin-bottom: 20px;">
-                Hello ${record.name || 'Valued Customer'},
-              </p>
-              
-              <p style="font-size: 15px; line-height: 1.6; color: #b5b5b5; margin-top: 0; margin-bottom: 26px;">
+              <p style="font-size: 14px; line-height: 1.6; color: #a4adba; margin: 0;">
                 ${statusText}
               </p>
+            </td>
+          </tr>
 
-              <!-- Order / Invoice Breakdown -->
-              <table width="100%" style="background-color: #1b1b1b; border-radius: 8px; border-spacing: 0; padding: 18px 20px; margin-bottom: 28px; border: 1px solid #282828;">
-                ${invoiceRows}
+          <!-- Itemized Invoice Table -->
+          <tr>
+            <td style="padding: 12px 32px 24px;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #0b0d14; border: 1px solid #232a3b; border-radius: 10px; overflow: hidden;">
+                <thead>
+                  <tr style="background-color: #171b28; border-bottom: 1px solid #232a3b;">
+                    <th align="left" style="padding: 12px 16px; font-size: 11px; font-weight: 800; color: #8b95a5; text-transform: uppercase; letter-spacing: 0.06em;">Description / Specs</th>
+                    <th align="center" style="padding: 12px 10px; font-size: 11px; font-weight: 800; color: #8b95a5; text-transform: uppercase; letter-spacing: 0.06em;">Est. Weight</th>
+                    <th align="center" style="padding: 12px 10px; font-size: 11px; font-weight: 800; color: #8b95a5; text-transform: uppercase; letter-spacing: 0.06em;">Rate</th>
+                    <th align="right" style="padding: 12px 16px; font-size: 11px; font-weight: 800; color: #8b95a5; text-transform: uppercase; letter-spacing: 0.06em;">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding: 16px; border-bottom: 1px solid #1a2030; vertical-align: top;">
+                      <div style="font-size: 14px; font-weight: 800; color: #ffffff; margin-bottom: 4px;">
+                        ${record.ordername || 'Custom 3D Print Job'}
+                      </div>
+                      <div style="font-size: 12px; color: #8b95a5; line-height: 1.4;">
+                        Material: <strong style="color: #f4f6fb;">${record.material || 'Standard PLA'}</strong> &bull; Color: <strong style="color: #f4f6fb;">${record.color || 'Standard'}</strong>
+                      </div>
+                    </td>
+                    <td align="center" style="padding: 16px 10px; border-bottom: 1px solid #1a2030; font-size: 13px; font-weight: 700; color: #ffffff; vertical-align: top;">
+                      ${weightGrams}
+                    </td>
+                    <td align="center" style="padding: 16px 10px; border-bottom: 1px solid #1a2030; font-size: 13px; color: #a4adba; vertical-align: top;">
+                      ${pricePerGram}
+                    </td>
+                    <td align="right" style="padding: 16px; border-bottom: 1px solid #1a2030; font-size: 14px; font-weight: 800; color: #ffffff; vertical-align: top;">
+                      ${totalPrice}
+                    </td>
+                  </tr>
+
+                  <!-- Calculation Breakdown -->
+                  <tr>
+                    <td colspan="3" align="right" style="padding: 12px 16px 4px; font-size: 12px; color: #8b95a5;">
+                      Subtotal:
+                    </td>
+                    <td align="right" style="padding: 12px 16px 4px; font-size: 13px; font-weight: 700; color: #f4f6fb;">
+                      ${totalPrice}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colspan="3" align="right" style="padding: 4px 16px; font-size: 12px; color: #8b95a5;">
+                      Setup & Calibration Fee:
+                    </td>
+                    <td align="right" style="padding: 4px 16px; font-size: 13px; font-weight: 700; color: #10b981;">
+                      0.00 EGP (Waived)
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colspan="3" align="right" style="padding: 12px 16px; font-size: 14px; font-weight: 900; color: #FF8000; text-transform: uppercase;">
+                      Total Payable (EGP):
+                    </td>
+                    <td align="right" style="padding: 12px 16px; font-size: 20px; font-weight: 900; color: #FF8000; font-family: monospace;">
+                      ${totalPrice}
+                    </td>
+                  </tr>
+                </tbody>
               </table>
+            </td>
+          </tr>
 
-              <!-- Call to Action -->
-              <div style="text-align: center; margin-bottom: 14px;">
-                <a href="${trackUrl}" style="display: inline-block; background-color: ${accentColor}; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 14px; font-weight: 800; letter-spacing: 0.03em; box-shadow: 0 4px 14px rgba(255, 128, 0, 0.35);">
-                  Track Order Live
-                </a>
+          <!-- Tracking Action Card -->
+          <tr>
+            <td style="padding: 0 32px 28px;">
+              <div style="background-color: #131722; border: 1px dashed #2d374d; border-radius: 12px; padding: 20px; text-align: center;">
+                <div style="font-size: 11px; font-weight: 800; color: #8b95a5; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">
+                  Your Production Tracking Code
+                </div>
+                <div style="font-size: 22px; font-weight: 900; font-family: monospace; color: #FF8000; letter-spacing: 0.12em; margin-bottom: 14px;">
+                  ${record.tracking_code || record.id}
+                </div>
+                <div>
+                  <a href="${trackUrl}" style="display: inline-block; background: linear-gradient(135deg, #FF8000 0%, #FFB347 100%); color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-size: 13.5px; font-weight: 800; letter-spacing: 0.03em; box-shadow: 0 6px 20px rgba(255, 128, 0, 0.35);">
+                    Track Order Live Status
+                  </a>
+                </div>
               </div>
+            </td>
+          </tr>
 
-              <p style="font-size: 12px; text-align: center; color: #777777; margin-top: 14px; margin-bottom: 0;">
-                Your Tracking Code: <strong style="color: #ffffff; font-family: monospace;">${record.tracking_code || record.id}</strong>
-              </p>
+          <!-- Terms & Pick-up Instructions -->
+          <tr>
+            <td style="padding: 0 32px 28px;">
+              <div style="font-size: 11.5px; line-height: 1.6; color: #6e798d;">
+                <strong>Payment & Pickup:</strong> Cash on collection or Vodafone Cash transfer upon pickup. All manufactured parts are inspected for dimensional accuracy and layer adhesion prior to packaging.
+              </div>
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="background-color: #101010; padding: 24px 30px; text-align: center; border-top: 1px solid #222222;">
-              <p style="font-size: 12px; color: #666666; margin: 0 0 6px 0;">
-                This is an automated notification from Etba3ly 3D Printing Hub.
+            <td style="background-color: #0b0d14; padding: 20px 32px; text-align: center; border-top: 1px solid #1a2030;">
+              <p style="font-size: 12px; color: #6e798d; margin: 0 0 4px 0;">
+                Etba3ly 3D Printing & Prototyping Hub &bull; Powered by Centauri Print OS
               </p>
-              <p style="font-size: 11px; color: #555555; margin: 0;">
-                Visit us online at <a href="${siteUrl}" style="color: #888888; text-decoration: underline;">etba3ly.store</a>.
+              <p style="font-size: 11px; color: #4e5768; margin: 0;">
+                Need assistance? Reply directly to this email or visit <a href="${siteUrl}" style="color: #FF8000; text-decoration: none;">etba3ly.store</a>.
               </p>
             </td>
           </tr>

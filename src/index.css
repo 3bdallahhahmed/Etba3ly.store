@@ -1165,21 +1165,24 @@ label {
   .nav-links {
     display: none;
     position: absolute;
-    top: 100%;
+    top: calc(100% + 8px);
     left: 0;
     right: 0;
-    margin-top: 8px;
+    margin-top: 0;
     flex-direction: column;
-    background: var(--bg-body);
-    border: 1px solid var(--border-glass);
-    box-shadow: 0 10px 40px rgba(0,0,0,0.8);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--border-glass);
+    background: #0d1017 !important;
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
     border-radius: var(--radius-md);
-    padding: 12px;
-    box-shadow: var(--shadow-lg);
-    gap: 4px;
+    padding: 14px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.95);
+    z-index: 9999;
+    gap: 6px;
+  }
+
+  [data-theme="light"] .nav-links {
+    background: #ffffff !important;
+    border: 1px solid rgba(0, 0, 0, 0.15) !important;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
   }
 
   .nav-links.nav-open {

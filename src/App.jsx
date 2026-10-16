@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Suspense, useMemo } from "react";
+import React, { useState, useEffect, useRef, Suspense, useMemo, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Float, Html, useProgress, useGLTF } from "@react-three/drei";
@@ -26,6 +26,21 @@ const VALID_HASHES = ["", "#home", "#order", "#track", "#full-gallery", "#boss",
 // ─────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────
+function getColorHex(colorName = "") {
+  const c = String(colorName || "").toLowerCase().trim();
+  if (c.startsWith("#")) return c;
+  if (c.includes("white") || c.includes("marble")) return "#f8fafc";
+  if (c.includes("black") || c.includes("carbon") || c.includes("obsidian")) return "#1e232a";
+  if (c.includes("orange") || c.includes("mclaren")) return "#ff8000";
+  if (c.includes("silver") || c.includes("grey") || c.includes("gray") || c.includes("titanium")) return "#94a3b8";
+  if (c.includes("red") || c.includes("crimson")) return "#ef4444";
+  if (c.includes("blue") || c.includes("sky") || c.includes("cobalt")) return "#3b82f6";
+  if (c.includes("green") || c.includes("emerald")) return "#10b981";
+  if (c.includes("yellow")) return "#eab308";
+  if (c.includes("purple")) return "#8b5cf6";
+  return "#1e232a";
+}
+
 function generateTrackingCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "JP-";
@@ -83,7 +98,10 @@ function setPrinterInNotes(notes, printer) {
 
 function getCleanNotes(notes) {
   if (!notes) return "";
-  return notes.replace(/^\[PRINTER:[^\]]+\]\s*/, "");
+  return notes
+    .replace(/^\[PRINTER:[^\]]+\]\s*/, "")
+    .replace(/^\[PROFILE:[^\]]+\]\s*/, "")
+    .trim();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -386,19 +404,56 @@ const CubeIcon = () => (
 // STATUS STEPPER
 // ═══════════════════════════════════════════════════════════
 function StatusStepper({ status }) {
-  const steps = ["queued", "printing", "done"];
-  const currentIdx = steps.indexOf(status);
+  const normalized = (status || "").toLowerCase().trim();
+  const stepKeys = ["queued", "printing", "done"];
+  const currentIdx = stepKeys.indexOf(normalized);
+  const effectiveIdx = currentIdx === -1 ? 0 : currentIdx;
+  const isDone = normalized === "done";
+
+  const steps = [
+    { key: "queued", label: "Queued", activeColor: "var(--status-queued)" },
+    { key: "printing", label: "Printing", activeColor: "var(--status-printing)" },
+    { key: "done", label: "Ready", activeColor: "var(--status-done)" }
+  ];
+
   return (
     <div className="stepper">
-      {steps.map((step, i) => (
-        <React.Fragment key={step}>
-          {i > 0 && <div className={`stepper-line ${i <= currentIdx ? "filled" : ""}`} />}
-          <div className={`stepper-step ${i < currentIdx ? "completed" : ""} ${i === currentIdx ? "active" : ""}`}>
-            <div className="stepper-dot">{i < currentIdx ? <CheckIcon /> : i + 1}</div>
-            <span className="stepper-label">{step === "queued" ? "Queued" : step === "printing" ? "Printing" : "Done"}</span>
-          </div>
-        </React.Fragment>
-      ))}
+      {steps.map((st, i) => {
+        const isCompleted = isDone || i < effectiveIdx;
+        const isActive = !isDone && i === effectiveIdx;
+        const lineFilled = isDone || i <= effectiveIdx;
+
+        return (
+          <React.Fragment key={st.key}>
+            {i > 0 && (
+              <div 
+                className={`stepper-line ${lineFilled ? "filled" : ""}`} 
+                style={lineFilled ? { background: isDone ? "var(--status-done)" : "var(--status-printing)" } : {}}
+              />
+            )}
+            <div className={`stepper-step ${isCompleted ? "completed" : ""} ${isActive ? `active status-${st.key}` : ""}`}>
+              <div 
+                className="stepper-dot"
+                style={
+                  isCompleted 
+                    ? { background: "var(--status-done)", borderColor: "var(--status-done)", color: "#fff" }
+                    : isActive 
+                      ? { background: st.activeColor, borderColor: st.activeColor, color: "#fff", boxShadow: `0 0 16px ${st.activeColor}` }
+                      : {}
+                }
+              >
+                {isCompleted ? <CheckIcon /> : i + 1}
+              </div>
+              <span 
+                className="stepper-label"
+                style={isActive ? { color: st.activeColor, fontWeight: 800 } : isCompleted ? { color: "var(--text-primary)", fontWeight: 700 } : {}}
+              >
+                {st.label}
+              </span>
+            </div>
+          </React.Fragment>
+        );
+      })}
     </div>
   );
 }
@@ -472,7 +527,7 @@ const DEFAULT_CONFIG = {
   why_text: "We're students who love making things. Our setup is tuned for speed and precision, so you get your parts fast without breaking the bank. PLA, PETG, TPU — we've got what you need.",
   price_per_gram: 3,
   materials: "PLA, PETG, ABS, Carbon Fiber, TPU",
-  colors: "McLaren Orange, Carbon Black, White, Silver, Red",
+  colors: "White, Black, Silver, Red, Orange, Blue, Gray",
   whatsapp_number: "",
   instagram_link: "",
   email_address: "",
@@ -518,6 +573,577 @@ function FullGalleryView({ items, onItemClick }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════
+// ADMIN PROFIT & FINANCIALS TAB COMPONENT
+// ═══════════════════════════════════════════════════════════
+function AdminProfitTab({
+  orders,
+  config,
+  spoolCostKg,
+  setSpoolCostKg,
+  electricityTariffKwh,
+  setElectricityTariffKwh,
+  printerPowerWatts,
+  setPrinterPowerWatts,
+  cc1WearRatePerHour,
+  setCc1WearRatePerHour,
+  printSpeedGph,
+  setPrintSpeedGph,
+  materialCosts,
+  setMaterialCosts,
+  addToast
+}) {
+  const defaultRate = parseFloat(config.price_per_gram) || 3;
+  const tariffKwh = parseFloat(electricityTariffKwh) || 0;
+  const watts = parseFloat(printerPowerWatts) || 180;
+  const wearRatePerHour = parseFloat(cc1WearRatePerHour) || 0;
+  const speedGph = parseFloat(printSpeedGph) || 35; // grams per hour for CC1 high-speed printing
+
+  // Hourly and gram burdens for CC1 and power
+  const electricityCostPerHour = (watts / 1000) * tariffKwh;
+  const cc1WearPerHour = wearRatePerHour;
+  const machineHourlyBurden = electricityCostPerHour + cc1WearPerHour;
+  const electricityCostPerGram = speedGph > 0 ? electricityCostPerHour / speedGph : 0;
+  const wearCostPerGram = speedGph > 0 ? cc1WearPerHour / speedGph : 0;
+  const machineBurdenPerGram = electricityCostPerGram + wearCostPerGram;
+
+  // Extract all configured materials from website CMS and past orders
+  const configuredMaterials = useMemo(() => {
+    const fromConfig = (config.materials || "")
+      .split(',')
+      .map(m => m.trim().toUpperCase())
+      .filter(Boolean);
+    const fromOrders = orders
+      .map(o => (o.material || "").trim().toUpperCase())
+      .filter(Boolean);
+    const set = new Set([...fromConfig, ...fromOrders]);
+    if (set.size === 0) {
+      ["PLA", "PLA+", "PETG", "ABS", "CARBON FIBER", "TPU"].forEach(m => set.add(m));
+    }
+    return Array.from(set);
+  }, [config.materials, orders]);
+
+  const getMaterialSpoolCost = useCallback((materialName) => {
+    if (!materialName) return parseFloat(spoolCostKg) || 750;
+    const key = materialName.trim().toUpperCase();
+    if (materialCosts && materialCosts[key] !== undefined && materialCosts[key] !== "" && !isNaN(materialCosts[key])) {
+      return Number(materialCosts[key]);
+    }
+    // Intelligent defaults based on Egyptian market averages
+    if (key.includes("PLA+")) return 750;
+    if (key.includes("PLA")) return 650;
+    if (key.includes("PETG")) return 700;
+    if (key.includes("ABS")) return 750;
+    if (key.includes("CARBON") || key.includes("CF")) return 1350;
+    if (key.includes("TPU") || key.includes("FLEX")) return 950;
+    if (key.includes("RESIN")) return 1100;
+    return parseFloat(spoolCostKg) || 750;
+  }, [materialCosts, spoolCostKg]);
+
+  const handleUpdateMaterialCost = (matKey, value) => {
+    const num = parseFloat(value);
+    const safeNum = isNaN(num) || num < 0 ? 0 : num;
+    setMaterialCosts(prev => {
+      const updated = { ...prev, [matKey]: safeNum };
+      localStorage.setItem("jp_material_costs", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleResetMaterialDefaults = () => {
+    const defaults = {
+      "PLA": 650,
+      "PLA+": 750,
+      "PETG": 700,
+      "ABS": 750,
+      "CARBON FIBER": 1350,
+      "TPU": 950,
+      "RESIN": 1100
+    };
+    setMaterialCosts(defaults);
+    localStorage.setItem("jp_material_costs", JSON.stringify(defaults));
+    if (addToast) addToast("Material spool prices reset to standard rates", "info");
+  };
+
+  const financialSummary = useMemo(() => {
+    const doneOrders = orders.filter(o => (o.status || "").toLowerCase().trim() === "done");
+    const printingOrders = orders.filter(o => (o.status || "").toLowerCase().trim() === "printing");
+    const queuedOrders = orders.filter(o => (o.status || "").toLowerCase().trim() === "queued");
+
+    const getOrderRevenue = (o) => {
+      if (o.totalprice !== null && o.totalprice !== undefined && !isNaN(o.totalprice)) {
+        return Number(o.totalprice);
+      }
+      return (Number(o.weightgrams) || 0) * defaultRate;
+    };
+
+    const doneRevenue = doneOrders.reduce((sum, o) => sum + getOrderRevenue(o), 0);
+    const printingRevenue = printingOrders.reduce((sum, o) => sum + getOrderRevenue(o), 0);
+    const queuedRevenue = queuedOrders.reduce((sum, o) => sum + getOrderRevenue(o), 0);
+    const pipelineRevenue = printingRevenue + queuedRevenue;
+
+    const doneGrams = doneOrders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
+    const activeGrams = [...printingOrders, ...queuedOrders].reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
+    const totalGramsAll = orders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
+
+    const donePrintHours = speedGph > 0 ? doneGrams / speedGph : 0;
+    const activePrintHours = speedGph > 0 ? activeGrams / speedGph : 0;
+    const totalPrintHoursAll = speedGph > 0 ? totalGramsAll / speedGph : 0;
+
+    let doneFilamentCost = 0;
+    let doneWearCost = 0;
+    let doneElectricityCost = 0;
+
+    const doneOrdersList = doneOrders.map(o => {
+      const rev = getOrderRevenue(o);
+      const w = Number(o.weightgrams) || 0;
+      const hours = speedGph > 0 ? w / speedGph : 0;
+      const matSpoolCost = getMaterialSpoolCost(o.material);
+      const filamentCost = w * (matSpoolCost / 1000);
+      const wearCost = hours * wearRatePerHour;
+      const elecCost = hours * electricityCostPerHour;
+      const totalCost = filamentCost + wearCost + elecCost;
+      const prof = rev - totalCost;
+      const margin = rev > 0 ? (prof / rev) * 100 : 0;
+
+      doneFilamentCost += filamentCost;
+      doneWearCost += wearCost;
+      doneElectricityCost += elecCost;
+
+      return {
+        id: o.id,
+        ordername: o.ordername || "Untitled",
+        name: o.name || "Customer",
+        material: o.material || "PLA",
+        color: o.color || "Standard",
+        weight: w,
+        hours,
+        filamentCost,
+        wearCost,
+        elecCost,
+        revenue: rev,
+        cost: totalCost,
+        profit: prof,
+        margin,
+        date: o.createdat
+      };
+    });
+
+    const doneTotalCost = doneFilamentCost + doneWearCost + doneElectricityCost;
+    const netProfit = doneRevenue - doneTotalCost;
+    const profitMargin = doneRevenue > 0 ? (netProfit / doneRevenue) * 100 : 0;
+    const avgProfitPerOrder = doneOrders.length > 0 ? netProfit / doneOrders.length : 0;
+
+    // Materials breakdown table
+    const materialMap = {};
+    configuredMaterials.forEach(mat => {
+      materialMap[mat] = {
+        name: mat,
+        spoolCost: getMaterialSpoolCost(mat),
+        totalOrders: 0,
+        doneOrders: 0,
+        grams: 0,
+        hours: 0,
+        filamentCost: 0,
+        wearAndPowerCost: 0,
+        totalCost: 0,
+        revenue: 0,
+        profit: 0,
+        margin: 0
+      };
+    });
+
+    orders.forEach(o => {
+      const mat = (o.material || "PLA").toUpperCase().trim();
+      if (!materialMap[mat]) {
+        materialMap[mat] = {
+          name: mat,
+          spoolCost: getMaterialSpoolCost(mat),
+          totalOrders: 0,
+          doneOrders: 0,
+          grams: 0,
+          hours: 0,
+          filamentCost: 0,
+          wearAndPowerCost: 0,
+          totalCost: 0,
+          revenue: 0,
+          profit: 0,
+          margin: 0
+        };
+      }
+      materialMap[mat].totalOrders += 1;
+      const rev = getOrderRevenue(o);
+      const w = Number(o.weightgrams) || 0;
+      const hours = speedGph > 0 ? w / speedGph : 0;
+      const fCost = w * (getMaterialSpoolCost(mat) / 1000);
+      const wpCost = hours * machineHourlyBurden;
+
+      materialMap[mat].grams += w;
+      materialMap[mat].hours += hours;
+
+      if ((o.status || "").toLowerCase().trim() === "done") {
+        materialMap[mat].doneOrders += 1;
+        materialMap[mat].revenue += rev;
+        materialMap[mat].filamentCost += fCost;
+        materialMap[mat].wearAndPowerCost += wpCost;
+        materialMap[mat].totalCost += (fCost + wpCost);
+      }
+    });
+
+    const materialStats = Object.values(materialMap).map(m => {
+      const profit = m.revenue - m.totalCost;
+      const margin = m.revenue > 0 ? (profit / m.revenue) * 100 : 0;
+      return { ...m, profit, margin };
+    });
+
+    return {
+      doneOrdersCount: doneOrders.length,
+      activeOrdersCount: printingOrders.length + queuedOrders.length,
+      doneRevenue,
+      pipelineRevenue,
+      doneGrams,
+      activeGrams,
+      totalGramsAll,
+      donePrintHours,
+      activePrintHours,
+      totalPrintHoursAll,
+      doneFilamentCost,
+      doneWearCost,
+      doneElectricityCost,
+      doneTotalCost,
+      netProfit,
+      profitMargin,
+      avgProfitPerOrder,
+      materialStats,
+      doneOrdersList
+    };
+  }, [orders, defaultRate, speedGph, wearRatePerHour, electricityCostPerHour, machineHourlyBurden, configuredMaterials, getMaterialSpoolCost]);
+
+  return (
+    <div className="animate-in" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Financial KPI Cards */}
+      <div className="admin-stats-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+        <div className="card" title="Net profit realized from all completed orders (Revenue minus Raw Filament Cost, CC1 Machine Wear per hour, and Electricity)">
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Realized Net Profit
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: "var(--accent)", margin: "6px 0" }}>
+            {financialSummary.netProfit.toFixed(2)} EGP
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--status-done)", display: "flex", alignItems: "center", gap: 6 }}>
+            <span>Margin: {financialSummary.profitMargin.toFixed(1)}%</span>
+            <span style={{ color: "var(--text-tertiary)" }}>&bull; Avg {financialSummary.avgProfitPerOrder.toFixed(1)} EGP/order</span>
+          </div>
+        </div>
+
+        <div className="card" title="Total cash received from completed orders, plus pending value in the active print pipeline">
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Revenue Collected
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: "var(--text-primary)", margin: "6px 0" }}>
+            {financialSummary.doneRevenue.toFixed(2)} EGP
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+            + {financialSummary.pipelineRevenue.toFixed(2)} EGP active in pipeline
+          </div>
+        </div>
+
+        <div className="card" title="Direct manufacturing costs itemized into raw filament material, hourly CC1 hardware wear, and power consumption">
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Itemized Production Costs
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: "#f87171", margin: "6px 0" }}>
+            {financialSummary.doneTotalCost.toFixed(2)} EGP
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
+            <span>Filament: <strong>{financialSummary.doneFilamentCost.toFixed(1)} EGP</strong></span>
+            <span>CC1 Machine Wear: <strong>{financialSummary.doneWearCost.toFixed(1)} EGP</strong> ({financialSummary.donePrintHours.toFixed(1)}h)</span>
+            <span>Electricity: <strong>{financialSummary.doneElectricityCost.toFixed(1)} EGP</strong></span>
+          </div>
+        </div>
+
+        <div className="card" title="Total active machine hours and filament weight extruded on your Centauri Carbon CC1 3D printer">
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Machine Hours & Material
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: "var(--status-printing)", margin: "6px 0" }}>
+            {financialSummary.donePrintHours.toFixed(1)} hrs
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+            ~{(financialSummary.doneGrams / 1000).toFixed(2)} kg extruded on CC1 ({financialSummary.doneOrdersCount} orders)
+          </div>
+        </div>
+      </div>
+
+      {/* Centauri Carbon 1 (CC1) Wear & Electricity Calibration */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h3 style={{ margin: "0 0 4px" }}>Centauri Carbon 1 (CC1) Wear & Electricity Calibration</h3>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
+              Separates machine wear according to active printing hours from electricity. Electricity can be set to 0 for free/campus power or calibrated per kWh.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ background: "rgba(255,128,0,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--accent)" }}>
+              Hourly Burden: {machineHourlyBurden.toFixed(2)} EGP/hr
+            </span>
+            <span style={{ background: "rgba(0,122,255,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--status-printing)" }}>
+              Weight Burden: {machineBurdenPerGram.toFixed(3)} EGP/g
+            </span>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <label style={{ fontSize: 12, margin: 0 }}>Electricity Tariff (EGP / kWh)</label>
+              <button
+                type="button"
+                className="btn btn-sm btn-glass"
+                style={{ padding: "2px 8px", fontSize: 10 }}
+                title="Click to set electricity cost to 0 EGP if electricity is free or campus-supplied"
+                onClick={() => {
+                  setElectricityTariffKwh(0);
+                  localStorage.setItem("jp_elec_kwh", "0");
+                }}
+              >
+                Set Free (0 EGP)
+              </button>
+            </div>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              title="Electricity rate per kilowatt-hour. Enter 0 for free power or typical Egyptian residential/commercial tariff (e.g. 2.50 EGP/kWh)."
+              value={electricityTariffKwh}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 0;
+                setElectricityTariffKwh(val);
+                localStorage.setItem("jp_elec_kwh", String(val));
+              }}
+              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
+              placeholder="e.g. 2.50 or 0"
+            />
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+              Rate: {electricityCostPerHour.toFixed(2)} EGP / hr ({electricityCostPerGram.toFixed(3)} EGP/g)
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12 }}>CC1 Power Consumption (Watts)</label>
+            <input
+              type="number"
+              step="10"
+              min="0"
+              title="Continuous average wattage draw for the Elegoo Centauri Carbon (typically ~180W while printing with heated bed)."
+              value={printerPowerWatts}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 0;
+                setPrinterPowerWatts(val);
+                localStorage.setItem("jp_printer_watts", String(val));
+              }}
+              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
+              placeholder="e.g. 180"
+            />
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+              Elegoo Centauri Carbon continuous average draw
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12 }}>CC1 Wear & Maintenance (EGP / Print Hour)</label>
+            <input
+              type="number"
+              step="0.5"
+              min="0"
+              title="Hourly hardware wear allowance covering hardened nozzle wear, PEI sheet replacements, CoreXY belts, linear rails lubrication, and machine depreciation."
+              value={cc1WearRatePerHour}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 0;
+                setCc1WearRatePerHour(val);
+                localStorage.setItem("jp_cc1_wear_rate", String(val));
+              }}
+              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
+              placeholder="e.g. 6.00"
+            />
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+              Nozzle, PEI bed, belts, linear rails & depreciation ({wearCostPerGram.toFixed(3)} EGP/g)
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12 }}>CC1 Print Throughput (Grams / Hour)</label>
+            <input
+              type="number"
+              step="5"
+              min="5"
+              title="Average grams of filament extruded per active printing hour on high-speed CoreXY CC1 (typically 30-40g/hr)."
+              value={printSpeedGph}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 35;
+                setPrintSpeedGph(val);
+                localStorage.setItem("jp_print_speed_gph", String(val));
+              }}
+              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
+              placeholder="e.g. 35"
+            />
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+              High-speed CoreXY average extrusion speed (~35g/hr)
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Per-Material Filament Spool Pricing */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h3 style={{ margin: "0 0 4px" }}>Per-Material Filament Spool Costs</h3>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
+              Every filament costs differently (e.g. PETG vs PLA+ vs Carbon Fiber). Configured from your website materials list.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm btn-glass"
+            style={{ fontSize: 12 }}
+            onClick={handleResetMaterialDefaults}
+          >
+            Reset Market Standard Rates
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+          {configuredMaterials.map(mat => {
+            const currentCost = getMaterialSpoolCost(mat);
+            const costPerG = currentCost / 1000;
+            return (
+              <div
+                key={mat}
+                style={{
+                  padding: "14px 16px",
+                  borderRadius: "var(--radius-sm)",
+                  background: "rgba(255,255,255,0.02)",
+                  border: "1px solid var(--border-glass-strong)"
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: "var(--accent)" }}>{mat}</span>
+                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-tertiary)" }}>
+                    {costPerG.toFixed(3)} EGP / g
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    type="number"
+                    step="25"
+                    min="0"
+                    title={`Cost to purchase a 1kg spool of ${mat}. Raw filament cost is ${costPerG.toFixed(3)} EGP per gram.`}
+                    value={materialCosts[mat] !== undefined ? materialCosts[mat] : currentCost}
+                    onChange={(e) => handleUpdateMaterialCost(mat, e.target.value)}
+                    style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}
+                    placeholder="Spool cost (EGP)"
+                  />
+                  <span style={{ fontSize: 12, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>EGP / kg</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Material Profit Breakdown */}
+      <div className="card">
+        <h3 style={{ marginBottom: 16 }}>Material Profit Breakdown</h3>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border-glass-strong)", color: "var(--text-tertiary)", textAlign: "left" }}>
+                <th style={{ padding: "10px 12px" }}>Material</th>
+                <th style={{ padding: "10px 12px" }}>Spool Cost</th>
+                <th style={{ padding: "10px 12px" }}>Done / Total</th>
+                <th style={{ padding: "10px 12px" }}>Weight</th>
+                <th style={{ padding: "10px 12px" }}>Est. Hours</th>
+                <th style={{ padding: "10px 12px" }}>Filament Cost</th>
+                <th style={{ padding: "10px 12px" }}>Wear & Power</th>
+                <th style={{ padding: "10px 12px" }}>Revenue</th>
+                <th style={{ padding: "10px 12px" }}>Net Profit</th>
+                <th style={{ padding: "10px 12px" }}>Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {financialSummary.materialStats.map(m => (
+                <tr key={m.name} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                  <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{m.name}</td>
+                  <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{m.spoolCost.toFixed(0)} EGP/kg</td>
+                  <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{m.doneOrders} / {m.totalOrders}</td>
+                  <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{m.grams.toFixed(0)} g</td>
+                  <td style={{ padding: "12px", color: "var(--text-tertiary)" }}>{m.hours.toFixed(1)} h</td>
+                  <td style={{ padding: "12px", color: "#f87171" }}>{m.filamentCost.toFixed(2)} EGP</td>
+                  <td style={{ padding: "12px", color: "#f87171" }}>{m.wearAndPowerCost.toFixed(2)} EGP</td>
+                  <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{m.revenue.toFixed(2)} EGP</td>
+                  <td style={{ padding: "12px", fontWeight: 800, color: "var(--accent)" }}>{m.profit.toFixed(2)} EGP</td>
+                  <td style={{ padding: "12px" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: m.margin >= 50 ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)", color: m.margin >= 50 ? "var(--status-done)" : "var(--status-queued)" }}>
+                      {m.margin.toFixed(0)}%
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Completed Orders Profit Ledger */}
+      <div className="card">
+        <h3 style={{ marginBottom: 16 }}>Completed Orders Ledger ({financialSummary.doneOrdersList.length})</h3>
+        {financialSummary.doneOrdersList.length === 0 ? (
+          <p style={{ margin: 0, color: "var(--text-tertiary)", fontSize: 13 }}>
+            No orders marked as "Done" yet. Complete orders in the Order Queue to generate real profit records.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border-glass-strong)", color: "var(--text-tertiary)", textAlign: "left" }}>
+                  <th style={{ padding: "10px 12px" }}>Order</th>
+                  <th style={{ padding: "10px 12px" }}>Client</th>
+                  <th style={{ padding: "10px 12px" }}>Specs</th>
+                  <th style={{ padding: "10px 12px" }}>Weight & Time</th>
+                  <th style={{ padding: "10px 12px" }}>Filament Cost</th>
+                  <th style={{ padding: "10px 12px" }}>CC1 Wear</th>
+                  <th style={{ padding: "10px 12px" }}>Electricity</th>
+                  <th style={{ padding: "10px 12px" }}>Total Cost</th>
+                  <th style={{ padding: "10px 12px" }}>Revenue</th>
+                  <th style={{ padding: "10px 12px" }}>Net Profit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {financialSummary.doneOrdersList.map(o => (
+                  <tr key={o.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                    <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{o.ordername}</td>
+                    <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{o.name}</td>
+                    <td style={{ padding: "12px", color: "var(--text-tertiary)" }}>{o.material} ({o.color})</td>
+                    <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{o.weight} g &bull; {o.hours.toFixed(1)}h</td>
+                    <td style={{ padding: "12px", color: "#f87171" }}>{o.filamentCost.toFixed(2)} EGP</td>
+                    <td style={{ padding: "12px", color: "#f87171" }}>{o.wearCost.toFixed(2)} EGP</td>
+                    <td style={{ padding: "12px", color: "#f87171" }}>{o.elecCost.toFixed(2)} EGP</td>
+                    <td style={{ padding: "12px", color: "#f87171", fontWeight: 700 }}>{o.cost.toFixed(2)} EGP</td>
+                    <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{o.revenue.toFixed(2)} EGP</td>
+                    <td style={{ padding: "12px", fontWeight: 800, color: "var(--status-done)" }}>+{o.profit.toFixed(2)} EGP</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [orders, setOrders] = useState([]);
@@ -543,6 +1169,31 @@ export default function App() {
   const [sortBy, setSortBy] = useState("date");
   const [adminSearch, setAdminSearch] = useState("");
   const [selectedOrders, setSelectedOrders] = useState([]);
+  const [adminStatusFilter, setAdminStatusFilter] = useState("all");
+  const [spoolCostKg, setSpoolCostKg] = useState(() => parseFloat(localStorage.getItem("jp_spool_cost")) || 750);
+  const [electricityTariffKwh, setElectricityTariffKwh] = useState(() => {
+    const val = localStorage.getItem("jp_elec_kwh");
+    return val !== null && val !== "" ? parseFloat(val) : 2.50;
+  });
+  const [printerPowerWatts, setPrinterPowerWatts] = useState(() => parseFloat(localStorage.getItem("jp_printer_watts")) || 180);
+  const [cc1WearRatePerHour, setCc1WearRatePerHour] = useState(() => parseFloat(localStorage.getItem("jp_cc1_wear_rate")) || 6.00);
+  const [printSpeedGph, setPrintSpeedGph] = useState(() => parseFloat(localStorage.getItem("jp_print_speed_gph")) || 35);
+  const [materialCosts, setMaterialCosts] = useState(() => {
+    try {
+      return {
+        "PLA": 650,
+        "PLA+": 750,
+        "PETG": 700,
+        "ABS": 750,
+        "CARBON FIBER": 1350,
+        "TPU": 950,
+        ...JSON.parse(localStorage.getItem("jp_material_costs") || "{}")
+      };
+    } catch {
+      return { "PLA": 650, "PLA+": 750, "PETG": 700, "ABS": 750, "CARBON FIBER": 1350, "TPU": 950 };
+    }
+  });
+  const [lastSubmittedQuote, setLastSubmittedQuote] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
   const [successModal, setSuccessModal] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -707,6 +1358,18 @@ export default function App() {
     }
     loadSavedOrders();
   }, []);
+
+  // Synchronize newOrder default material and color with loaded config
+  useEffect(() => {
+    if (config.materials && !newOrder.material) {
+      const firstMat = config.materials.split(',')[0]?.trim() || "PLA";
+      setNewOrder(prev => ({ ...prev, material: prev.material || firstMat }));
+    }
+    if (config.colors && !newOrder.color) {
+      const firstCol = config.colors.split(',')[0]?.trim() || "White";
+      setNewOrder(prev => ({ ...prev, color: prev.color || firstCol }));
+    }
+  }, [config.materials, config.colors]);
 
   // Scroll reveal — re-run when hash/admin changes so newly-rendered sections get observed
   useEffect(() => {
@@ -1015,24 +1678,30 @@ export default function App() {
       }
 
       const trackingCode = generateTrackingCode();
-      const weightGrams = clientMetrics ? clientMetrics.weightGrams : 0;
-      const calculatedTotal = clientMetrics ? clientMetrics.totalPrice : (weightGrams * (parseFloat(config.price_per_gram) || 3));
-      const formattedNotes = `[PROFILE:${orderLayerHeight}mm | NOZZLE:${orderNozzle}mm | INFILL:${orderInfill}%] ${newOrder.notes || ""}`.trim();
+      const weightGrams = clientMetrics ? (clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0) : 0;
+      const rate = parseFloat(config.price_per_gram) || 3;
+      const calculatedTotal = clientMetrics && clientMetrics.totalPrice ? clientMetrics.totalPrice : (weightGrams * rate);
+      const cleanNotes = (newOrder.notes || "").trim();
+
+      const defMat = config.materials ? config.materials.split(',')[0].trim() : "PLA";
+      const defCol = config.colors ? config.colors.split(',')[0].trim() : "White";
+      const finalMaterial = (newOrder.material || defMat).trim();
+      const finalColor = (newOrder.color || defCol).trim();
 
       const payload = {
         name: newOrder.name,
         phone: newOrder.phone.replace(/[\s\-()]/g, ""),
         email: newOrder.email,
-        ordername: newOrder.orderName,
-        material: newOrder.material,
-        color: newOrder.color,
-        notes: formattedNotes,
+        ordername: newOrder.orderName || "Untitled Part",
+        material: finalMaterial,
+        color: finalColor,
+        notes: cleanNotes,
         fileurl: urls.join(","),
         filesize: totalSize,
         status: "queued",
         priority: queuedOrdersCount,
         weightgrams: weightGrams,
-        pricepergram: config.price_per_gram,
+        pricepergram: rate,
         totalprice: calculatedTotal,
         tracking_code: trackingCode
       };
@@ -1053,10 +1722,20 @@ export default function App() {
         localStorage.setItem("jp_tracking_codes", JSON.stringify([...new Set(savedCodes)]));
       } catch (err) { console.error("Could not save tracking code", err); }
 
+      setLastSubmittedQuote({
+        orderName: newOrder.orderName || "Untitled Part",
+        trackingCode,
+        weightGrams,
+        totalPrice: calculatedTotal,
+        name: newOrder.name,
+        material: finalMaterial,
+        color: finalColor
+      });
+
       setOrderStep(4);
       setSuccessModal(trackingCode);
       setCopiedTrackingCode(false);
-      setNewOrder({ name: newOrder.name, phone: newOrder.phone, email: newOrder.email, orderName: "", material: config.materials.split(',')[0].trim(), color: config.colors.split(',')[0].trim(), notes: "", fileName: "" });
+      setNewOrder({ name: newOrder.name, phone: newOrder.phone, email: newOrder.email, orderName: "", material: defMat, color: defCol, notes: "", fileName: "" });
       setClientMetrics(null);
       setOrderInfill(20);
       setFormErrors({});
@@ -1178,17 +1857,22 @@ export default function App() {
 
   function getSortedOrders() {
     let result = [...orders];
+    if (adminStatusFilter && adminStatusFilter !== "all") {
+      result = result.filter(o => (o.status || "").toLowerCase().trim() === adminStatusFilter);
+    }
     if (adminSearch.trim()) {
       const q = adminSearch.toLowerCase();
       result = result.filter(o => 
         (o.name && o.name.toLowerCase().includes(q)) || 
         (o.phone && o.phone.includes(q)) || 
+        (o.ordername && o.ordername.toLowerCase().includes(q)) ||
         (o.tracking_code && o.tracking_code.toLowerCase().includes(q))
       );
     }
     switch (sortBy) {
       case "weight": return result.sort((a, b) => (b.weightgrams || 0) - (a.weightgrams || 0));
       case "filesize": return result.sort((a, b) => (b.filesize || 0) - (a.filesize || 0));
+      case "price": return result.sort((a, b) => (b.totalprice || 0) - (a.totalprice || 0));
       default: return result.sort((a, b) => new Date(b.createdat || 0) - new Date(a.createdat || 0));
     }
   }
@@ -1265,12 +1949,14 @@ export default function App() {
           <div className="admin-header" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
             <img src={`${import.meta.env.BASE_URL}${darkMode ? "logo-dark.svg" : "logo-light.svg"}`} alt="Etba3ly" className="brand-logo-img admin-logo" style={{ height: 34, display: 'block' }} />
             <h1 style={{ fontSize: 36, margin: 0, flex: 1 }}>Command Center</h1>
+            <button className="btn btn-glass" onClick={() => { fetchOrders(); fetchConfig(); addToast("Queue and config refreshed", "info"); }}>Refresh Orders</button>
             <button className="btn btn-glass" onClick={exportCSV}>Export CSV</button>
             <button className="btn btn-glass" onClick={handleAdminLogout}>Sign Out</button>
           </div>
 
           <div className="admin-tabs">
             <button className={`btn ${adminTab === "orders" ? "btn-primary" : "btn-glass"}`} onClick={() => setAdminTab("orders")}>Manage Orders</button>
+            <button className={`btn ${adminTab === "profit" ? "btn-primary" : "btn-glass"}`} onClick={() => setAdminTab("profit")}>Profit & Analytics</button>
             <button className={`btn ${adminTab === "gallery" ? "btn-primary" : "btn-glass"}`} onClick={() => setAdminTab("gallery")}>Gallery</button>
             <button className={`btn ${adminTab === "cms" ? "btn-primary" : "btn-glass"}`} onClick={() => setAdminTab("cms")}>Edit Website</button>
           </div>
@@ -1345,7 +2031,7 @@ export default function App() {
               </div>
 
               <div className="card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
                   <h3 style={{ margin: 0 }}>Order Queue</h3>
                   <div style={{ display: "flex", gap: 12, flexWrap: "wrap", flex: 1, justifyContent: "flex-end" }}>
                     <input 
@@ -1356,7 +2042,7 @@ export default function App() {
                     />
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Sort:</span>
-                      {["date", "weight", "filesize"].map(s => (
+                      {["date", "weight", "filesize", "price"].map(s => (
                         <button key={s} className={`btn ${sortBy === s ? "btn-primary" : "btn-glass"}`}
                           style={{ padding: "6px 14px", fontSize: 12 }}
                           onClick={() => setSortBy(s)}>{s.charAt(0).toUpperCase() + s.slice(1)}</button>
@@ -1365,18 +2051,79 @@ export default function App() {
                   </div>
                 </div>
 
-                {selectedOrders.length > 0 && (
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 16, padding: "12px 16px", background: "rgba(255,128,0,0.1)", borderRadius: "var(--radius-sm)", alignItems: "center", flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 13, fontWeight: 700 }}>{selectedOrders.length} selected:</span>
-                    <button className="btn btn-sm btn-glass" onClick={() => handleBulkStatus("queued")}>Queued</button>
-                    <button className="btn btn-sm btn-glass" onClick={() => handleBulkStatus("printing")}>Printing</button>
-                    <button className="btn btn-sm btn-glass" onClick={() => handleBulkStatus("done")}>Done</button>
-                    <button className="btn btn-sm" style={{ background: "#FF3B30", color: "#fff" }} onClick={handleBulkDelete}>Delete</button>
-                  </div>
-                )}
+                {/* Status Filter Tabs */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+                  {[
+                    { id: "all", label: `All Orders (${orders.length})` },
+                    { id: "queued", label: `Queued (${orders.filter(o => (o.status || "").toLowerCase().trim() === "queued").length})` },
+                    { id: "printing", label: `Printing (${orders.filter(o => (o.status || "").toLowerCase().trim() === "printing").length})` },
+                    { id: "done", label: `Done (${orders.filter(o => (o.status || "").toLowerCase().trim() === "done").length})` },
+                  ].map(f => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      className={`btn ${adminStatusFilter === f.id ? "btn-primary" : "btn-glass"}`}
+                      style={{ padding: "5px 12px", fontSize: 12, borderRadius: "var(--radius-full)" }}
+                      onClick={() => setAdminStatusFilter(f.id)}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Master Select All Checkbox & Bulk Actions */}
+                {(() => {
+                  const visibleOrders = getSortedOrders();
+                  const allVisibleSelected = visibleOrders.length > 0 && visibleOrders.every(o => selectedOrders.includes(o.id));
+                  const selectedTotal = orders.filter(o => selectedOrders.includes(o.id)).reduce((sum, o) => {
+                    const price = o.totalprice !== null && o.totalprice !== undefined ? Number(o.totalprice) : (Number(o.weightgrams) || 0) * (parseFloat(config.price_per_gram) || 3);
+                    return sum + price;
+                  }, 0);
+
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16, padding: "10px 14px", background: "rgba(255,255,255,0.03)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)" }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <input
+                          type="checkbox"
+                          id="masterSelectAll"
+                          checked={allVisibleSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedOrders(prev => Array.from(new Set([...prev, ...visibleOrders.map(o => o.id)])));
+                            } else {
+                              const visibleIds = visibleOrders.map(o => o.id);
+                              setSelectedOrders(prev => prev.filter(id => !visibleIds.includes(id)));
+                            }
+                          }}
+                          style={{ width: 18, height: 18, cursor: "pointer" }}
+                        />
+                        <label htmlFor="masterSelectAll" style={{ margin: 0, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                          Select All Visible ({visibleOrders.length})
+                        </label>
+                      </div>
+
+                      {selectedOrders.length > 0 && (
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>
+                            {selectedOrders.length} selected &bull; Total: {selectedTotal.toFixed(2)} EGP
+                          </span>
+                          <button className="btn btn-sm btn-glass" onClick={() => handleBulkStatus("queued")}>Set Queued</button>
+                          <button className="btn btn-sm btn-glass" onClick={() => handleBulkStatus("printing")}>Set Printing</button>
+                          <button className="btn btn-sm btn-glass" onClick={() => handleBulkStatus("done")}>Set Done</button>
+                          <button className="btn btn-sm" style={{ background: "#FF3B30", color: "#fff" }} onClick={handleBulkDelete}>Delete</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {getSortedOrders().map(o => {
                   const calculatedPrice = (o.weightgrams || 0) * (parseFloat(config.price_per_gram) || 0);
                   const isSelected = selectedOrders.includes(o.id);
+                  const cleanPhone = (o.phone || "").replace(/[^0-9]/g, "");
+                  const waPhone = cleanPhone.startsWith("2") ? cleanPhone : `2${cleanPhone}`;
+                  const waMessage = `Hello ${o.name || "Customer"}, your 3D printing order "${o.ordername || "Order"}" (Tracking: ${o.tracking_code || ""}) is currently ${o.status.toUpperCase()} at Etba3ly.`;
+
                   return (
                     <div key={o.id} className="admin-order-card" style={{ display: 'flex', gap: 12 }}>
                       <input 
@@ -1391,111 +2138,185 @@ export default function App() {
                       <div style={{ flex: 1 }}>
                         <div className="admin-order-layout">
                           <div className="admin-order-info">
-                          <div style={{ fontSize: 17, fontWeight: 800, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                            {o.ordername || "Untitled"}
-                            <span style={{ fontSize: 10, background: o.status === "done" ? "var(--status-done)" : o.status === "printing" ? "var(--status-printing)" : "var(--status-queued)", color: "#fff", padding: "3px 10px", borderRadius: "var(--radius-full)", fontWeight: 700 }}>{o.status.toUpperCase()}</span>
-                            {o.tracking_code && <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700, fontFamily: "monospace" }}>{o.tracking_code}</span>}
-                            {o.status === "printing" && getPrinterFromNotes(o.notes) && <span style={{ fontSize: 10, background: "rgba(0,122,255,0.1)", color: "var(--status-printing)", padding: "3px 10px", borderRadius: "var(--radius-full)", fontWeight: 700, border: "1px solid rgba(0,122,255,0.2)" }}>[PRINTER: {getPrinterFromNotes(o.notes)}]</span>}
+                            <div style={{ fontSize: 17, fontWeight: 800, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              {o.ordername || "Untitled"}
+                              <span style={{ fontSize: 10, background: o.status === "done" ? "var(--status-done)" : o.status === "printing" ? "var(--status-printing)" : "var(--status-queued)", color: "#fff", padding: "3px 10px", borderRadius: "var(--radius-full)", fontWeight: 700 }}>{o.status.toUpperCase()}</span>
+                              {o.tracking_code && (
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                  <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700, fontFamily: "monospace" }}>{o.tracking_code}</span>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-glass"
+                                    style={{ padding: "1px 6px", fontSize: 10 }}
+                                    onClick={async () => {
+                                      await copyToClipboard(o.tracking_code);
+                                      addToast(`Copied ${o.tracking_code}`, "info");
+                                    }}
+                                    title="Copy tracking code"
+                                  >
+                                    Copy
+                                  </button>
+                                </span>
+                              )}
+                              {o.status === "printing" && getPrinterFromNotes(o.notes) && <span style={{ fontSize: 10, background: "rgba(0,122,255,0.1)", color: "var(--status-printing)", padding: "3px 10px", borderRadius: "var(--radius-full)", fontWeight: 700, border: "1px solid rgba(0,122,255,0.2)" }}>[PRINTER: {getPrinterFromNotes(o.notes)}]</span>}
+                            </div>
+                            <div style={{ color: "var(--text-secondary)", marginTop: 6, fontSize: 13, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              <span>{o.name} &bull; {o.phone}{o.email ? ` &bull; ${o.email}` : ""}</span>
+                              {cleanPhone && (
+                                <a
+                                  href={`https://wa.me/${waPhone}?text=${encodeURIComponent(waMessage)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="btn btn-sm btn-glass"
+                                  style={{ padding: "2px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4, color: "#25D366", borderColor: "rgba(37,211,102,0.3)" }}
+                                  title="Open WhatsApp chat with client"
+                                >
+                                  <WhatsAppIcon /> WhatsApp
+                                </a>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span>{o.material} ({o.color})</span>
+                              {o.notes && o.notes.includes("[INFILL:") && (
+                                <span style={{ fontSize: 11, background: "rgba(255, 128, 0, 0.12)", color: "var(--accent)", padding: "2px 8px", borderRadius: "var(--radius-full)", fontWeight: 700 }}>
+                                  {o.notes.match(/\[INFILL:([^\]]+)\]/)?.[1] || ""} Infill
+                                </span>
+                              )}
+                            </div>
+                            {getCleanNotes(o.notes) && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4, fontStyle: "italic" }}>Notes: {getCleanNotes(o.notes)}</div>}
+                            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>
+                              {o.createdat && <span>{new Date(o.createdat).toLocaleString()} &bull; </span>}
+                              {o.filesize > 0 && <span>{(o.filesize / 1024).toFixed(0)} KB</span>}
+                            </div>
                           </div>
-                          <div style={{ color: "var(--text-secondary)", marginTop: 6, fontSize: 13 }}>{o.name} &bull; {o.phone}{o.email ? ` &bull; ${o.email}` : ""}</div>
-                          <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                            <span>{o.material} ({o.color})</span>
-                            {o.notes && o.notes.includes("[INFILL:") && (
-                              <span style={{ fontSize: 11, background: "rgba(255, 128, 0, 0.12)", color: "var(--accent)", padding: "2px 8px", borderRadius: "var(--radius-full)", fontWeight: 700 }}>
-                                {o.notes.match(/\[INFILL:([^\]]+)\]/)?.[1] || ""} Infill
-                              </span>
+                          <div className="admin-order-actions">
+                            {o.status === "queued" && (
+                              <button
+                                type="button"
+                                className="btn btn-accent"
+                                style={{ padding: "8px 14px", fontSize: 12 }}
+                                onClick={() => {
+                                  const busyPrinters = orders.filter(x => x.status === "printing" && x.id !== o.id).map(x => getPrinterFromNotes(x.notes)).filter(Boolean);
+                                  const available = PRINTERS.find(p => !busyPrinters.includes(p)) || PRINTERS[0];
+                                  handleUpdateOrderStatus(o.id, "printing", available);
+                                }}
+                              >
+                                Start Print
+                              </button>
                             )}
-                          </div>
-                          {getCleanNotes(o.notes) && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4, fontStyle: "italic" }}>Notes: {getCleanNotes(o.notes)}</div>}
-                          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>
-                            {o.createdat && <span>{new Date(o.createdat).toLocaleString()} &bull; </span>}
-                            {o.filesize > 0 && <span>{(o.filesize / 1024).toFixed(0)} KB</span>}
-                          </div>
-                        </div>
-                        <div className="admin-order-actions">
-                          <select value={o.status} onChange={(e) => {
-                            const newStatus = e.target.value;
-                            if (newStatus === "printing") {
-                              const busyPrinters = orders.filter(x => x.status === "printing" && x.id !== o.id).map(x => getPrinterFromNotes(x.notes)).filter(Boolean);
-                              const available = PRINTERS.find(p => !busyPrinters.includes(p)) || PRINTERS[0];
-                              handleUpdateOrderStatus(o.id, newStatus, available);
-                            } else {
-                              handleUpdateOrderStatus(o.id, newStatus);
-                            }
-                          }} style={{ width: 130, padding: 10, fontSize: 13 }}>
-                            <option value="queued">Queued</option>
-                            <option value="printing">Printing</option>
-                            <option value="done">Done</option>
-                          </select>
-                          {o.status === "printing" && (
-                            <select value={getPrinterFromNotes(o.notes) || PRINTERS[0]} onChange={(e) => handleUpdateOrderStatus(o.id, "printing", e.target.value)} style={{ width: 150, padding: 10, fontSize: 13 }}>
-                              {PRINTERS.map(p => <option key={p} value={p}>{p}</option>)}
+                            {o.status === "printing" && (
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                style={{ padding: "8px 14px", fontSize: 12, background: "var(--status-done)", borderColor: "var(--status-done)" }}
+                                onClick={() => handleUpdateOrderStatus(o.id, "done")}
+                              >
+                                Mark Done
+                              </button>
+                            )}
+                            <select value={o.status} onChange={(e) => {
+                              const newStatus = e.target.value;
+                              if (newStatus === "printing") {
+                                const busyPrinters = orders.filter(x => x.status === "printing" && x.id !== o.id).map(x => getPrinterFromNotes(x.notes)).filter(Boolean);
+                                const available = PRINTERS.find(p => !busyPrinters.includes(p)) || PRINTERS[0];
+                                handleUpdateOrderStatus(o.id, newStatus, available);
+                              } else {
+                                handleUpdateOrderStatus(o.id, newStatus);
+                              }
+                            }} style={{ width: 120, padding: 8, fontSize: 12 }}>
+                              <option value="queued">Queued</option>
+                              <option value="printing">Printing</option>
+                              <option value="done">Done</option>
                             </select>
-                          )}
-                          {Boolean(o.fileurl && o.fileurl.toLowerCase().includes('.stl')) && (
+                            {o.status === "printing" && (
+                              <select value={getPrinterFromNotes(o.notes) || PRINTERS[0]} onChange={(e) => handleUpdateOrderStatus(o.id, "printing", e.target.value)} style={{ width: 140, padding: 8, fontSize: 12 }}>
+                                {PRINTERS.map(p => <option key={p} value={p}>{p}</option>)}
+                              </select>
+                            )}
+                            {Boolean(o.fileurl && o.fileurl.toLowerCase().includes('.stl')) && (
+                              <button
+                                type="button"
+                                onClick={() => setAdminSlicerOrder(o)}
+                                className="btn btn-accent"
+                                style={{ padding: "8px 14px", fontSize: 12 }}
+                              >
+                                Inspect & Slice 3D
+                              </button>
+                            )}
                             <button
                               type="button"
-                              onClick={() => setAdminSlicerOrder(o)}
-                              className="btn btn-accent"
-                              style={{ padding: "8px 16px", fontSize: 12 }}
+                              onClick={() => handleOpenMoonrakerForOrder(o)}
+                              className="btn btn-glass"
+                              style={{ padding: "8px 14px", fontSize: 12 }}
                             >
-                              Inspect & Slice 3D
+                              Send to Printer
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => handleOpenMoonrakerForOrder(o)}
-                            className="btn btn-glass"
-                            style={{ padding: "8px 16px", fontSize: 12 }}
-                          >
-                            Send to Printer
-                          </button>
-                          {o.fileurl && o.fileurl.split(',').map((url, idx, arr) => (
-                            <a key={idx} href={url} download target="_blank" rel="noreferrer" className="btn btn-glass" style={{ padding: "8px 16px", fontSize: 12 }}>
-                              Download {arr.length > 1 ? idx + 1 : ""}
-                            </a>
-                          ))}
-                          <button onClick={() => setEditingOrder(o)} className="btn btn-glass" style={{ padding: "8px 16px", fontSize: 12 }}>Edit</button>
-                          <button onClick={() => handleDeleteOrder(o.id)} style={{ padding: "8px 16px", background: "#FF3B30", color: "#fff", border: "none", borderRadius: "var(--radius-full)", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Delete</button>
+                            {o.fileurl && o.fileurl.split(',').map((url, idx, arr) => (
+                              <a key={idx} href={url} download target="_blank" rel="noreferrer" className="btn btn-glass" style={{ padding: "8px 14px", fontSize: 12 }}>
+                                Download {arr.length > 1 ? idx + 1 : ""}
+                              </a>
+                            ))}
+                            <button onClick={() => setEditingOrder(o)} className="btn btn-glass" style={{ padding: "8px 14px", fontSize: 12 }}>Edit</button>
+                            <button onClick={() => handleDeleteOrder(o.id)} style={{ padding: "8px 14px", background: "#FF3B30", color: "#fff", border: "none", borderRadius: "var(--radius-full)", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Delete</button>
+                          </div>
+                        </div>
+                        <div className="admin-order-footer" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <label style={{ margin: 0, whiteSpace: "nowrap", fontSize: 12 }}>Weight (g)</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              key={`w_${o.id}_${o.weightgrams}`}
+                              defaultValue={o.weightgrams || ""}
+                              placeholder="0"
+                              onBlur={(e) => handleUpdateWeight(o.id, e.target.value)}
+                              style={{ width: 85, padding: "6px 10px", fontSize: 13 }}
+                            />
+                          </div>
+                          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                            Rate: <strong style={{ color: "var(--text-primary)" }}>{config.price_per_gram} EGP/g</strong>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+                            <label style={{ margin: 0, whiteSpace: "nowrap", fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>Price (EGP)</label>
+                            <input
+                              type="number"
+                              step="0.5"
+                              key={`p_${o.id}_${o.totalprice}`}
+                              defaultValue={o.totalprice !== null && o.totalprice !== undefined ? Number(o.totalprice).toFixed(2) : calculatedPrice.toFixed(2)}
+                              placeholder="0.00"
+                              onBlur={(e) => handleUpdatePrice(o.id, e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && handleUpdatePrice(o.id, e.target.value)}
+                              style={{ width: 110, padding: "6px 10px", fontSize: 14, fontWeight: 900, color: "var(--accent)", textAlign: "right" }}
+                              title="Click to edit final order price"
+                            />
+                          </div>
                         </div>
                       </div>
-                      <div className="admin-order-footer" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <label style={{ margin: 0, whiteSpace: "nowrap", fontSize: 12 }}>Weight (g)</label>
-                          <input
-                            type="number"
-                            step="0.1"
-                            key={`w_${o.id}_${o.weightgrams}`}
-                            defaultValue={o.weightgrams || ""}
-                            placeholder="0"
-                            onBlur={(e) => handleUpdateWeight(o.id, e.target.value)}
-                            style={{ width: 85, padding: "6px 10px", fontSize: 13 }}
-                          />
-                        </div>
-                        <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                          Rate: <strong style={{ color: "var(--text-primary)" }}>{config.price_per_gram} EGP/g</strong>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
-                          <label style={{ margin: 0, whiteSpace: "nowrap", fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>Price (EGP)</label>
-                          <input
-                            type="number"
-                            step="0.5"
-                            key={`p_${o.id}_${o.totalprice}`}
-                            defaultValue={o.totalprice !== null && o.totalprice !== undefined ? Number(o.totalprice).toFixed(2) : calculatedPrice.toFixed(2)}
-                            placeholder="0.00"
-                            onBlur={(e) => handleUpdatePrice(o.id, e.target.value)}
-                            onKeyDown={(e) => e.key === "Enter" && handleUpdatePrice(o.id, e.target.value)}
-                            style={{ width: 110, padding: "6px 10px", fontSize: 14, fontWeight: 900, color: "var(--accent)", textAlign: "right" }}
-                            title="Click to edit final order price"
-                          />
-                        </div>
-                      </div>
-                    </div>
                     </div>
                   );
                 })}
               </div>
             </>
+          )}
+
+          {adminTab === "profit" && (
+            <AdminProfitTab
+              orders={orders}
+              config={config}
+              spoolCostKg={spoolCostKg}
+              setSpoolCostKg={setSpoolCostKg}
+              electricityTariffKwh={electricityTariffKwh}
+              setElectricityTariffKwh={setElectricityTariffKwh}
+              printerPowerWatts={printerPowerWatts}
+              setPrinterPowerWatts={setPrinterPowerWatts}
+              cc1WearRatePerHour={cc1WearRatePerHour}
+              setCc1WearRatePerHour={setCc1WearRatePerHour}
+              printSpeedGph={printSpeedGph}
+              setPrintSpeedGph={setPrintSpeedGph}
+              materialCosts={materialCosts}
+              setMaterialCosts={setMaterialCosts}
+              addToast={addToast}
+            />
           )}
 
           {adminTab === "gallery" && (
@@ -1788,17 +2609,19 @@ export default function App() {
 
       {/* 3D Canvas */}
       <div className="canvas-wrapper">
-        <div style={{ position: "sticky", top: 80, height: "calc(100vh - 80px)", width: "100%" }}>
+        <div style={{ position: "sticky", top: 0, height: "100vh", width: "100%" }}>
           <Canvas
             shadows
-            dpr={[1, 1.5]}
+            dpr={[1, 2]}
             camera={{ position: [0, 0, 7], fov: 40 }}
-            gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.2 }}
+            gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.4 }}
             performance={{ min: 0.5 }}
           >
-            <ambientLight intensity={0.5} />
-            <directionalLight position={[10, 10, 5]} intensity={1.8} color="#ffffff" />
-            <directionalLight position={[-5, -5, -5]} intensity={0.3} color="#FFB347" />
+            <ambientLight intensity={0.35} />
+            <directionalLight position={[8, 10, 5]} intensity={2.0} color="#ffffff" castShadow />
+            <directionalLight position={[-6, -4, -6]} intensity={0.5} color="#FFB347" />
+            <directionalLight position={[0, -8, 2]} intensity={0.2} color="#FF8000" />
+            <pointLight position={[3, 3, 3]} intensity={0.8} color="#FF8000" distance={12} decay={2} />
             <Suspense fallback={<SceneLoader />}>
               <PrintScene />
               <Environment files={`${import.meta.env.BASE_URL}potsdamer_platz_1k.hdr`} />
@@ -1838,7 +2661,7 @@ export default function App() {
       </nav>
 
       {config.announcement_active && config.announcement_text && hash !== "#boss" && (
-        <div style={{ background: "var(--accent-gradient)", color: "#fff", textAlign: "center", padding: "12px 24px", fontSize: 14, fontWeight: 600, marginTop: 80, marginInline: 24, borderRadius: "var(--radius-full)", position: "relative", zIndex: 50, boxShadow: "var(--accent-glow)" }}>
+        <div style={{ background: "var(--accent-gradient)", color: "#fff", textAlign: "center", padding: "12px 24px", fontSize: 13.5, fontWeight: 700, marginTop: 96, maxWidth: 1280, marginInline: "auto", borderRadius: "var(--radius-sm)", position: "relative", zIndex: 50, boxShadow: "var(--accent-glow)" }}>
           {config.announcement_text}
         </div>
       )}
@@ -1847,11 +2670,12 @@ export default function App() {
         {hash === "#full-gallery" && <FullGalleryView items={galleryItems} onItemClick={(item) => { setActiveGalleryItem(item); setActiveMediaIndex(0); }} />}
         
         {hash === "#order" && (
-          <section className="section-container animate-in" style={{ paddingTop: 140, minHeight: "100vh", position: "relative", zIndex: 10 }}>
+          <section className="section-container animate-in" style={{ paddingTop: 130, minHeight: "100vh", position: "relative", zIndex: 10 }}>
             <div style={{ textAlign: "center", marginBottom: 32 }}>
-              <h1 style={{ fontSize: "clamp(32px, 5vw, 48px)", marginBottom: 8 }}>{orderStep === 4 ? "Order Received!" : "Place Order"}</h1>
-              {orderStep < 4 && <p style={{ margin: 0 }}>Step {orderStep} of 3</p>}
-              {orderStep === 1 && <a href="#home" style={{ display: "inline-block", marginTop: 8, fontSize: 13, color: "var(--text-tertiary)", textDecoration: "none", fontWeight: 600 }}>← Cancel</a>}
+              <div className="eyebrow-tag">3D SLICER & ORDER WORKSTATION</div>
+              <h1 style={{ fontSize: "clamp(32px, 5vw, 48px)", marginBottom: 8 }}>{orderStep === 4 ? "Order Dispatched" : "Configure Your 3D Print"}</h1>
+              {orderStep < 4 && <p style={{ margin: 0 }}>Step {orderStep} of 3 — Instant STL Geometry & Weight Analysis</p>}
+              {orderStep === 1 && <a href="#home" style={{ display: "inline-block", marginTop: 10, fontSize: 13, color: "var(--text-tertiary)", textDecoration: "none", fontWeight: 600 }}>Return to Studio Home</a>}
             </div>
             
             {orderStep < 4 && (
@@ -1863,7 +2687,7 @@ export default function App() {
                 <div className={`stepper-line ${orderStep > 1 ? "filled" : ""}`} />
                 <div className={`stepper-step ${orderStep > 2 ? "completed" : ""} ${orderStep === 2 ? "active" : ""}`}>
                   <div className="stepper-dot">{orderStep > 2 ? <CheckIcon /> : "2"}</div>
-                  <span className="stepper-label">Details</span>
+                  <span className="stepper-label">CAD & Slicer</span>
                 </div>
                 <div className={`stepper-line ${orderStep > 2 ? "filled" : ""}`} />
                 <div className={`stepper-step ${orderStep > 3 ? "completed" : ""} ${orderStep === 3 ? "active" : ""}`}>
@@ -1873,7 +2697,7 @@ export default function App() {
               </div>
             )}
 
-            <div className="card" style={{ maxWidth: 600, margin: "0 auto", width: "100%" }}>
+            <div className="card" style={{ maxWidth: 640, margin: "0 auto", width: "100%" }}>
               {orderStep === 1 && (
                 <div className="animate-in">
                   <div className="form-row">
@@ -1905,7 +2729,7 @@ export default function App() {
                       else if (!isValidEgyptPhone(newOrder.phone)) errors.phone = "Enter a valid Egyptian number (e.g. 01012345678).";
                       setFormErrors(errors);
                       if (Object.keys(errors).length === 0) setOrderStep(2);
-                    }}>Next Step →</button>
+                    }}>Continue to CAD Upload</button>
                   </div>
                 </div>
               )}
@@ -1918,45 +2742,68 @@ export default function App() {
                       <input value={newOrder.orderName} onChange={e => setNewOrder(p => ({ ...p, orderName: e.target.value }))} placeholder="My Part" />
                     </div>
                   </div>
-                  <div className="form-row">
-                    <div>
+                  
+                  <div className="form-row" style={{ marginBottom: 16 }}>
+                    <div style={{ width: "100%" }}>
                       <label>Material</label>
                       <select value={newOrder.material} onChange={e => setNewOrder(p => ({ ...p, material: e.target.value }))}>
-                        {config.materials.split(',').map(m => <option key={m}>{m.trim()}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label>Color</label>
-                      <select value={newOrder.color} onChange={e => setNewOrder(p => ({ ...p, color: e.target.value }))}>
-                        {config.colors.split(',').map(c => <option key={c}>{c.trim()}</option>)}
+                        {config.materials.split(',').map(m => <option key={m} value={m.trim()}>{m.trim()}</option>)}
                       </select>
                     </div>
                   </div>
-                  <div className="form-row">
-                    <div>
-                      <label>Print Quality / Profile</label>
-                      <select value={orderLayerHeight} onChange={e => {
-                        const lh = parseFloat(e.target.value);
-                        setOrderLayerHeight(lh);
-                        if (lh <= 0.10) setOrderNozzle(0.20);
-                        else setOrderNozzle(0.40);
-                      }}>
-                        <option value={0.20}>0.20 mm Standard (0.4 Nozzle - Balanced)</option>
-                        <option value={0.10}>0.10 mm Ultra-Fine (0.2 Nozzle - High Precision)</option>
-                        <option value={0.12}>0.12 mm High Detail (0.4 Nozzle)</option>
-                        <option value={0.28}>0.28 mm Draft / Rapid (0.4 Nozzle)</option>
-                      </select>
+
+                  {/* Visual Filament Color Swatches */}
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <label style={{ margin: 0 }}>Filament Color</label>
+                      <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 800 }}>{newOrder.color || "Select Color"}</span>
                     </div>
-                    <div>
-                      <label>Infill Density</label>
-                      <select value={orderInfill} onChange={e => setOrderInfill(parseInt(e.target.value, 10))}>
-                        <option value={20}>Standard (20%) - Recommended for Most Parts</option>
-                        <option value={50}>High Strength (50%) - Functional & Heavy Duty</option>
-                        <option value={15}>Light / Draft (15%) - Rapid Prototyping</option>
-                        <option value={100}>Solid (100%) - Maximum Structural Density</option>
-                      </select>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {config.colors.split(',').map(c => {
+                        const colorName = c.trim();
+                        if (!colorName) return null;
+                        const hex = getColorHex(colorName);
+                        const isSelected = (newOrder.color || "").toLowerCase() === colorName.toLowerCase();
+                        return (
+                          <button
+                            key={colorName}
+                            type="button"
+                            onClick={() => setNewOrder(p => ({ ...p, color: colorName }))}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 8,
+                              padding: "7px 14px",
+                              borderRadius: "var(--radius-full)",
+                              background: isSelected ? "rgba(255,128,0,0.15)" : "var(--bg-glass-strong)",
+                              border: isSelected ? "2px solid var(--accent)" : "1px solid var(--border-glass-strong)",
+                              color: isSelected ? "var(--accent)" : "var(--text-primary)",
+                              fontWeight: isSelected ? 800 : 500,
+                              fontSize: 13,
+                              cursor: "pointer",
+                              transition: "all 0.2s ease",
+                              boxShadow: isSelected ? "0 0 12px rgba(255,128,0,0.3)" : "none",
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 14,
+                                height: 14,
+                                borderRadius: "50%",
+                                background: hex,
+                                border: "1px solid rgba(255,255,255,0.4)",
+                                boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                                display: "inline-block",
+                                flexShrink: 0
+                              }}
+                            />
+                            <span>{colorName}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
+
                   <div style={{ marginBottom: 20 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <label>Notes / Special Instructions</label>
@@ -1964,20 +2811,26 @@ export default function App() {
                     </div>
                     <textarea value={newOrder.notes} maxLength={500} onChange={e => setNewOrder(p => ({ ...p, notes: e.target.value }))} placeholder="Orientation, special tolerances, requests..." rows="3" />
                   </div>
+
                   <div style={{ marginBottom: 24 }}>
                     <label>STL or ZIP File(s) *</label>
                     <div className={`drop-zone ${isDragging ? 'active' : ''}`} 
                          onDragOver={handleDragOver} 
                          onDragLeave={handleDragLeave} 
                          onDrop={handleDrop}
-                         style={{ padding: "40px", border: formErrors.file ? "2px dashed #FF3B30" : "2px dashed var(--border-glass)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.05)", textAlign: "center", cursor: "pointer" }}>
+                         style={{ padding: "40px", border: formErrors.file ? "2px dashed #FF3B30" : "2px dashed var(--border-glass-strong)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.03)", textAlign: "center", cursor: "pointer" }}>
                       <input type="file" multiple accept=".stl,.zip" onChange={handleFileChange} style={{ display: 'none' }} id="fileInput" />
-                      <label htmlFor="fileInput" style={{ cursor: 'pointer', display: 'block' }}>
-                        {selectedFiles.length > 0 ? selectedFiles.map(f => f.name).join(", ") : "Drag & Drop or Click to Upload"}
+                      <label htmlFor="fileInput" style={{ cursor: 'pointer', display: 'block', margin: 0 }}>
+                        {selectedFiles.length > 0 ? selectedFiles.map(f => f.name).join(", ") : "Drag & Drop .STL or .ZIP File(s) or Click to Browse"}
                       </label>
                     </div>
                     {fileError && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 8 }}>{fileError}</div>}
                     {formErrors.file && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 8, fontWeight: 600 }}>{formErrors.file}</div>}
+                    {selectedFiles.some(f => f.name.toLowerCase().endsWith(".zip")) && (
+                      <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(255,128,0,0.08)", border: "1px solid rgba(255,128,0,0.2)", borderRadius: "var(--radius-sm)", fontSize: 12.5, color: "var(--text-secondary)" }}>
+                        <strong>ZIP Archive Uploaded:</strong> Multiple files detected. Final weight and quote will be calculated and confirmed upon operator review (Standard Rate: <strong>{config.price_per_gram} EGP/g</strong>).
+                      </div>
+                    )}
                   </div>
 
                   {/* 3D STL Object Preview & Slicer Estimation */}
@@ -1986,6 +2839,7 @@ export default function App() {
                       <label>3D Model & Build Plate Preview</label>
                       <STLViewer
                         file={selectedFiles.find(f => f.name.toLowerCase().endsWith(".stl"))}
+                        color={newOrder.color}
                         infillPercent={orderInfill}
                         layerHeight={orderLayerHeight}
                         nozzleSize={orderNozzle}
@@ -2001,7 +2855,7 @@ export default function App() {
                             <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--accent)" }}>
                               Client Print Estimate
                             </span>
-                            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-full)", background: clientMetrics.fitsBed ? "rgba(52, 199, 89, 0.15)" : "rgba(255, 59, 48, 0.15)", color: clientMetrics.fitsBed ? "var(--status-done)" : "#FF3B30", fontWeight: 700, border: `1px solid ${clientMetrics.fitsBed ? 'rgba(52,199,89,0.3)' : 'rgba(255,59,48,0.3)'}` }}>
+                            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-full)", background: clientMetrics.fitsBed ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)", color: clientMetrics.fitsBed ? "var(--status-done)" : "#ef4444", fontWeight: 700, border: `1px solid ${clientMetrics.fitsBed ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
                               {clientMetrics.fitsBed ? "Fits Centauri Bed (256x256mm)" : "Exceeds Bed Envelope"}
                             </span>
                           </div>
@@ -2043,11 +2897,9 @@ export default function App() {
                         borderRadius: "var(--radius-sm)",
                         border: "1px solid rgba(128,128,128,0.12)"
                       }}>
-                        * This is a rough estimate based on the uploaded model geometry.
-                        Actual weight, print time, and final price may vary depending on the
-                        slicer profile, orientation, support structures, and quality settings
-                        selected by our print team. You will be notified of the confirmed
-                        price before printing begins.
+                        * This is an automated preliminary estimate based on uploaded 3D geometry.
+                        Final weight, print time, and price may be adjusted based on machine orientation,
+                        support structures, and slicer tolerances confirmed by our workshop team.
                       </div>
                     </div>
                   )}
@@ -2087,16 +2939,9 @@ export default function App() {
                     </div>
                     <div className="review-item">
                       <span className="review-item-label">Material & Color</span>
-                      <span className="review-item-value">{newOrder.material?.toUpperCase()} ({newOrder.color})</span>
-                    </div>
-                    <div className="review-item">
-                      <span className="review-item-label">Print Profile</span>
-                      <span className="review-item-value">{orderLayerHeight} mm ({orderNozzle} mm Nozzle)</span>
-                    </div>
-                    <div className="review-item">
-                      <span className="review-item-label">Infill Density</span>
-                      <span className="review-item-value">
-                        {orderInfill}% {orderInfill === 20 ? "(Standard)" : orderInfill === 50 ? "(High Strength)" : orderInfill === 100 ? "(Solid)" : "(Draft)"}
+                      <span className="review-item-value" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: "50%", background: getColorHex(newOrder.color), border: "1px solid rgba(255,255,255,0.4)", display: "inline-block" }} />
+                        {newOrder.material?.toUpperCase()} ({newOrder.color})
                       </span>
                     </div>
                     <div className="review-item">
@@ -2104,7 +2949,7 @@ export default function App() {
                       <span className="review-item-value" style={{ wordBreak: "break-all" }}>{newOrder.fileName}</span>
                     </div>
 
-                    {clientMetrics && (
+                    {clientMetrics ? (
                       <>
                         <div style={{ margin: "6px 0", borderTop: "1px solid var(--border-glass)" }}></div>
                         <div className="review-item">
@@ -2125,6 +2970,20 @@ export default function App() {
                           <span className="review-item-label" style={{ fontSize: 15, fontWeight: 700 }}>Est. Total</span>
                           <span style={{ fontSize: 20, fontWeight: 900, color: "var(--accent)" }}>
                             {clientMetrics.totalPrice.toFixed(2)} EGP
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ margin: "6px 0", borderTop: "1px solid var(--border-glass)" }}></div>
+                        <div className="review-item">
+                          <span className="review-item-label">Base Rate</span>
+                          <span className="review-item-value">{config.price_per_gram} EGP/g</span>
+                        </div>
+                        <div className="review-item" style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid var(--border-glass)" }}>
+                          <span className="review-item-label" style={{ fontSize: 15, fontWeight: 700 }}>Est. Total</span>
+                          <span style={{ fontSize: 15, fontWeight: 800, color: "var(--accent)" }}>
+                            Calculated upon slicing ({config.price_per_gram} EGP/g)
                           </span>
                         </div>
                       </>
@@ -2163,10 +3022,38 @@ export default function App() {
                     <span className="code">{successModal}</span>
                     <span className="copy-hint">{copiedTrackingCode ? "Copied to clipboard!" : "Tap to copy"}</span>
                   </div>
+
+                  {lastSubmittedQuote && (
+                    <div className="review-summary-card" style={{ maxWidth: 440, margin: "24px auto", textAlign: "left", background: "rgba(255,255,255,0.02)" }}>
+                      <div className="review-item">
+                        <span className="review-item-label">Part Name</span>
+                        <span className="review-item-value">{lastSubmittedQuote.orderName}</span>
+                      </div>
+                      <div className="review-item">
+                        <span className="review-item-label">Material & Color</span>
+                        <span className="review-item-value" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ width: 10, height: 10, borderRadius: "50%", background: getColorHex(lastSubmittedQuote.color), display: "inline-block" }} />
+                          {lastSubmittedQuote.material?.toUpperCase()} ({lastSubmittedQuote.color})
+                        </span>
+                      </div>
+                      {lastSubmittedQuote.weightGrams > 0 && (
+                        <div className="review-item">
+                          <span className="review-item-label">Est. Weight</span>
+                          <span className="review-item-value">{lastSubmittedQuote.weightGrams.toFixed(1)} g</span>
+                        </div>
+                      )}
+                      <div className="review-item" style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid var(--border-glass)" }}>
+                        <span className="review-item-label" style={{ fontWeight: 700 }}>Est. Amount</span>
+                        <span style={{ fontSize: 18, fontWeight: 900, color: "var(--accent)" }}>
+                          {lastSubmittedQuote.totalPrice > 0 ? `${lastSubmittedQuote.totalPrice.toFixed(2)} EGP` : `Calculated upon slicing (${config.price_per_gram} EGP/g)`}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                   
                   <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 32 }}>
                     <a href="#track" className="btn btn-accent" style={{ width: "100%" }} onClick={() => setOrderStep(1)}>Go Track Your Order</a>
-                    <a href="#home" className="btn btn-glass" style={{ width: "100%" }} onClick={() => setOrderStep(1)}>← Back to Home</a>
+                    <a href="#home" className="btn btn-glass" style={{ width: "100%" }} onClick={() => setOrderStep(1)}>Back to Studio Home</a>
                   </div>
                 </div>
               )}
@@ -2175,27 +3062,49 @@ export default function App() {
         )}
 
         {hash === "#track" && (
-          <section className="section-container animate-in" style={{ paddingTop: 140, minHeight: "100vh", position: "relative", zIndex: 10 }}>
+          <section className="section-container animate-in" style={{ paddingTop: 130, minHeight: "100vh", position: "relative", zIndex: 10 }}>
             <div style={{ textAlign: "center", marginBottom: 40 }}>
+              <div className="eyebrow-tag">LIVE PRODUCTION TELEMETRY</div>
               <h1 style={{ fontSize: "clamp(32px, 5vw, 48px)", marginBottom: 12 }}>Track Your Order</h1>
-              <p>Enter your tracking code or phone number to see its status.</p>
+              <p>Enter your tracking code or phone number to inspect live build status.</p>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, flexWrap: "wrap", marginTop: 16 }}>
                 <div className="queue-badge">
                   <div className="live-dot" />
                   <span><strong>{queuedOrdersCount}</strong> in queue</span>
                 </div>
-                <a href="#home" style={{ fontSize: 13, color: "var(--text-tertiary)", textDecoration: "none", fontWeight: 600 }}>← Back to Home</a>
+                <a href="#home" style={{ fontSize: 13, color: "var(--text-tertiary)", textDecoration: "none", fontWeight: 600 }}>Back to Studio Home</a>
               </div>
             </div>
             
-            <div className="card" style={{ maxWidth: 600, margin: "0 auto 40px", width: "100%" }}>
+            <div className="card" style={{ maxWidth: 640, margin: "0 auto 40px", width: "100%" }}>
               <div className="track-search-row" style={{ marginBottom: 0 }}>
-                <input value={trackSearch} onChange={e => setTrackSearch(e.target.value)} placeholder="Tracking Code (JP-...)" onKeyDown={e => e.key === "Enter" && handleTrackSearch()} />
-                <button className="btn btn-primary" onClick={handleTrackSearch}>Search</button>
+                <input value={trackSearch} onChange={e => setTrackSearch(e.target.value)} placeholder="Tracking Code (JP-...) or Phone Number" onKeyDown={e => e.key === "Enter" && handleTrackSearch()} />
+                <button className="btn btn-accent" onClick={handleTrackSearch}>Search</button>
               </div>
             </div>
 
-            <div style={{ maxWidth: 600, margin: "0 auto" }}>
+            <div style={{ maxWidth: 640, margin: "0 auto" }}>
+              {Array.isArray(trackResults) && trackResults.length > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, padding: "0 4px" }}>
+                  <span style={{ fontSize: 12, color: "var(--text-tertiary)", fontWeight: 700, textTransform: "uppercase" }}>
+                    {trackSearch ? `Search Results (${trackResults.length})` : `Recent Orders (${trackResults.length})`}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-glass"
+                    style={{ fontSize: 11, padding: "3px 10px", color: "var(--text-tertiary)" }}
+                    onClick={() => {
+                      localStorage.removeItem("jp_tracking_codes");
+                      setTrackResults(null);
+                      setTrackSearch("");
+                      addToast("Tracking cache cleared", "info");
+                    }}
+                  >
+                    Clear History
+                  </button>
+                </div>
+              )}
+
               {trackResults === "NOT_FOUND" && (
                 <div className="card animate-in" style={{ textAlign: "center", padding: 40 }}>
                   <div style={{ display: "flex", justifyContent: "center" }}>
@@ -2205,25 +3114,68 @@ export default function App() {
                 </div>
               )}
 
-              {Array.isArray(trackResults) && trackResults.map(r => (
-                <div key={r.id} className="card animate-in" style={{ marginBottom: 16 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 8 }}>
-                    <h3 style={{ margin: 0 }}>{r.ordername || "Untitled Order"}</h3>
-                    {r.tracking_code && <CopyableCode code={r.tracking_code} />}
+              {Array.isArray(trackResults) && trackResults.map(r => {
+                const normStatus = (r.status || "").toLowerCase().trim();
+                const isPrinting = normStatus === "printing";
+                const isDone = normStatus === "done";
+                const isQueued = !isPrinting && !isDone;
+                const assignedPrinter = getPrinterFromNotes(r.notes);
+
+                return (
+                  <div key={r.id} className="card animate-in" style={{ marginBottom: 20 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 14 }}>
+                      <div>
+                        <h3 style={{ margin: "0 0 6px" }}>{r.ordername || "Untitled Order"}</h3>
+                        {r.tracking_code && <CopyableCode code={r.tracking_code} />}
+                      </div>
+                      
+                      {/* Prominent Explicit Status Badge */}
+                      <div>
+                        {isQueued && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 14px", borderRadius: "var(--radius-full)", background: "rgba(255, 149, 0, 0.15)", border: "1px solid rgba(255, 149, 0, 0.3)", color: "var(--status-queued)", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--status-queued)", display: "inline-block" }} />
+                            In Queue
+                          </span>
+                        )}
+                        {isPrinting && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 14px", borderRadius: "var(--radius-full)", background: "rgba(0, 122, 255, 0.15)", border: "1px solid rgba(0, 122, 255, 0.3)", color: "var(--status-printing)", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--status-printing)", display: "inline-block" }} />
+                            Printing Live {assignedPrinter ? `(${assignedPrinter})` : ""}
+                          </span>
+                        )}
+                        {isDone && (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 14px", borderRadius: "var(--radius-full)", background: "rgba(52, 199, 89, 0.15)", border: "1px solid rgba(52, 199, 89, 0.3)", color: "var(--status-done)", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--status-done)", display: "inline-block" }} />
+                            Completed & Ready
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <StatusStepper status={r.status} />
+
+                    <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border-glass)", fontSize: 13, color: "var(--text-secondary)" }}>
+                      <span>Material: <strong style={{ color: "var(--text-primary)" }}>{r.material || "PLA"}</strong></span>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        Color:
+                        <span style={{ width: 10, height: 10, borderRadius: "50%", background: getColorHex(r.color), border: "1px solid rgba(255,255,255,0.3)", display: "inline-block" }} />
+                        <strong style={{ color: "var(--text-primary)" }}>{r.color || "Standard"}</strong>
+                      </span>
+                      {r.weightgrams > 0 && <span>Weight: <strong style={{ color: "var(--text-primary)" }}>{r.weightgrams} g</strong></span>}
+                      {r.totalprice > 0 ? (
+                        <span style={{ marginLeft: "auto" }}>Price: <strong style={{ color: "var(--accent)", fontSize: 15 }}>{r.totalprice.toFixed(2)} EGP</strong></span>
+                      ) : (
+                        <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 12 }}>Rate: {config.price_per_gram} EGP/g</span>
+                      )}
+                    </div>
                   </div>
-                  <StatusStepper status={r.status} />
-                  <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginTop: 16, fontSize: 14, color: "var(--text-secondary)" }}>
-                    <span>Material: <strong style={{ color: "var(--text-primary)" }}>{r.material}</strong></span>
-                    <span>Color: <strong style={{ color: "var(--text-primary)" }}>{r.color}</strong></span>
-                    {r.totalprice > 0 && <span>Price: <strong style={{ color: "var(--accent)" }}>{r.totalprice.toFixed(2)} EGP</strong></span>}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            <div className="card" style={{ maxWidth: 600, margin: "40px auto 0", textAlign: "center", padding: 32 }}>
-              <h3 style={{ marginBottom: 16 }}>Need Help?</h3>
-              <p style={{ fontSize: 14, marginBottom: 24 }}>Contact us directly for support or special requests.</p>
+            <div className="card" style={{ maxWidth: 640, margin: "40px auto 0", textAlign: "center", padding: 32 }}>
+              <h3 style={{ marginBottom: 12 }}>Need Direct Assistance?</h3>
+              <p style={{ fontSize: 14, marginBottom: 24 }}>Contact our print engineers directly for urgent tolerances or custom requests.</p>
               <div className="contact-buttons" style={{ justifyContent: "center" }}>
                 <a href={config.whatsapp_number ? `https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}` : "https://wa.me/"} target="_blank" rel="noreferrer" className="btn btn-accent"><WhatsAppIcon /> WhatsApp</a>
                 <a href={`mailto:${config.email_address || "support@etba3ly.store"}`} className="btn btn-glass"><EmailIcon /> Email Us</a>
@@ -2236,103 +3188,103 @@ export default function App() {
 
         {(VALID_HASHES.includes(hash) && hash !== "#full-gallery" && hash !== "#order" && hash !== "#track") && (
           <>
-        {/* ── HERO ── */}
-        <section id="home" className="section-container animate-in">
-          <h1 style={{ whiteSpace: "pre-line" }}>{config.hero_title}</h1>
-          <p style={{ whiteSpace: "pre-line" }}>{config.hero_subtitle}</p>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <a href="#order" className="btn btn-accent">Place an Order</a>
-            {config.whatsapp_number && (
-              <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}?text=${encodeURIComponent("Hello! I'd like to place an order.")}`} target="_blank" rel="noreferrer" className="btn btn-glass" style={{ gap: 8 }}>
-                <WhatsAppIcon /> Order via WhatsApp
-              </a>
-            )}
-            <a href="#track" className="btn btn-glass">Track Order</a>
-          </div>
-        </section>
-
-        {/* ── WHY US ── */}
-        <section id="why" className="section-container reveal">
-          <h2>{config.why_title}</h2>
-          <p>{config.why_text}</p>
-          <div className="feature-cards">
-            {[
-              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--accent)"}}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>, title: "Fast Turnaround", desc: "Most orders done in 24–48hrs" },
-              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--status-done)"}}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>, title: "Student Pricing", desc: `Just ${config.price_per_gram} EGP/gram` },
-              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--status-printing)"}}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>, title: "Precision", desc: "0.2mm layer accuracy" }
-            ].map((f, i) => (
-              <div key={i} className="card" style={{ textAlign: "center", padding: 28 }}>
-                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>{f.icon}</div>
-                <h3 style={{ marginBottom: 6 }}>{f.title}</h3>
-                <p style={{ fontSize: 13, margin: 0 }}>{f.desc}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* -- GALLERY -- */}
-        <section id="gallery" className="gallery-section reveal">
-          <div style={{ textAlign: "center", marginBottom: 56 }}>
-            <h2>Our Work</h2>
-            <p style={{ maxWidth: 500, margin: "0 auto" }}>Some of the parts we've printed. Your project could be next.</p>
-          </div>
-          <div className="gallery-grid">
-            {(galleryItems.length > 0 ? galleryItems.slice(0, 6) : [
-              { id: 'p1', title: "Custom Gears", description: "PLA -- Mechanical parts" },
-              { id: 'p2', title: "Phone Stand", description: "PETG -- Functional design" },
-              { id: 'p3', title: "Miniature Model", description: "PLA -- High detail" },
-              { id: 'p4', title: "Drone Mount", description: "Carbon Fiber -- Lightweight" },
-              { id: 'p5', title: "Enclosure", description: "ABS -- Heat resistant" },
-              { id: 'p6', title: "Art Piece", description: "TPU -- Flexible material" }
-            ]).map((item, i) => (
-              <div key={item.id || i} className="gallery-card" style={{ cursor: item.media_urls ? 'pointer' : 'default' }} onClick={() => { if (item.media_urls) { setActiveGalleryItem(item); setActiveMediaIndex(0); } }}>
-                <div className="gallery-card-img">{item.cover_url ? <img src={item.cover_url} alt={item.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <CubeIcon />}</div>
-                <div className="gallery-card-body">
-                  <h4>{item.title}</h4>
-                  <p>{item.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ textAlign: "center", marginTop: 48 }}>
-            <a href="#full-gallery" className="btn btn-glass">View Full Gallery</a>
-          </div>
-        </section>
-
-        {/* ── ABOUT ── */}
-        <section id="about" className="section-container reveal">
-          <h2>About Us</h2>
-          <p>We're a team of student engineers passionate about bringing ideas to life. Our 3D printing setup is calibrated daily for optimal results — from functional prototypes to creative projects.</p>
-        </section>
-
-        {/* ── CONTACT ── */}
-        <section id="contact" className="section-container reveal">
-          <h2>Get In Touch</h2>
-          <p>Need a custom order or have questions? We're here to help.</p>
-          {config.show_socials !== false && (
-            <div className="contact-buttons">
-              {config.whatsapp_number ? (
-                <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="btn btn-accent" style={{ gap: 10 }}>
-                  <WhatsAppIcon /> WhatsApp
-                </a>
-              ) : (
-                <a href="https://wa.me/" target="_blank" rel="noreferrer" className="btn btn-accent" style={{ gap: 10 }}>
-                  <WhatsAppIcon /> WhatsApp
+          {/* ── HERO ── */}
+          <section id="home" className="section-container animate-in">
+            <h1 style={{ whiteSpace: "pre-line" }}>{config.hero_title}</h1>
+            <p style={{ whiteSpace: "pre-line" }}>{config.hero_subtitle}</p>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <a href="#order" className="btn btn-accent">Place an Order</a>
+              {config.whatsapp_number && (
+                <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}?text=${encodeURIComponent("Hello! I'd like to place an order.")}`} target="_blank" rel="noreferrer" className="btn btn-glass" style={{ gap: 8 }}>
+                  <WhatsAppIcon /> Order via WhatsApp
                 </a>
               )}
-              {config.email_address ? (
-                <a href={`mailto:${config.email_address}`} className="btn btn-glass" style={{ gap: 10 }}>
-                  <EmailIcon /> Email Us
-                </a>
-              ) : (
-                <a href="mailto:support@etba3ly.store" className="btn btn-glass" style={{ gap: 10 }}>
-                  <EmailIcon /> Email Us
-                </a>
-              )}
+              <a href="#track" className="btn btn-glass">Track Order</a>
             </div>
-          )}
-          {config.show_socials === false && <p style={{ fontStyle: "italic", color: "var(--text-tertiary)" }}>Contact information is currently hidden.</p>}
-        </section>
+          </section>
+
+          {/* ── WHY US ── */}
+          <section id="why" className="section-container reveal">
+            <h2>{config.why_title}</h2>
+            <p>{config.why_text}</p>
+            <div className="feature-cards">
+              {[
+                { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--accent)"}}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>, title: "Fast Turnaround", desc: "Most orders done in 24–48hrs" },
+                { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--status-done)"}}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>, title: "Student Pricing", desc: `Just ${config.price_per_gram} EGP/gram` },
+                { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--status-printing)"}}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>, title: "Precision", desc: "0.2mm layer accuracy" }
+              ].map((f, i) => (
+                <div key={i} className="card" style={{ textAlign: "center", padding: 28 }}>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>{f.icon}</div>
+                  <h3 style={{ marginBottom: 6 }}>{f.title}</h3>
+                  <p style={{ fontSize: 13, margin: 0 }}>{f.desc}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* -- GALLERY -- */}
+          <section id="gallery" className="gallery-section reveal">
+            <div style={{ textAlign: "center", marginBottom: 56 }}>
+              <h2>Our Work</h2>
+              <p style={{ maxWidth: 500, margin: "0 auto" }}>Some of the parts we've printed. Your project could be next.</p>
+            </div>
+            <div className="gallery-grid">
+              {(galleryItems.length > 0 ? galleryItems.slice(0, 6) : [
+                { id: 'p1', title: "Custom Gears", description: "PLA -- Mechanical parts" },
+                { id: 'p2', title: "Phone Stand", description: "PETG -- Functional design" },
+                { id: 'p3', title: "Miniature Model", description: "PLA -- High detail" },
+                { id: 'p4', title: "Drone Mount", description: "Carbon Fiber -- Lightweight" },
+                { id: 'p5', title: "Enclosure", description: "ABS -- Heat resistant" },
+                { id: 'p6', title: "Art Piece", description: "TPU -- Flexible material" }
+              ]).map((item, i) => (
+                <div key={item.id || i} className="gallery-card" style={{ cursor: item.media_urls ? 'pointer' : 'default' }} onClick={() => { if (item.media_urls) { setActiveGalleryItem(item); setActiveMediaIndex(0); } }}>
+                  <div className="gallery-card-img">{item.cover_url ? <img src={item.cover_url} alt={item.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <CubeIcon />}</div>
+                  <div className="gallery-card-body">
+                    <h4>{item.title}</h4>
+                    <p>{item.description}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ textAlign: "center", marginTop: 48 }}>
+              <a href="#full-gallery" className="btn btn-glass">View Full Gallery</a>
+            </div>
+          </section>
+
+          {/* ── ABOUT ── */}
+          <section id="about" className="section-container reveal">
+            <h2>About Us</h2>
+            <p>We're a team of student engineers passionate about bringing ideas to life. Our 3D printing setup is calibrated daily for optimal results — from functional prototypes to creative projects.</p>
+          </section>
+
+          {/* ── CONTACT ── */}
+          <section id="contact" className="section-container reveal">
+            <h2>Get In Touch</h2>
+            <p>Need a custom order or have questions? We're here to help.</p>
+            {config.show_socials !== false && (
+              <div className="contact-buttons">
+                {config.whatsapp_number ? (
+                  <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="btn btn-accent" style={{ gap: 10 }}>
+                    <WhatsAppIcon /> WhatsApp
+                  </a>
+                ) : (
+                  <a href="https://wa.me/" target="_blank" rel="noreferrer" className="btn btn-accent" style={{ gap: 10 }}>
+                    <WhatsAppIcon /> WhatsApp
+                  </a>
+                )}
+                {config.email_address ? (
+                  <a href={`mailto:${config.email_address}`} className="btn btn-glass" style={{ gap: 10 }}>
+                    <EmailIcon /> Email Us
+                  </a>
+                ) : (
+                  <a href="mailto:support@etba3ly.store" className="btn btn-glass" style={{ gap: 10 }}>
+                    <EmailIcon /> Email Us
+                  </a>
+                )}
+              </div>
+            )}
+            {config.show_socials === false && <p style={{ fontStyle: "italic", color: "var(--text-tertiary)" }}>Contact information is currently hidden.</p>}
+          </section>
         </>
         )}
         {hash !== "#order" && hash !== "#boss" && (

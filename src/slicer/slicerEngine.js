@@ -321,7 +321,7 @@ export function estimatePrintMetrics(geometry, settings = {}) {
   const infillPercent = settings.infillPercent !== undefined ? settings.infillPercent : 20;
   const layerHeight = settings.layerHeight || 0.20;
   const nozzleSize = settings.nozzleSize || (layerHeight <= 0.10 ? 0.20 : 0.40);
-  const pricePerGram = parseFloat(settings.pricePerGram) || 4.0; // EGP per gram
+  const pricePerGram = parseFloat(settings.pricePerGram) || 3.0; // EGP per gram
 
   // Characteristic thickness in mm: t_char = (2 * Volume_mm3) / SurfaceArea_mm2
   // For thin mechanical parts (e.g. controller bumpers, clips, brackets):
@@ -444,7 +444,7 @@ export function sliceMesh(geometry, settings = {}) {
   const firstLayerHeight = settings.firstLayerHeight || Math.min(0.24, layerHeight * 1.5);
   const infillPercent = settings.infillPercent !== undefined ? settings.infillPercent : 20;
   const wallCount = settings.wallCount || 2;
-  const pricePerGram = parseFloat(settings.pricePerGram) || 4.0;
+  const pricePerGram = parseFloat(settings.pricePerGram) || 3.0;
 
   const numLayers = estimate.numLayers;
   const nozzleSize = estimate.nozzleSize || 0.40;
