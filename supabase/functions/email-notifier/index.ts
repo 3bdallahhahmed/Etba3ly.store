@@ -1,36 +1,51 @@
 import "@supabase/functions-js/edge-runtime.d.ts";
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 Deno.serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
   // Check request method
   if (req.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 });
+    return new Response('Method Not Allowed', { status: 405, headers: corsHeaders });
   }
 
   try {
     const payload = await req.json();
     console.log("Received notification payload:", payload);
 
-    // Support both Supabase Webhook payload and direct client invoke
-    const table = payload.table || (payload.record ? 'orders' : null);
-    if (!payload || (table && table !== 'orders')) {
-      return new Response('Invalid table or payload', { status: 400 });
-    }
-
     const type = payload.type || (payload.old_record ? 'UPDATE' : 'INSERT');
-    const record = payload.record || payload.order;
+    const record = payload.record || payload.order || (type === 'TEST' ? {
+      name: payload.name || "Workshop Admin",
+      email: payload.email || payload.recipient,
+      ordername: "System Diagnostic Test Part",
+      material: "PLA",
+      color: "McLaren Orange",
+      weightgrams: 42,
+      pricepergram: 3,
+      totalprice: 126,
+      tracking_code: "JP-TEST99"
+    } : null);
     const old_record = payload.old_record;
+    const adminEmail = payload.admin_email;
 
     if (!record) {
-      return new Response('Missing record in payload', { status: 400 });
+      return new Response(JSON.stringify({ error: 'Missing order record in payload' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     // Determine recipient
-    const recipient = record.email;
+    const recipient = record.email || payload.email;
     if (!recipient || typeof recipient !== 'string' || !recipient.includes('@')) {
       console.log('Skipping email: No valid recipient email available for order:', record.id);
       return new Response(JSON.stringify({ message: 'No valid recipient email' }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
@@ -43,7 +58,12 @@ Deno.serve(async (req) => {
     let statusText = "";
     let isInvoice = false;
 
-    if (type === 'INSERT') {
+    if (type === 'TEST') {
+      isInvoice = true;
+      subject = `Diagnostic Test Invoice - Centurai Print OS | Etba3ly`;
+      statusTitle = "Email Notification System Test";
+      statusText = "This is an automated diagnostic test verifying that your Resend API integration and Supabase Edge Function are delivering order invoices correctly.";
+    } else if (type === 'INSERT') {
       // New Order Created -> Send Order Confirmation & Invoice
       isInvoice = true;
       subject = `Order Confirmed - Invoice #${record.tracking_code || record.id} | Etba3ly`;
@@ -55,7 +75,7 @@ Deno.serve(async (req) => {
 
       // Avoid duplicate emails if status hasn't changed
       if (oldStatus && oldStatus === newStatus) {
-        return new Response('Status did not change', { status: 200 });
+        return new Response(JSON.stringify({ message: 'Status did not change' }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
       if (newStatus === 'printing') {
@@ -77,14 +97,16 @@ Deno.serve(async (req) => {
         statusText = `The status of your order has been updated to ${newStatus}.`;
       }
     } else {
-      return new Response(`Ignore event type: ${type}`, { status: 200 });
+      return new Response(JSON.stringify({ message: `Ignored event type: ${type}` }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     // Get Resend API Key
     const resendApiKey = Deno.env.get('RESEND_API_KEY');
     if (!resendApiKey) {
       console.error('RESEND_API_KEY is not configured');
-      return new Response('Server configuration error', { status: 500 });
+      return new Response(JSON.stringify({ 
+        error: 'RESEND_API_KEY secret is not configured in Supabase. Please add your Resend API Key in Supabase Project Settings -> Edge Functions -> Secrets.' 
+      }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     // Price and weight calculations
@@ -374,21 +396,45 @@ This is an automated notification from Etba3ly 3D Printing Hub (etba3ly.store).
       console.error('Resend API returned error:', resendData);
       return new Response(JSON.stringify({ error: resendData }), { 
         status: resendResponse.status,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
+    }
+
+    // Send admin notification copy for new orders
+    if (type === 'INSERT' && adminEmail && typeof adminEmail === 'string' && adminEmail.includes('@') && adminEmail !== recipient) {
+      try {
+        console.log(`Sending new order alert copy to admin: ${adminEmail}`);
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${resendApiKey}`
+          },
+          body: JSON.stringify({
+            from: senderEmail,
+            reply_to: recipient,
+            to: [adminEmail],
+            subject: `[NEW ORDER ALERT] Invoice #${record.tracking_code || record.id} from ${record.name || 'Customer'}`,
+            html: htmlContent,
+            text: textContent
+          })
+        });
+      } catch (adminErr) {
+        console.warn('Could not dispatch admin copy:', adminErr);
+      }
     }
 
     console.log('Email sent successfully:', resendData);
     return new Response(JSON.stringify({ success: true, id: resendData.id }), {
       status: 200,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
   } catch (err) {
     console.error('Error processing notification:', err);
     return new Response(JSON.stringify({ error: err.message }), { 
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 });

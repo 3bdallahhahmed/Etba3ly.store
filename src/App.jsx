@@ -529,6 +529,7 @@ const DEFAULT_CONFIG = {
   materials: "PLA, PETG, ABS, Carbon Fiber, TPU",
   colors: "White, Black, Silver, Red, Orange, Blue, Gray",
   whatsapp_number: "",
+  whatsapp_api_key: "",
   instagram_link: "",
   email_address: "",
   show_socials: true,
@@ -591,6 +592,13 @@ function AdminProfitTab({
   setPrintSpeedGph,
   materialCosts,
   setMaterialCosts,
+  fleetLogs,
+  setFleetLogs,
+  externalPrinterStates,
+  PRINTERS,
+  onClearExternalJob,
+  onDeleteFleetLog,
+  onOpenExternalPrompt,
   addToast
 }) {
   const defaultRate = parseFloat(config.price_per_gram) || 3;
@@ -607,21 +615,14 @@ function AdminProfitTab({
   const wearCostPerGram = speedGph > 0 ? cc1WearPerHour / speedGph : 0;
   const machineBurdenPerGram = electricityCostPerGram + wearCostPerGram;
 
-  // Extract all configured materials from website CMS and past orders
+  // Extract all configured materials strictly from website CMS
   const configuredMaterials = useMemo(() => {
     const fromConfig = (config.materials || "")
       .split(',')
       .map(m => m.trim().toUpperCase())
       .filter(Boolean);
-    const fromOrders = orders
-      .map(o => (o.material || "").trim().toUpperCase())
-      .filter(Boolean);
-    const set = new Set([...fromConfig, ...fromOrders]);
-    if (set.size === 0) {
-      ["PLA", "PLA+", "PETG", "ABS", "CARBON FIBER", "TPU"].forEach(m => set.add(m));
-    }
-    return Array.from(set);
-  }, [config.materials, orders]);
+    return fromConfig.length > 0 ? fromConfig : ["PLA", "PETG", "ABS", "CARBON FIBER", "TPU"];
+  }, [config.materials]);
 
   const getMaterialSpoolCost = useCallback((materialName) => {
     if (!materialName) return parseFloat(spoolCostKg) || 750;
@@ -729,10 +730,80 @@ function AdminProfitTab({
       };
     });
 
+    // Offline USB print logs telemetry
+    const allUsbGrams = (fleetLogs || []).reduce((sum, l) => sum + (Number(l.grams) || 0), 0);
+    const allUsbHours = (fleetLogs || []).reduce((sum, l) => sum + (Number(l.hours) || (speedGph > 0 ? (Number(l.grams) || 0) / speedGph : 0)), 0);
+    const allFleetGrams = doneGrams + allUsbGrams;
+    const allFleetPrintHours = donePrintHours + allUsbHours;
+    const allFleetWearCost = allFleetPrintHours * wearRatePerHour;
+
     const doneTotalCost = doneFilamentCost + doneWearCost + doneElectricityCost;
     const netProfit = doneRevenue - doneTotalCost;
     const profitMargin = doneRevenue > 0 ? (netProfit / doneRevenue) * 100 : 0;
     const avgProfitPerOrder = doneOrders.length > 0 ? netProfit / doneOrders.length : 0;
+
+    // Per-Printer Hardware Fleet Telemetry
+    const printerFleetStats = {
+      perPrinter: {},
+      unassignedDoneCount: 0,
+      unassignedGrams: 0,
+      unassignedHours: 0,
+      unassignedWear: 0
+    };
+
+    (PRINTERS || ["CC Abdalla", "CC Mazen"]).forEach(printer => {
+      const printerDoneOrders = orders.filter(o => 
+        (o.status || "").toLowerCase().trim() === "done" && 
+        getPrinterFromNotes(o.notes) === printer
+      );
+      const printerActiveOrder = orders.find(o => 
+        (o.status || "").toLowerCase().trim() === "printing" && 
+        getPrinterFromNotes(o.notes) === printer
+      );
+      const printerUsbLogs = (fleetLogs || []).filter(l => l.printer === printer);
+
+      const orderGrams = printerDoneOrders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
+      const orderHours = speedGph > 0 ? orderGrams / speedGph : 0;
+
+      const usbGrams = printerUsbLogs.reduce((sum, l) => sum + (Number(l.grams) || 0), 0);
+      const usbHours = printerUsbLogs.reduce((sum, l) => sum + (Number(l.hours) || (speedGph > 0 ? (Number(l.grams) || 0) / speedGph : 0)), 0);
+
+      const totalGrams = orderGrams + usbGrams;
+      const totalHours = orderHours + usbHours;
+      const wearExpense = totalHours * wearRatePerHour;
+      const elecExpense = totalHours * electricityCostPerHour;
+
+      const externalState = externalPrinterStates && externalPrinterStates[printer];
+      const isUsbWorking = externalState && externalState.status === "working";
+
+      printerFleetStats.perPrinter[printer] = {
+        name: printer,
+        orderGrams,
+        orderHours,
+        usbGrams,
+        usbHours,
+        totalGrams,
+        totalHours,
+        wearExpense,
+        elecExpense,
+        totalJobs: printerDoneOrders.length + printerUsbLogs.length,
+        doneOrdersCount: printerDoneOrders.length,
+        usbJobsCount: printerUsbLogs.length,
+        activeOrder: printerActiveOrder,
+        isUsbWorking,
+        usbJobName: isUsbWorking ? externalState.jobName : null,
+        status: printerActiveOrder ? "printing" : isUsbWorking ? "usb" : "idle"
+      };
+    });
+
+    const unassignedDoneOrders = orders.filter(o => 
+      (o.status || "").toLowerCase().trim() === "done" && 
+      !getPrinterFromNotes(o.notes)
+    );
+    printerFleetStats.unassignedDoneCount = unassignedDoneOrders.length;
+    printerFleetStats.unassignedGrams = unassignedDoneOrders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
+    printerFleetStats.unassignedHours = speedGph > 0 ? printerFleetStats.unassignedGrams / speedGph : 0;
+    printerFleetStats.unassignedWear = printerFleetStats.unassignedHours * wearRatePerHour;
 
     // Materials breakdown table
     const materialMap = {};
@@ -807,6 +878,12 @@ function AdminProfitTab({
       donePrintHours,
       activePrintHours,
       totalPrintHoursAll,
+      allUsbGrams,
+      allUsbHours,
+      allFleetGrams,
+      allFleetPrintHours,
+      allFleetWearCost,
+      printerFleetStats,
       doneFilamentCost,
       doneWearCost,
       doneElectricityCost,
@@ -817,7 +894,7 @@ function AdminProfitTab({
       materialStats,
       doneOrdersList
     };
-  }, [orders, defaultRate, speedGph, wearRatePerHour, electricityCostPerHour, machineHourlyBurden, configuredMaterials, getMaterialSpoolCost]);
+  }, [orders, defaultRate, speedGph, wearRatePerHour, electricityCostPerHour, machineHourlyBurden, configuredMaterials, getMaterialSpoolCost, fleetLogs, PRINTERS, externalPrinterStates]);
 
   return (
     <div className="animate-in" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -862,17 +939,231 @@ function AdminProfitTab({
           </div>
         </div>
 
-        <div className="card" title="Total active machine hours and filament weight extruded on your Centauri Carbon CC1 3D printer">
+        <div className="card" title="Total active machine hours and filament weight extruded on your Centauri Carbon CC1 3D printer fleet">
           <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Machine Hours & Material
+            Fleet Hours & Extrusion
           </div>
           <div style={{ fontSize: 32, fontWeight: 900, color: "var(--status-printing)", margin: "6px 0" }}>
-            {financialSummary.donePrintHours.toFixed(1)} hrs
+            {financialSummary.allFleetPrintHours.toFixed(1)} hrs
           </div>
           <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            ~{(financialSummary.doneGrams / 1000).toFixed(2)} kg extruded on CC1 ({financialSummary.doneOrdersCount} orders)
+            ~{(financialSummary.allFleetGrams / 1000).toFixed(2)} kg total ({financialSummary.doneOrdersCount} orders + {financialSummary.allUsbHours > 0 ? `${(fleetLogs || []).length} USB` : '0 USB'})
           </div>
         </div>
+      </div>
+
+      {/* Centauri Fleet Telemetry & Machine Wear Odometers */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h3 style={{ margin: "0 0 4px", display: "flex", alignItems: "center", gap: 10 }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 22, height: 22, color: "var(--accent)" }}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              Centauri Fleet Hardware Odometers & Machine Wear
+            </h3>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
+              Tracks exact operating print hours, extruded filament weight, and accumulated hardware depreciation for each machine across website orders and offline USB jobs.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ background: "rgba(255,128,0,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--accent)" }}>
+              Fleet Total: {financialSummary.allFleetPrintHours.toFixed(1)} hrs
+            </span>
+            <span style={{ background: "rgba(0,122,255,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--status-printing)" }}>
+              Fleet Extruded: {(financialSummary.allFleetGrams / 1000).toFixed(2)} kg
+            </span>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
+          {(PRINTERS || ["CC Abdalla", "CC Mazen"]).map(printer => {
+            const pStats = (financialSummary.printerFleetStats && financialSummary.printerFleetStats.perPrinter && financialSummary.printerFleetStats.perPrinter[printer]) || {
+              orderGrams: 0, orderHours: 0, usbGrams: 0, usbHours: 0, totalGrams: 0, totalHours: 0, wearExpense: 0, elecExpense: 0, totalJobs: 0, doneOrdersCount: 0, usbJobsCount: 0, status: "idle"
+            };
+            const isWorking = pStats.status !== "idle";
+            const isUsb = pStats.status === "usb";
+
+            return (
+              <div
+                key={printer}
+                style={{
+                  padding: "18px 20px",
+                  borderRadius: "var(--radius-sm)",
+                  background: isWorking ? (isUsb ? "rgba(255,128,0,0.04)" : "rgba(0,122,255,0.04)") : "rgba(255,255,255,0.02)",
+                  border: isWorking ? (isUsb ? "1px solid rgba(255,128,0,0.3)" : "1px solid rgba(0,122,255,0.3)") : "1px solid var(--border-glass-strong)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: "50%",
+                        background: isWorking ? (isUsb ? "var(--accent)" : "var(--status-printing)") : "var(--status-done)",
+                        boxShadow: isWorking ? `0 0 10px ${isUsb ? "rgba(255,128,0,0.6)" : "rgba(0,122,255,0.6)"}` : "none"
+                      }}
+                    />
+                    <span style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>{printer}</span>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: "3px 10px",
+                      borderRadius: "var(--radius-full)",
+                      background: isWorking ? (isUsb ? "rgba(255,128,0,0.15)" : "rgba(0,122,255,0.15)") : "rgba(16,185,129,0.12)",
+                      color: isWorking ? (isUsb ? "var(--accent)" : "var(--status-printing)") : "var(--status-done)"
+                    }}
+                  >
+                    {isWorking ? (isUsb ? "Working (USB Job)" : "Working (Website Order)") : "Ready / Idle"}
+                  </span>
+                </div>
+
+                {isWorking && (
+                  <div style={{ fontSize: 12, padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>Active Task: </span>
+                    <strong style={{ color: "var(--text-primary)" }}>
+                      {pStats.activeOrder ? (pStats.activeOrder.ordername || "Website Print") : pStats.usbJobName}
+                    </strong>
+                  </div>
+                )}
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 4 }}>
+                  <div style={{ padding: "10px 12px", background: "rgba(0,0,0,0.15)", borderRadius: "var(--radius-sm)" }}>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Operating Hours</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "var(--text-primary)", margin: "4px 0 2px" }}>
+                      {pStats.totalHours.toFixed(1)} hrs
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                      {pStats.orderHours.toFixed(1)}h web &bull; {pStats.usbHours.toFixed(1)}h usb
+                    </div>
+                  </div>
+
+                  <div style={{ padding: "10px 12px", background: "rgba(0,0,0,0.15)", borderRadius: "var(--radius-sm)" }}>
+                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Filament Extruded</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "var(--accent)", margin: "4px 0 2px" }}>
+                      {pStats.totalGrams.toFixed(0)} g
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                      ~{(pStats.totalGrams / 1000).toFixed(2)} kg total ({pStats.totalJobs} jobs)
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "var(--text-secondary)", paddingTop: 4 }}>
+                  <span>Machine Wear Burden:</span>
+                  <strong style={{ color: "#f87171" }}>{pStats.wearExpense.toFixed(2)} EGP</strong>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  {isUsb ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-glass"
+                      style={{ flex: 1, padding: "6px 12px", fontSize: 12 }}
+                      onClick={() => onClearExternalJob && onClearExternalJob(printer)}
+                    >
+                      Clear USB Job
+                    </button>
+                  ) : !pStats.activeOrder ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-glass"
+                      style={{ flex: 1, padding: "6px 12px", fontSize: 12 }}
+                      onClick={() => onOpenExternalPrompt && onOpenExternalPrompt(printer)}
+                    >
+                      + Log USB Print
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {financialSummary.printerFleetStats && financialSummary.printerFleetStats.unassignedDoneCount > 0 && (
+          <div style={{ marginTop: 14, padding: "10px 14px", background: "rgba(255,255,255,0.02)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)", fontSize: 12, color: "var(--text-secondary)" }}>
+            Note: <strong>{financialSummary.printerFleetStats.unassignedDoneCount}</strong> completed website orders ({financialSummary.printerFleetStats.unassignedGrams.toFixed(0)}g &bull; {financialSummary.printerFleetStats.unassignedHours.toFixed(1)}h) were completed before individual printer tagging was assigned and are included in the fleet wear burden ({financialSummary.printerFleetStats.unassignedWear.toFixed(2)} EGP).
+          </div>
+        )}
+      </div>
+
+      {/* Recent Direct USB & Offline Print Ledger */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h3 style={{ margin: "0 0 4px" }}>Recent Direct USB & Offline Print Ledger ({fleetLogs ? fleetLogs.length : 0})</h3>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
+              Record of prints executed directly on machines without website orders. These factor directly into CC1 machine wear and filament telemetry.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {(PRINTERS || ["CC Abdalla", "CC Mazen"]).map(printer => (
+              <button
+                key={printer}
+                type="button"
+                className="btn btn-sm btn-glass"
+                style={{ fontSize: 11, padding: "4px 10px" }}
+                onClick={() => onOpenExternalPrompt && onOpenExternalPrompt(printer)}
+              >
+                + Log Print on {printer}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {(!fleetLogs || fleetLogs.length === 0) ? (
+          <p style={{ margin: 0, color: "var(--text-tertiary)", fontSize: 13 }}>
+            No offline USB prints logged yet. Use "+ Log USB Print" when printing from a flash drive to track nozzle wear and operating hours accurately.
+          </p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border-glass-strong)", color: "var(--text-tertiary)", textAlign: "left" }}>
+                  <th style={{ padding: "10px 12px" }}>Date & Time</th>
+                  <th style={{ padding: "10px 12px" }}>Printer</th>
+                  <th style={{ padding: "10px 12px" }}>Job / Part Description</th>
+                  <th style={{ padding: "10px 12px" }}>Weight</th>
+                  <th style={{ padding: "10px 12px" }}>Operating Duration</th>
+                  <th style={{ padding: "10px 12px" }}>CC1 Wear Burden</th>
+                  <th style={{ padding: "10px 12px", textAlign: "right" }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fleetLogs.map(log => {
+                  const hours = Number(log.hours) || (speedGph > 0 ? (Number(log.grams) || 0) / speedGph : 0);
+                  const wear = hours * wearRatePerHour;
+                  const dateStr = log.timestamp ? new Date(log.timestamp).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
+                  return (
+                    <tr key={log.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                      <td style={{ padding: "12px", color: "var(--text-tertiary)", fontSize: 12 }}>{dateStr}</td>
+                      <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{log.printer}</td>
+                      <td style={{ padding: "12px", color: "var(--accent)", fontWeight: 600 }}>{log.jobName || "Direct USB Job"}</td>
+                      <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{log.grams ? `${Number(log.grams).toFixed(0)} g` : "-"}</td>
+                      <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{hours.toFixed(1)} h</td>
+                      <td style={{ padding: "12px", color: "#f87171" }}>{wear.toFixed(2)} EGP</td>
+                      <td style={{ padding: "12px", textAlign: "right" }}>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          style={{ padding: "3px 8px", fontSize: 11, background: "rgba(255,59,48,0.15)", color: "#FF3B30", border: "1px solid rgba(255,59,48,0.3)", borderRadius: "var(--radius-full)", cursor: "pointer" }}
+                          onClick={() => onDeleteFleetLog && onDeleteFleetLog(log.id)}
+                          title="Delete this USB log entry"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Centauri Carbon 1 (CC1) Wear & Electricity Calibration */}
@@ -1222,32 +1513,68 @@ export default function App() {
   const [adminSlicerOrder, setAdminSlicerOrder] = useState(null);
   const [moonrakerOrder, setMoonrakerOrder] = useState(null);
   const [moonrakerGcode, setMoonrakerGcode] = useState("");
+  const [fleetLogs, setFleetLogs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("jp_printer_fleet_logs_v1") || "[]"); } catch { return []; }
+  });
   const [externalPrinterStates, setExternalPrinterStates] = useState(() => {
     try { return JSON.parse(localStorage.getItem("jp_external_printer_states") || "{}"); } catch { return {}; }
   });
   const [externalPromptPrinter, setExternalPromptPrinter] = useState(null);
   const [externalJobInput, setExternalJobInput] = useState("");
+  const [externalJobWeight, setExternalJobWeight] = useState("");
+  const [externalJobHours, setExternalJobHours] = useState("");
+  const [emailDiagnosticStatus, setEmailDiagnosticStatus] = useState(null);
+  const [isTestingEmail, setIsTestingEmail] = useState(false);
+  const [isTestingWhatsApp, setIsTestingWhatsApp] = useState(false);
 
   function handleSetExternalJob(printer) {
     setExternalPromptPrinter(printer);
     setExternalJobInput("");
+    setExternalJobWeight("");
+    setExternalJobHours("");
   }
 
   function handleSaveExternalJob() {
     if (!externalPromptPrinter) return;
-    const updated = {
+    const jobTitle = externalJobInput.trim() || "Direct USB / Offline Print";
+    const weightNum = parseFloat(externalJobWeight) || 0;
+    const speed = parseFloat(printSpeedGph) || 35;
+    const hoursNum = parseFloat(externalJobHours) || (speed > 0 ? weightNum / speed : 0);
+    const now = new Date().toISOString();
+    const logId = `usb_${Date.now()}`;
+
+    const newLog = {
+      id: logId,
+      printer: externalPromptPrinter,
+      jobName: jobTitle,
+      grams: weightNum,
+      hours: hoursNum,
+      timestamp: now
+    };
+
+    const updatedLogs = [newLog, ...fleetLogs];
+    setFleetLogs(updatedLogs);
+    localStorage.setItem("jp_printer_fleet_logs_v1", JSON.stringify(updatedLogs));
+
+    const updatedStates = {
       ...externalPrinterStates,
       [externalPromptPrinter]: {
         status: "working",
-        jobName: externalJobInput.trim() || "Flash Drive / Direct USB Print",
-        timestamp: new Date().toISOString()
+        jobName: jobTitle,
+        grams: weightNum,
+        hours: hoursNum,
+        timestamp: now,
+        logId
       }
     };
-    setExternalPrinterStates(updated);
-    localStorage.setItem("jp_external_printer_states", JSON.stringify(updated));
+    setExternalPrinterStates(updatedStates);
+    localStorage.setItem("jp_external_printer_states", JSON.stringify(updatedStates));
+
     setExternalPromptPrinter(null);
     setExternalJobInput("");
-    addToast(`Marked ${externalPromptPrinter} as active (USB Job)`, "success");
+    setExternalJobWeight("");
+    setExternalJobHours("");
+    addToast(`Marked ${externalPromptPrinter} as active (${weightNum > 0 ? `${weightNum}g, ` : ''}${hoursNum.toFixed(1)}h)`, "success");
   }
 
   function handleClearExternalJob(printer) {
@@ -1256,6 +1583,13 @@ export default function App() {
     setExternalPrinterStates(updated);
     localStorage.setItem("jp_external_printer_states", JSON.stringify(updated));
     addToast(`${printer} marked as ready`, "info");
+  }
+
+  function handleDeleteFleetLog(logId) {
+    const updated = fleetLogs.filter(l => l.id !== logId);
+    setFleetLogs(updated);
+    localStorage.setItem("jp_printer_fleet_logs_v1", JSON.stringify(updated));
+    addToast("Fleet print log entry removed", "info");
   }
 
   function handleOpenMoonrakerForOrder(order, gcode = null) {
@@ -1304,11 +1638,7 @@ export default function App() {
     document.title = title;
   }, [config.brand_name]);
 
-  useEffect(() => {
-    if (config.materials && config.colors && !newOrder.material) {
-      setNewOrder(p => ({ ...p, material: config.materials.split(',')[0].trim(), color: config.colors.split(',')[0].trim() }));
-    }
-  }, [config]);
+
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setIsAdmin(!!session));
@@ -1359,17 +1689,21 @@ export default function App() {
     loadSavedOrders();
   }, []);
 
-  // Synchronize newOrder default material and color with loaded config
+  // Synchronize newOrder material and color strictly with active CMS configuration
   useEffect(() => {
-    if (config.materials && !newOrder.material) {
-      const firstMat = config.materials.split(',')[0]?.trim() || "PLA";
-      setNewOrder(prev => ({ ...prev, material: prev.material || firstMat }));
+    if (config.materials) {
+      const activeMats = config.materials.split(',').map(m => m.trim()).filter(Boolean);
+      if (activeMats.length > 0 && (!newOrder.material || !activeMats.includes(newOrder.material))) {
+        setNewOrder(prev => ({ ...prev, material: activeMats[0] }));
+      }
     }
-    if (config.colors && !newOrder.color) {
-      const firstCol = config.colors.split(',')[0]?.trim() || "White";
-      setNewOrder(prev => ({ ...prev, color: prev.color || firstCol }));
+    if (config.colors) {
+      const activeCols = config.colors.split(',').map(c => c.trim()).filter(Boolean);
+      if (activeCols.length > 0 && (!newOrder.color || !activeCols.includes(newOrder.color))) {
+        setNewOrder(prev => ({ ...prev, color: activeCols[0] }));
+      }
     }
-  }, [config.materials, config.colors]);
+  }, [config.materials, config.colors, newOrder.material, newOrder.color]);
 
   // Scroll reveal — re-run when hash/admin changes so newly-rendered sections get observed
   useEffect(() => {
@@ -1712,6 +2046,26 @@ export default function App() {
       // Send invoice and order confirmation email via edge function
       triggerOrderEmail("INSERT", payload);
 
+      // Automated WhatsApp notification via CallMeBot if configured
+      try {
+        const rawAdminPhone = (config.whatsapp_number || "").replace(/\D/g, "");
+        const intlAdminPhone = rawAdminPhone.startsWith("0") ? "2" + rawAdminPhone : rawAdminPhone;
+        if (config.whatsapp_api_key && intlAdminPhone) {
+          const alertMsg = `[Centurai Workshop Alert] New Order Received!\n` +
+            `Tracking: ${trackingCode}\n` +
+            `Client: ${newOrder.name}\n` +
+            `Phone: ${newOrder.phone}\n` +
+            `Part: ${newOrder.orderName || "Untitled Part"}\n` +
+            `Material: ${finalMaterial} (${finalColor})\n` +
+            `Weight: ${weightGrams}g\n` +
+            `Total: ${calculatedTotal.toFixed(2)} EGP`;
+          const botUrl = `https://api.callmebot.com/whatsapp.php?phone=${intlAdminPhone}&text=${encodeURIComponent(alertMsg)}&apikey=${encodeURIComponent(config.whatsapp_api_key.trim())}`;
+          fetch(botUrl, { mode: "no-cors" }).catch(e => console.warn("CallMeBot alert dispatch warning:", e));
+        }
+      } catch (botErr) {
+        console.warn("Could not dispatch automated WhatsApp notification:", botErr);
+      }
+
       // Save user info for next time
       localStorage.setItem("jp_user_info", JSON.stringify({ name: newOrder.name, phone: newOrder.phone, email: newOrder.email }));
       
@@ -1750,18 +2104,87 @@ export default function App() {
 
   async function triggerOrderEmail(type, orderRecord, oldRecord = null) {
     try {
-      if (!orderRecord || !orderRecord.email) return;
-      await supabase.functions.invoke("email-notifier", {
+      if (!orderRecord || (!orderRecord.email && type !== 'TEST')) return;
+      const { data, error } = await supabase.functions.invoke("email-notifier", {
         body: {
           type,
           table: "orders",
           record: orderRecord,
-          old_record: oldRecord
+          old_record: oldRecord,
+          admin_email: config.email_address || undefined
         }
       });
+      if (error) {
+        console.warn("Email notifier invocation returned error:", error);
+        return { success: false, error: error.message || error };
+      }
+      return { success: true, data };
     } catch (err) {
       console.warn("Could not trigger email notification:", err);
+      return { success: false, error: err.message || String(err) };
     }
+  }
+
+  async function handleTestEmail() {
+    if (!config.email_address || !config.email_address.includes('@')) {
+      addToast("Please configure a valid email address in Content Management first.", "error");
+      return;
+    }
+    setIsTestingEmail(true);
+    setEmailDiagnosticStatus({ state: "testing", message: "Sending test invoice email..." });
+    try {
+      const { data, error } = await supabase.functions.invoke("email-notifier", {
+        body: {
+          type: "TEST",
+          email: config.email_address,
+          admin_email: config.email_address,
+          name: "Workshop Admin Diagnostic"
+        }
+      });
+      if (error) {
+        throw new Error(error.message || "Failed to invoke email-notifier function");
+      }
+      if (data && data.error) {
+        throw new Error(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
+      }
+      setEmailDiagnosticStatus({
+        state: "success",
+        message: `Diagnostic test invoice sent successfully to ${config.email_address}!`
+      });
+      addToast("Test email invoice sent successfully!", "success");
+    } catch (err) {
+      console.error("Test email diagnostic error:", err);
+      setEmailDiagnosticStatus({
+        state: "error",
+        message: err.message || "Failed to send email. Check Supabase RESEND_API_KEY secret."
+      });
+      addToast("Email test failed: " + (err.message || "Check function logs"), "error");
+    }
+    setIsTestingEmail(false);
+  }
+
+  async function handleTestWhatsApp() {
+    const rawPhone = (config.whatsapp_number || "").replace(/\D/g, "");
+    if (!rawPhone) {
+      addToast("Please enter a WhatsApp phone number first.", "error");
+      return;
+    }
+    if (!config.whatsapp_api_key || !config.whatsapp_api_key.trim()) {
+      addToast("Please enter your CallMeBot WhatsApp API Key first.", "error");
+      return;
+    }
+    const intlPhone = rawPhone.startsWith("0") ? "2" + rawPhone : rawPhone;
+    setIsTestingWhatsApp(true);
+    try {
+      const testMsg = `[Centurai Workshop Test] WhatsApp automated notification is configured and connected! Your workshop alerts will appear here.`;
+      const url = `https://api.callmebot.com/whatsapp.php?phone=${intlPhone}&text=${encodeURIComponent(testMsg)}&apikey=${encodeURIComponent(config.whatsapp_api_key.trim())}`;
+      await fetch(url, { mode: "no-cors" });
+      addToast("WhatsApp test notification triggered! Check your WhatsApp.", "success");
+    } catch (err) {
+      console.error("CallMeBot test error:", err);
+      addToast("Could not send WhatsApp test: " + err.message, "error");
+    }
+    setIsTestingWhatsApp(false);
   }
 
   async function handleAdminLogout() {
@@ -2315,6 +2738,13 @@ export default function App() {
               setPrintSpeedGph={setPrintSpeedGph}
               materialCosts={materialCosts}
               setMaterialCosts={setMaterialCosts}
+              fleetLogs={fleetLogs}
+              setFleetLogs={setFleetLogs}
+              externalPrinterStates={externalPrinterStates}
+              PRINTERS={PRINTERS}
+              onClearExternalJob={handleClearExternalJob}
+              onDeleteFleetLog={handleDeleteFleetLog}
+              onOpenExternalPrompt={handleSetExternalJob}
               addToast={addToast}
             />
           )}
@@ -2394,9 +2824,63 @@ export default function App() {
                     {config.show_socials !== false ? <EyeIcon /> : <EyeSlashIcon />} {config.show_socials !== false ? "Visible" : "Hidden"}
                   </button>
                 </div>
-                <div style={{ marginBottom: 20 }}><label>WhatsApp Number</label><input value={config.whatsapp_number || ""} onChange={e => setConfig(p => ({ ...p, whatsapp_number: e.target.value }))} placeholder="e.g. +201012345678" /></div>
+                <div style={{ marginBottom: 20 }}>
+                  <label>WhatsApp Number (International or Egyptian e.g. 010... / +20...)</label>
+                  <input value={config.whatsapp_number || ""} onChange={e => setConfig(p => ({ ...p, whatsapp_number: e.target.value }))} placeholder="e.g. +201012345678 or 01012345678" />
+                </div>
+                <div style={{ marginBottom: 20, padding: "16px", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-glass-strong)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                    <label style={{ margin: 0, fontWeight: 700 }}>CallMeBot WhatsApp Order Alerts API Key</label>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-accent"
+                      style={{ padding: "4px 12px", fontSize: 11 }}
+                      disabled={isTestingWhatsApp}
+                      onClick={handleTestWhatsApp}
+                    >
+                      {isTestingWhatsApp ? "Sending..." : "Send Test WhatsApp Alert"}
+                    </button>
+                  </div>
+                  <input
+                    value={config.whatsapp_api_key || ""}
+                    onChange={e => setConfig(p => ({ ...p, whatsapp_api_key: e.target.value }))}
+                    placeholder="Enter CallMeBot API Key (e.g. 123456)"
+                    style={{ marginBottom: 8 }}
+                  />
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+                    Free instant WhatsApp order alerts directly to your phone. To get your free key: send the message <strong>I allow callmebot to send me messages</strong> to <strong>+34 644 44 20 84</strong> on WhatsApp, then enter the key here.
+                  </p>
+                </div>
                 <div style={{ marginBottom: 20 }}><label>Instagram Link</label><input value={config.instagram_link || ""} onChange={e => setConfig(p => ({ ...p, instagram_link: e.target.value }))} placeholder="https://instagram.com/..." /></div>
-                <div style={{ marginBottom: 28 }}><label>Email Address</label><input type="email" value={config.email_address || ""} onChange={e => setConfig(p => ({ ...p, email_address: e.target.value }))} placeholder="hello@example.com" /></div>
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <label style={{ margin: 0 }}>Notification Email Address</label>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-glass"
+                      style={{ padding: "3px 10px", fontSize: 11 }}
+                      disabled={isTestingEmail}
+                      onClick={handleTestEmail}
+                    >
+                      {isTestingEmail ? "Testing..." : "Send Test Invoice Email"}
+                    </button>
+                  </div>
+                  <input type="email" value={config.email_address || ""} onChange={e => setConfig(p => ({ ...p, email_address: e.target.value }))} placeholder="hello@example.com" />
+                  {emailDiagnosticStatus && (
+                    <div style={{
+                      marginTop: 10,
+                      padding: "10px 14px",
+                      borderRadius: "var(--radius-sm)",
+                      fontSize: 12,
+                      background: emailDiagnosticStatus.state === "success" ? "rgba(16,185,129,0.12)" : emailDiagnosticStatus.state === "error" ? "rgba(255,59,48,0.12)" : "rgba(255,128,0,0.12)",
+                      border: `1px solid ${emailDiagnosticStatus.state === "success" ? "rgba(16,185,129,0.3)" : emailDiagnosticStatus.state === "error" ? "rgba(255,59,48,0.3)" : "rgba(255,128,0,0.3)"}`,
+                      color: emailDiagnosticStatus.state === "success" ? "var(--status-done)" : emailDiagnosticStatus.state === "error" ? "#FF3B30" : "var(--accent)"
+                    }}>
+                      <strong>{emailDiagnosticStatus.state === "success" ? "Email Diagnostics Passed: " : emailDiagnosticStatus.state === "error" ? "Email Diagnostic Notice: " : "Status: "}</strong>
+                      {emailDiagnosticStatus.message}
+                    </div>
+                  )}
+                </div>
                 <div style={{ marginBottom: 32 }}><label>Privacy Policy</label><textarea rows="6" value={config.privacy_policy || ""} onChange={e => setConfig(p => ({ ...p, privacy_policy: e.target.value }))} placeholder="Enter your privacy policy text here..." /></div>
                 <button type="submit" className="btn btn-primary" disabled={savingCMS}>{savingCMS ? "Saving..." : "Save Configuration"}</button>
               </form>
@@ -2427,8 +2911,36 @@ export default function App() {
                 </div>
                 <div><label>Email</label><input value={editingOrder.email || ""} onChange={e => setEditingOrder({...editingOrder, email: e.target.value})} style={{ width: '100%', marginBottom: 16 }} /></div>
                 <div className="form-row">
-                  <div style={{ flex: 1 }}><label>Material</label><input value={editingOrder.material || ""} onChange={e => setEditingOrder({...editingOrder, material: e.target.value})} style={{ width: '100%', marginBottom: 16 }} /></div>
-                  <div style={{ flex: 1 }}><label>Color</label><input value={editingOrder.color || ""} onChange={e => setEditingOrder({...editingOrder, color: e.target.value})} style={{ width: '100%', marginBottom: 16 }} /></div>
+                  <div style={{ flex: 1 }}>
+                    <label>Material</label>
+                    <select
+                      value={editingOrder.material || ""}
+                      onChange={e => setEditingOrder({ ...editingOrder, material: e.target.value })}
+                      style={{ width: '100%', marginBottom: 16 }}
+                    >
+                      {Array.from(new Set([
+                        ...(editingOrder.material ? [editingOrder.material] : []),
+                        ...(config.materials || "").split(',').map(m => m.trim()).filter(Boolean)
+                      ])).map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label>Color</label>
+                    <select
+                      value={editingOrder.color || ""}
+                      onChange={e => setEditingOrder({ ...editingOrder, color: e.target.value })}
+                      style={{ width: '100%', marginBottom: 16 }}
+                    >
+                      {Array.from(new Set([
+                        ...(editingOrder.color ? [editingOrder.color] : []),
+                        ...(config.colors || "").split(',').map(c => c.trim()).filter(Boolean)
+                      ])).map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div className="form-row">
                   <div style={{ flex: 1 }}>
@@ -2486,7 +2998,7 @@ export default function App() {
                     await supabase.from("orders").update(editingOrder).eq("id", editingOrder.id);
                     fetchOrders();
                     setEditingOrder(null);
-                    addToast("Order updated", "success");
+                    addToast("Order updated across website and financial model", "success");
                   }}>Save Changes</button>
                 </div>
               </div>
@@ -2565,24 +3077,55 @@ export default function App() {
           {/* External USB Print Prompt Modal */}
           {externalPromptPrinter && (
             <div className="modal-overlay" style={{ zIndex: 10000 }} onClick={() => setExternalPromptPrinter(null)}>
-              <div className="modal-content" style={{ maxWidth: 440, width: "100%", padding: 28, textAlign: "left" }} onClick={e => e.stopPropagation()}>
-                <h3 style={{ margin: "0 0 12px 0", fontSize: 18, fontWeight: 800 }}>Log Direct USB Print for {externalPromptPrinter}</h3>
+              <div className="modal-content" style={{ maxWidth: 460, width: "100%", padding: 28, textAlign: "left" }} onClick={e => e.stopPropagation()}>
+                <h3 style={{ margin: "0 0 10px 0", fontSize: 18, fontWeight: 800 }}>Log Direct USB Print for {externalPromptPrinter}</h3>
                 <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>
-                  Track hardware usage when running a print directly from a USB flash drive or physical touchscreen.
+                  Track machine telemetry, real operating hours, and nozzle wear when printing directly from a USB flash drive or physical touchscreen.
                 </p>
-                <div style={{ marginBottom: 20 }}>
-                  <label>Job or Part Description</label>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontSize: 12 }}>Job or Part Description *</label>
                   <input
                     value={externalJobInput}
                     onChange={e => setExternalJobInput(e.target.value)}
                     placeholder="e.g. Flash Drive: Mechanical Gear"
                     autoFocus
-                    onKeyDown={e => e.key === "Enter" && handleSaveExternalJob()}
                   />
+                </div>
+                <div className="form-row" style={{ marginBottom: 20 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 12 }}>Filament Extruded (grams)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={externalJobWeight}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setExternalJobWeight(val);
+                        if (val && !externalJobHours) {
+                          const w = parseFloat(val) || 0;
+                          const speed = parseFloat(printSpeedGph) || 35;
+                          if (speed > 0) setExternalJobHours((w / speed).toFixed(1));
+                        }
+                      }}
+                      placeholder="e.g. 85"
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 12 }}>Print Duration (hours)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={externalJobHours}
+                      onChange={e => setExternalJobHours(e.target.value)}
+                      placeholder="e.g. 2.4"
+                    />
+                  </div>
                 </div>
                 <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                   <button type="button" className="btn btn-glass" onClick={() => setExternalPromptPrinter(null)}>Cancel</button>
-                  <button type="button" className="btn btn-accent" onClick={handleSaveExternalJob}>Mark as Working</button>
+                  <button type="button" className="btn btn-accent" onClick={handleSaveExternalJob}>Log & Mark as Working</button>
                 </div>
               </div>
             </div>
@@ -3051,7 +3594,24 @@ export default function App() {
                     </div>
                   )}
                   
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 32 }}>
+                  {config.whatsapp_number && (
+                    <div style={{ marginTop: 20 }}>
+                      <a
+                        href={`https://wa.me/${(config.whatsapp_number || "").replace(/\D/g, "").startsWith("0") ? "2" + (config.whatsapp_number || "").replace(/\D/g, "") : (config.whatsapp_number || "").replace(/\D/g, "")}?text=${encodeURIComponent(
+                          `Hello Etba3ly! I just submitted an order:\n- Tracking: ${successModal}\n- Part: ${lastSubmittedQuote?.orderName || "Custom 3D Print"}\n- Specs: ${lastSubmittedQuote?.material || "PLA"} (${lastSubmittedQuote?.color || "Standard"})\n- Total: ${lastSubmittedQuote && lastSubmittedQuote.totalPrice > 0 ? `${lastSubmittedQuote.totalPrice.toFixed(2)} EGP` : 'Pending quote'}\n- Client: ${lastSubmittedQuote?.name || ""}`
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn btn-accent"
+                        style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#25D366", borderColor: "#25D366", color: "#ffffff", fontWeight: 700 }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 18, height: 18 }}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                        Send Order to Workshop on WhatsApp
+                      </a>
+                    </div>
+                  )}
+                  
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
                     <a href="#track" className="btn btn-accent" style={{ width: "100%" }} onClick={() => setOrderStep(1)}>Go Track Your Order</a>
                     <a href="#home" className="btn btn-glass" style={{ width: "100%" }} onClick={() => setOrderStep(1)}>Back to Studio Home</a>
                   </div>
