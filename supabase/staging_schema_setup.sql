@@ -43,7 +43,8 @@ Made Real.',
   show_socials BOOLEAN DEFAULT TRUE,
   privacy_policy TEXT DEFAULT '',
   announcement_text TEXT DEFAULT '',
-  announcement_active BOOLEAN DEFAULT FALSE
+  announcement_active BOOLEAN DEFAULT FALSE,
+  price_review_threshold NUMERIC DEFAULT 300
 );
 
 -- Seed default site configuration
