@@ -143,6 +143,155 @@ function getCleanNotes(notes) {
 }
 
 // ─────────────────────────────────────────────────────────
+// Archive (.zip & .rar) & STL validation helpers
+// ─────────────────────────────────────────────────────────
+function inspectArchiveBuffer(buffer) {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.length < 7) {
+    return { valid: false, hasStl: false, error: "File too small to be a valid archive." };
+  }
+
+  const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
+  const isRar4 = bytes[0] === 0x52 && bytes[1] === 0x61 && bytes[2] === 0x72 && bytes[3] === 0x21 && bytes[4] === 0x1a && bytes[5] === 0x07 && bytes[6] === 0x00;
+  const isRar5 = bytes[0] === 0x52 && bytes[1] === 0x61 && bytes[2] === 0x72 && bytes[3] === 0x21 && bytes[4] === 0x1a && bytes[5] === 0x07 && bytes[6] === 0x01 && bytes[7] === 0x00;
+
+  if (!isZip && !isRar4 && !isRar5) {
+    return { valid: false, hasStl: false, error: "Unsupported or corrupt archive format. Expected .zip or .rar." };
+  }
+
+  const stlFiles = [];
+
+  // Method 1: Local file headers and central directory parsing for ZIP
+  if (isZip) {
+    let offset = 0;
+    while (offset < bytes.length - 30) {
+      if (bytes[offset] === 0x50 && bytes[offset + 1] === 0x4b && bytes[offset + 2] === 0x03 && bytes[offset + 3] === 0x04) {
+        const nameLen = bytes[offset + 26] | (bytes[offset + 27] << 8);
+        const extraLen = bytes[offset + 28] | (bytes[offset + 29] << 8);
+        const nameStart = offset + 30;
+        if (nameStart + nameLen <= bytes.length) {
+          const nameBytes = bytes.slice(nameStart, nameStart + nameLen);
+          const name = new TextDecoder().decode(nameBytes);
+          if (name.toLowerCase().endsWith(".stl") && !stlFiles.includes(name)) {
+            stlFiles.push(name);
+          }
+        }
+        offset += 30 + nameLen + extraLen;
+      } else if (bytes[offset] === 0x50 && bytes[offset + 1] === 0x4b && bytes[offset + 2] === 0x01 && bytes[offset + 3] === 0x02) {
+        const nameLen = bytes[offset + 28] | (bytes[offset + 29] << 8);
+        const extraLen = bytes[offset + 30] | (bytes[offset + 31] << 8);
+        const commentLen = bytes[offset + 32] | (bytes[offset + 33] << 8);
+        const nameStart = offset + 46;
+        if (nameStart + nameLen <= bytes.length) {
+          const nameBytes = bytes.slice(nameStart, nameStart + nameLen);
+          const name = new TextDecoder().decode(nameBytes);
+          if (name.toLowerCase().endsWith(".stl") && !stlFiles.includes(name)) {
+            stlFiles.push(name);
+          }
+        }
+        offset += 46 + nameLen + extraLen + commentLen;
+      } else {
+        offset++;
+      }
+    }
+  }
+
+  // Method 2: Comprehensive string scan across buffer for any .stl file references (covers RAR4, RAR5, and ZIP central directories)
+  if (stlFiles.length === 0) {
+    const text = new TextDecoder("latin1").decode(bytes);
+    const matches = text.match(/[a-zA-Z0-9_\-\.\s\/\\]+\.stl\b/gi) || [];
+    for (const match of matches) {
+      const clean = match.trim().replace(/^[\x00-\x1F]+/, "");
+      if (clean.toLowerCase().endsWith(".stl") && clean.length >= 5 && !clean.includes("\n") && !clean.includes("\r")) {
+        const baseName = clean.split(/[\/\\]/).pop();
+        if (baseName && baseName.toLowerCase().endsWith(".stl") && !stlFiles.includes(baseName)) {
+          stlFiles.push(baseName);
+        }
+      }
+    }
+  }
+
+  return {
+    valid: true,
+    type: isZip ? "zip" : "rar",
+    stlFiles,
+    hasStl: stlFiles.length > 0
+  };
+}
+
+async function inspectArchiveForStl(file) {
+  try {
+    const startBytes = Math.min(file.size, 4 * 1024 * 1024);
+    const startBuf = await file.slice(0, startBytes).arrayBuffer();
+    const startCheck = inspectArchiveBuffer(startBuf);
+    if (startCheck.hasStl) {
+      return { hasStl: true, stlFiles: startCheck.stlFiles, type: startCheck.type };
+    }
+
+    if (file.size > startBytes) {
+      const tailBytes = Math.min(file.size, 1024 * 1024);
+      const tailBuf = await file.slice(file.size - tailBytes).arrayBuffer();
+      const tailCheck = inspectArchiveBuffer(tailBuf);
+      if (tailCheck.hasStl) {
+        return { hasStl: true, stlFiles: tailCheck.stlFiles, type: tailCheck.type || startCheck.type };
+      }
+    }
+
+    return { hasStl: false, type: startCheck.type || (file.name.toLowerCase().endsWith(".rar") ? "rar" : "zip"), error: "No .stl models found in archive." };
+  } catch (err) {
+    console.warn("Archive inspection error:", err);
+    return { hasStl: true, fallback: true };
+  }
+}
+
+function uploadFileWithProgress(file, fileName, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const url = `${SUPABASE_URL}/storage/v1/object/stl-files/${encodeURIComponent(fileName)}`;
+    xhr.open("POST", url, true);
+    xhr.setRequestHeader("apikey", SUPABASE_ANON_KEY);
+    xhr.setRequestHeader("Authorization", `Bearer ${SUPABASE_ANON_KEY}`);
+    xhr.setRequestHeader("x-upsert", "true");
+    if (file.type) {
+      xhr.setRequestHeader("Content-Type", file.type);
+    } else {
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    }
+
+    xhr.upload.onprogress = (evt) => {
+      if (evt.lengthComputable && onProgress) {
+        const pct = Math.round((evt.loaded / evt.total) * 100);
+        onProgress(pct, evt.loaded, evt.total);
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve({ error: null });
+      } else {
+        supabase.storage.from("stl-files").upload(fileName, file)
+          .then(res => {
+            if (res.error) reject(res.error);
+            else resolve(res);
+          })
+          .catch(reject);
+      }
+    };
+
+    xhr.onerror = () => {
+      supabase.storage.from("stl-files").upload(fileName, file)
+        .then(res => {
+          if (res.error) reject(res.error);
+          else resolve(res);
+        })
+        .catch(reject);
+    };
+
+    xhr.send(file);
+  });
+}
+
+// ─────────────────────────────────────────────────────────
 // 3D SCENE — Abstract Geometry + 3D Print Icons
 // ─────────────────────────────────────────────────────────
 function SceneLoader() {
@@ -564,6 +713,7 @@ const DEFAULT_CONFIG = {
   why_title: "Why Print With Us?",
   why_text: "We're students who love making things. Our setup is tuned for speed and precision, so you get your parts fast without breaking the bank. PLA, PETG, TPU — we've got what you need.",
   price_per_gram: 3,
+  price_review_threshold: 300,
   materials: "PLA, PETG, ABS, Carbon Fiber, TPU",
   colors: "White, Black, Silver, Red, Orange, Blue, Gray",
   whatsapp_number: "",
@@ -1564,6 +1714,16 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({
+    active: false,
+    percent: 0,
+    currentFile: "",
+    fileIndex: 0,
+    totalFiles: 0,
+    loadedBytes: 0,
+    totalBytes: 0,
+    stage: ""
+  });
   const savedUserInfo = useMemo(() => {
     try { return JSON.parse(localStorage.getItem("jp_user_info") || "{}"); } catch { return {}; }
   }, []);
@@ -1888,6 +2048,11 @@ export default function App() {
   async function fetchConfig() {
     const { data, error } = await supabase.from("site_config").select("*").eq("id", 1).single();
     if (data && !error) {
+      const storedThreshold = localStorage.getItem("centurai_price_review_threshold");
+      const effectiveThreshold = data.price_review_threshold !== undefined && data.price_review_threshold !== null
+        ? Number(data.price_review_threshold)
+        : (storedThreshold ? parseFloat(storedThreshold) : 300);
+
       const isLegacy =
         !data.hero_title ||
         data.hero_title.includes("F1") ||
@@ -1907,9 +2072,18 @@ export default function App() {
           materials: DEFAULT_CONFIG.materials,
           colors: DEFAULT_CONFIG.colors,
           price_per_gram: data.price_per_gram || DEFAULT_CONFIG.price_per_gram,
+          price_review_threshold: effectiveThreshold,
         }));
       } else {
-        setConfig(data);
+        setConfig({
+          ...data,
+          price_review_threshold: effectiveThreshold,
+        });
+      }
+    } else {
+      const storedThreshold = localStorage.getItem("centurai_price_review_threshold");
+      if (storedThreshold) {
+        setConfig(prev => ({ ...prev, price_review_threshold: parseFloat(storedThreshold) || 300 }));
       }
     }
   }
@@ -2107,10 +2281,32 @@ export default function App() {
     if (error) setLoginError(error.message);
   }
 
-  function handleFileChange(e) {
+  async function handleFileChange(e) {
     const files = Array.from(e.target.files || []);
-    const invalid = files.filter(f => !f.name.toLowerCase().endsWith(".stl") && !f.name.toLowerCase().endsWith(".zip"));
-    if (invalid.length > 0) { setFileError("Only .stl or .zip files accepted."); return; }
+    if (files.length === 0) return;
+    const invalid = files.filter(f => {
+      const name = f.name.toLowerCase();
+      return !name.endsWith(".stl") && !name.endsWith(".zip") && !name.endsWith(".rar");
+    });
+    if (invalid.length > 0) {
+      setFileError("Only .stl, .zip, or .rar files accepted.");
+      return;
+    }
+
+    // Inspect archives for STL models
+    for (const file of files) {
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith(".zip") || lower.endsWith(".rar")) {
+        const inspection = await inspectArchiveForStl(file);
+        if (!inspection.hasStl) {
+          setFileError(`No .stl 3D model files found inside archive "${file.name}". Please ensure your archive contains at least one .stl file.`);
+          setSelectedFiles([]);
+          setNewOrder(p => ({ ...p, fileName: "" }));
+          return;
+        }
+      }
+    }
+
     setFileError("");
     setSelectedFiles(files);
     setNewOrder(p => ({ ...p, fileName: files.map(f => f.name).join(", ") }));
@@ -2142,22 +2338,54 @@ export default function App() {
     else if (!isValidEmail(newOrder.email)) errors.email = "Please enter a valid email.";
     if (!newOrder.phone) errors.phone = "Phone is required.";
     else if (!isValidEgyptPhone(newOrder.phone)) errors.phone = "Enter a valid Egyptian number (e.g. 01012345678).";
-    if (selectedFiles.length === 0) errors.file = "Please upload at least one STL or ZIP file.";
+    if (selectedFiles.length === 0) errors.file = "Please upload at least one STL, ZIP, or RAR file.";
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
     setIsUploading(true);
+    const totalBytes = selectedFiles.reduce((acc, f) => acc + (f.size || 0), 0);
+    setUploadProgress({
+      active: true,
+      percent: 5,
+      currentFile: selectedFiles[0]?.name || "",
+      fileIndex: 1,
+      totalFiles: selectedFiles.length,
+      loadedBytes: 0,
+      totalBytes,
+      stage: "uploading"
+    });
+
     try {
       let totalSize = 0;
+      let uploadedBytesSoFar = 0;
       const urls = [];
-      for (const file of selectedFiles) {
-        const fileName = `${Date.now()}-${file.name}`;
-        const { error: uploadErr } = await supabase.storage.from("stl-files").upload(fileName, file);
-        if (uploadErr) throw uploadErr;
+
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
+
+        await uploadFileWithProgress(file, fileName, (filePercent, fileLoaded) => {
+          const currentTotal = uploadedBytesSoFar + fileLoaded;
+          const overallPercent = totalBytes > 0 ? Math.min(96, Math.round((currentTotal / totalBytes) * 100)) : filePercent;
+          setUploadProgress({
+            active: true,
+            percent: Math.max(5, overallPercent),
+            currentFile: file.name,
+            fileIndex: i + 1,
+            totalFiles: selectedFiles.length,
+            loadedBytes: currentTotal,
+            totalBytes,
+            stage: "uploading"
+          });
+        });
+
+        uploadedBytesSoFar += file.size;
         const { data: urlData } = supabase.storage.from("stl-files").getPublicUrl(fileName);
         urls.push(urlData.publicUrl);
         totalSize += file.size;
       }
+
+      setUploadProgress(prev => ({ ...prev, percent: 98, stage: "saving" }));
 
       const trackingCode = generateTrackingCode();
       const weightGrams = clientMetrics ? (clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0) : 0;
@@ -2234,6 +2462,7 @@ export default function App() {
         color: finalColor
       });
 
+      setUploadProgress({ active: false, percent: 100, currentFile: "", fileIndex: 0, totalFiles: 0, loadedBytes: 0, totalBytes: 0, stage: "" });
       setOrderStep(4);
       setSuccessModal(trackingCode);
       setCopiedTrackingCode(false);
@@ -2246,6 +2475,7 @@ export default function App() {
     } catch (err) {
       console.error(err);
       addToast("Failed to submit order:\n" + (err.message || err), "error");
+      setUploadProgress({ active: false, percent: 0, currentFile: "", fileIndex: 0, totalFiles: 0, loadedBytes: 0, totalBytes: 0, stage: "" });
     }
     setIsUploading(false);
   }
@@ -2735,8 +2965,18 @@ export default function App() {
   async function handleUpdateCMS(e) {
     e.preventDefault();
     setSavingCMS(true);
-    const { error } = await supabase.from("site_config").upsert({ ...config, id: 1 });
-    if (error) addToast("Failed to save config.", "error");
+    const thresholdVal = Number(config.price_review_threshold) || 300;
+    localStorage.setItem("centurai_price_review_threshold", String(thresholdVal));
+    
+    let { error } = await supabase.from("site_config").upsert({ ...config, price_review_threshold: thresholdVal, id: 1 });
+    if (error && error.message && error.message.toLowerCase().includes("column")) {
+      const safeConfig = { ...config, id: 1 };
+      delete safeConfig.price_review_threshold;
+      const retry = await supabase.from("site_config").upsert(safeConfig);
+      error = retry.error;
+    }
+
+    if (error) addToast("Failed to save config: " + error.message, "error");
     else addToast("Configuration saved!", "success");
     setSavingCMS(false);
   }
@@ -3029,6 +3269,11 @@ export default function App() {
                                 </span>
                               )}
                               {o.status === "printing" && getPrinterFromNotes(o.notes) && <span style={{ fontSize: 10, background: "rgba(0,122,255,0.1)", color: "var(--status-printing)", padding: "3px 10px", borderRadius: "var(--radius-full)", fontWeight: 700, border: "1px solid rgba(0,122,255,0.2)" }}>[PRINTER: {getPrinterFromNotes(o.notes)}]</span>}
+                              {Number(o.totalprice || 0) > (parseFloat(config.price_review_threshold) || 300) && (
+                                <span style={{ fontSize: 10, background: "rgba(255, 149, 0, 0.15)", color: "var(--accent)", padding: "3px 10px", borderRadius: "var(--radius-full)", fontWeight: 800, border: "1px solid rgba(255, 149, 0, 0.3)" }}>
+                                  High Volume Review
+                                </span>
+                              )}
                               {/* Internal Payment Status (Admin Only) */}
                               {(() => {
                                 const pay = getOrderPaymentInfo(o);
@@ -3303,7 +3548,26 @@ export default function App() {
               <p style={{ marginBottom: 28, fontSize: 14 }}>Update your website text and pricing instantly.</p>
               <form onSubmit={handleUpdateCMS}>
                 <div style={{ marginBottom: 20 }}><label>Brand Name</label><input value={config.brand_name || ""} onChange={e => setConfig(p => ({ ...p, brand_name: e.target.value }))} /></div>
-                <div style={{ marginBottom: 20 }}><label>Price per Gram (EGP)</label><input type="number" value={config.price_per_gram} onChange={e => setConfig(p => ({ ...p, price_per_gram: e.target.value }))} /></div>
+                <div className="form-row" style={{ marginBottom: 20 }}>
+                  <div style={{ flex: 1 }}>
+                    <label>Price per Gram (EGP)</label>
+                    <input type="number" step="0.5" min="0" value={config.price_per_gram} onChange={e => setConfig(p => ({ ...p, price_per_gram: e.target.value }))} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label>Order Review Threshold (EGP)</label>
+                    <input
+                      type="number"
+                      step="10"
+                      min="0"
+                      value={config.price_review_threshold !== undefined ? config.price_review_threshold : 300}
+                      onChange={e => setConfig(p => ({ ...p, price_review_threshold: e.target.value }))}
+                      placeholder="300"
+                    />
+                  </div>
+                </div>
+                <p style={{ marginTop: -12, marginBottom: 20, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+                  Orders with an estimated slicer price exceeding this threshold prompt the client for workshop operator review for accurate pricing and tolerances, without revealing the threshold value to the customer.
+                </p>
                 <div style={{ marginBottom: 20 }}><label>Announcement Text</label><input value={config.announcement_text || ""} onChange={e => setConfig(p => ({ ...p, announcement_text: e.target.value }))} placeholder="Site wide announcement..." /></div>
                 <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
                   <label style={{ margin: 0 }}>Show Announcement</label>
@@ -4200,6 +4464,16 @@ export default function App() {
               </div>
             </div>
           )}
+
+          {/* Toasts inside Admin Dashboard */}
+          <div className="toast-container">
+            {toasts.map(t => (
+              <div key={t.id} className={`toast ${t.type}`}>
+                {t.msg}
+                <button className="toast-close" onClick={() => setToasts(p => p.filter(x => x.id !== t.id))}>×</button>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -4426,22 +4700,22 @@ export default function App() {
                   </div>
 
                   <div style={{ marginBottom: 24 }}>
-                    <label>STL or ZIP File(s) *</label>
+                    <label>STL, ZIP, or RAR File(s) *</label>
                     <div className={`drop-zone ${isDragging ? 'active' : ''}`} 
                          onDragOver={handleDragOver} 
                          onDragLeave={handleDragLeave} 
                          onDrop={handleDrop}
                          style={{ padding: "40px", border: formErrors.file ? "2px dashed #FF3B30" : "2px dashed var(--border-glass-strong)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.03)", textAlign: "center", cursor: "pointer" }}>
-                      <input type="file" multiple accept=".stl,.zip" onChange={handleFileChange} style={{ display: 'none' }} id="fileInput" />
+                      <input type="file" multiple accept=".stl,.zip,.rar" onChange={handleFileChange} style={{ display: 'none' }} id="fileInput" />
                       <label htmlFor="fileInput" style={{ cursor: 'pointer', display: 'block', margin: 0 }}>
-                        {selectedFiles.length > 0 ? selectedFiles.map(f => f.name).join(", ") : "Drag & Drop .STL or .ZIP File(s) or Click to Browse"}
+                        {selectedFiles.length > 0 ? selectedFiles.map(f => f.name).join(", ") : "Drag & Drop .STL, .ZIP, or .RAR File(s) or Click to Browse"}
                       </label>
                     </div>
                     {fileError && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 8 }}>{fileError}</div>}
                     {formErrors.file && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 8, fontWeight: 600 }}>{formErrors.file}</div>}
-                    {selectedFiles.some(f => f.name.toLowerCase().endsWith(".zip")) && (
-                      <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(255,128,0,0.08)", border: "1px solid rgba(255,128,0,0.2)", borderRadius: "var(--radius-sm)", fontSize: 12.5, color: "var(--text-secondary)" }}>
-                        <strong>ZIP Archive Uploaded:</strong> Multiple files detected. Final weight and quote will be calculated and confirmed upon operator review (Standard Rate: <strong>{config.price_per_gram} EGP/g</strong>).
+                    {selectedFiles.some(f => f.name.toLowerCase().endsWith(".zip") || f.name.toLowerCase().endsWith(".rar")) && (
+                      <div style={{ marginTop: 12, padding: "12px 16px", background: "rgba(255,128,0,0.08)", border: "1px solid rgba(255,128,0,0.2)", borderRadius: "var(--radius-sm)", fontSize: 12.5, color: "var(--text-secondary)" }}>
+                        <strong style={{ color: "var(--accent)" }}>Archive Uploaded:</strong> Multiple 3D files detected. Contained .stl models verified. Final weight and quote will be calculated and confirmed upon operator review (Standard Rate: <strong>{config.price_per_gram} EGP/g</strong>).
                       </div>
                     )}
                   </div>
@@ -4483,7 +4757,13 @@ export default function App() {
                             </div>
                             <div>
                               <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Est. Price</div>
-                              <div style={{ fontSize: 18, fontWeight: 900, color: "var(--accent)" }}>{clientMetrics.totalPrice.toFixed(2)} EGP</div>
+                              {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) ? (
+                                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--accent)", lineHeight: 1.2, marginTop: 4 }}>
+                                  Review Required for Final Price
+                                </div>
+                              ) : (
+                                <div style={{ fontSize: 18, fontWeight: 900, color: "var(--accent)" }}>{clientMetrics.totalPrice.toFixed(2)} EGP</div>
+                              )}
                             </div>
                             {clientMetrics.metrics && (
                               <div>
@@ -4498,6 +4778,25 @@ export default function App() {
                               </div>
                             )}
                           </div>
+                          {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) && (
+                            <div style={{
+                              marginTop: 14,
+                              padding: "12px 16px",
+                              background: "rgba(255, 128, 0, 0.08)",
+                              border: "1px solid rgba(255, 128, 0, 0.25)",
+                              borderRadius: "var(--radius-sm)",
+                              fontSize: 12.5,
+                              lineHeight: 1.5,
+                              color: "var(--text-primary)"
+                            }}>
+                              <div style={{ fontWeight: 800, color: "var(--accent)", marginBottom: 4 }}>
+                                Operator Review Required for Accurate Pricing
+                              </div>
+                              <div style={{ color: "var(--text-secondary)" }}>
+                                Due to the volume and geometry of this model, our workshop engineers will review your 3D design to ensure optimal print orientation, structural tolerances, and confirm accurate final pricing.
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                       <div style={{
@@ -4521,7 +4820,7 @@ export default function App() {
                     <button className="btn btn-glass" onClick={() => setOrderStep(1)}>Back</button>
                     <button className="btn btn-accent" onClick={() => {
                       const errors = {};
-                      if (selectedFiles.length === 0) errors.file = "Please upload at least one STL or ZIP file.";
+                      if (selectedFiles.length === 0) errors.file = "Please upload at least one STL, ZIP, or RAR file.";
                       setFormErrors(errors);
                       if (Object.keys(errors).length === 0) setOrderStep(3);
                     }}>Review Order</button>
@@ -4581,10 +4880,30 @@ export default function App() {
                         )}
                         <div className="review-item" style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid var(--border-glass)" }}>
                           <span className="review-item-label" style={{ fontSize: 15, fontWeight: 700 }}>Est. Total</span>
-                          <span style={{ fontSize: 20, fontWeight: 900, color: "var(--accent)" }}>
-                            {clientMetrics.totalPrice.toFixed(2)} EGP
-                          </span>
+                          {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) ? (
+                            <span style={{ fontSize: 15, fontWeight: 800, color: "var(--accent)", textAlign: "right" }}>
+                              Review Required for Final Price
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 20, fontWeight: 900, color: "var(--accent)" }}>
+                              {clientMetrics.totalPrice.toFixed(2)} EGP
+                            </span>
+                          )}
                         </div>
+                        {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) && (
+                          <div style={{
+                            marginTop: 10,
+                            padding: "10px 14px",
+                            background: "rgba(255, 128, 0, 0.08)",
+                            border: "1px solid rgba(255, 128, 0, 0.25)",
+                            borderRadius: "var(--radius-sm)",
+                            fontSize: 12,
+                            color: "var(--text-secondary)",
+                            lineHeight: 1.4
+                          }}>
+                            Our workshop team will review the 3D model for accurate pricing and confirm the final quote before printing begins.
+                          </div>
+                        )}
                       </>
                     ) : (
                       <>
@@ -4657,9 +4976,15 @@ export default function App() {
                       )}
                       <div className="review-item" style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid var(--border-glass)" }}>
                         <span className="review-item-label" style={{ fontWeight: 700 }}>Est. Amount</span>
-                        <span style={{ fontSize: 18, fontWeight: 900, color: "var(--accent)" }}>
-                          {lastSubmittedQuote.totalPrice > 0 ? `${lastSubmittedQuote.totalPrice.toFixed(2)} EGP` : `Calculated upon slicing (${config.price_per_gram} EGP/g)`}
-                        </span>
+                        {lastSubmittedQuote && lastSubmittedQuote.totalPrice > (parseFloat(config.price_review_threshold) || 300) ? (
+                          <span style={{ fontSize: 15, fontWeight: 800, color: "var(--accent)" }}>
+                            Pending Operator Review
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 18, fontWeight: 900, color: "var(--accent)" }}>
+                            {lastSubmittedQuote.totalPrice > 0 ? `${lastSubmittedQuote.totalPrice.toFixed(2)} EGP` : `Calculated upon slicing (${config.price_per_gram} EGP/g)`}
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}
@@ -4668,7 +4993,7 @@ export default function App() {
                     <div style={{ marginTop: 20 }}>
                       <a
                         href={`https://wa.me/${(config.whatsapp_number || "").replace(/\D/g, "").startsWith("0") ? "2" + (config.whatsapp_number || "").replace(/\D/g, "") : (config.whatsapp_number || "").replace(/\D/g, "")}?text=${encodeURIComponent(
-                          `Hello Etba3ly! I just submitted an order:\n- Tracking: ${successModal}\n- Part: ${lastSubmittedQuote?.orderName || "Custom 3D Print"}\n- Specs: ${lastSubmittedQuote?.material || "PLA"} (${lastSubmittedQuote?.color || "Standard"})\n- Total: ${lastSubmittedQuote && lastSubmittedQuote.totalPrice > 0 ? `${lastSubmittedQuote.totalPrice.toFixed(2)} EGP` : 'Pending quote'}\n- Client: ${lastSubmittedQuote?.name || ""}`
+                          `Hello Etba3ly! I just submitted an order:\n- Tracking: ${successModal}\n- Part: ${lastSubmittedQuote?.orderName || "Custom 3D Print"}\n- Specs: ${lastSubmittedQuote?.material || "PLA"} (${lastSubmittedQuote?.color || "Standard"})\n- Total: ${lastSubmittedQuote && lastSubmittedQuote.totalPrice > (parseFloat(config.price_review_threshold) || 300) ? "Pending operator review" : (lastSubmittedQuote && lastSubmittedQuote.totalPrice > 0 ? `${lastSubmittedQuote.totalPrice.toFixed(2)} EGP` : 'Pending quote')}\n- Client: ${lastSubmittedQuote?.name || ""}`
                         )}`}
                         target="_blank"
                         rel="noreferrer"
@@ -5036,6 +5361,80 @@ export default function App() {
             </div>
             <div style={{ marginTop: 24, textAlign: "right" }}>
               <button className="btn btn-primary" onClick={() => setPrivacyModalOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Progress Modal */}
+      {uploadProgress.active && (
+        <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 12000 }}>
+          <div className="modal-content card" style={{ padding: 32, maxWidth: 460, width: "90%", textAlign: "center" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+              <div style={{
+                width: 56,
+                height: 56,
+                borderRadius: "50%",
+                background: "rgba(255, 128, 0, 0.12)",
+                border: "1px solid rgba(255, 128, 0, 0.3)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--accent)"
+              }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 28, height: 28 }}>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+              </div>
+            </div>
+            <h3 style={{ margin: "0 0 8px 0", fontSize: 20, fontWeight: 800 }}>
+              {uploadProgress.stage === "saving" ? "Finalizing Order..." : "Uploading 3D Models..."}
+            </h3>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px 0", wordBreak: "break-all" }}>
+              {uploadProgress.stage === "saving"
+                ? "Registering files into the production queue and generating your live tracking code..."
+                : `Uploading ${uploadProgress.currentFile} (${uploadProgress.fileIndex || 1} of ${uploadProgress.totalFiles || 1})`}
+            </p>
+
+            {/* Progress Track */}
+            <div
+              role="progressbar"
+              aria-valuenow={uploadProgress.percent}
+              aria-valuemin="0"
+              aria-valuemax="100"
+              style={{
+                width: "100%",
+                height: 12,
+                background: "rgba(255, 255, 255, 0.08)",
+                borderRadius: 9999,
+                overflow: "hidden",
+                border: "1px solid var(--border-glass)",
+                position: "relative"
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.max(5, uploadProgress.percent)}%`,
+                  background: "linear-gradient(90deg, #ff8000, #ff5500)",
+                  borderRadius: 9999,
+                  transition: "width 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+                  boxShadow: "0 0 12px rgba(255, 128, 0, 0.5)"
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, fontSize: 12 }}>
+              <span style={{ color: "var(--text-tertiary)" }}>
+                {uploadProgress.totalBytes > 0
+                  ? `${(uploadProgress.loadedBytes / (1024 * 1024)).toFixed(1)} MB / ${(uploadProgress.totalBytes / (1024 * 1024)).toFixed(1)} MB`
+                  : "Transferring..."}
+              </span>
+              <span style={{ fontWeight: 800, color: "var(--accent)", fontSize: 14 }}>
+                {uploadProgress.percent}%
+              </span>
             </div>
           </div>
         </div>
