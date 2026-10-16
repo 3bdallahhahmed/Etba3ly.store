@@ -3328,7 +3328,7 @@ export default function App() {
                               })()}
                             </div>
                             <div style={{ color: "var(--text-secondary)", marginTop: 6, fontSize: 13, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                              <span>{o.name} &bull; {o.phone}{o.email ? ` &bull; ${o.email}` : ""}</span>
+                              <span>{o.name} &bull; {o.phone}{o.email && <> &bull; {o.email}</>}</span>
                               {cleanPhone && (
                                 <a
                                   href={`https://wa.me/${waPhone}?text=${encodeURIComponent(waMessage)}`}
