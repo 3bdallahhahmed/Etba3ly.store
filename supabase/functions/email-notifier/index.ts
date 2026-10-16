@@ -21,6 +21,29 @@ Deno.serve(async (req) => {
     console.log("Received notification payload:", payload);
 
     const type = payload.type || (payload.old_record ? 'UPDATE' : 'INSERT');
+    const whatsappApiKey = payload.whatsapp_api_key || Deno.env.get('CALLMEBOT_API_KEY');
+    const rawAdminPhone = payload.whatsapp_number || payload.admin_phone || Deno.env.get('CALLMEBOT_PHONE');
+
+    // Handle dedicated WhatsApp connectivity test
+    if (type === 'TEST_WHATSAPP') {
+      if (!whatsappApiKey || !rawAdminPhone) {
+        return new Response(JSON.stringify({ 
+          error: 'Missing CallMeBot API key or WhatsApp phone number.' 
+        }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const cleanPhone = String(rawAdminPhone).replace(/\D/g, "");
+      const intlPhone = cleanPhone.startsWith("0") ? "2" + cleanPhone : cleanPhone;
+      const testMsg = `[Centurai Workshop Test] Automated WhatsApp alert connection verified! Your workshop alerts are connected directly via the cloud backend.`;
+      const botUrl = `https://api.callmebot.com/whatsapp.php?phone=${intlPhone}&text=${encodeURIComponent(testMsg)}&apikey=${encodeURIComponent(String(whatsappApiKey).trim())}`;
+      const botRes = await fetch(botUrl);
+      const botText = await botRes.text();
+      return new Response(JSON.stringify({ 
+        success: botRes.ok, 
+        status: botRes.status,
+        body: botText.slice(0, 200) 
+      }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     const record = payload.record || payload.order || (type === 'TEST' ? {
       name: payload.name || "Workshop Admin",
       email: payload.email || payload.recipient,
@@ -39,11 +62,35 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Missing order record in payload' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Determine recipient
+    // Automated backend WhatsApp alert via CallMeBot on new orders (100% cloud delivery, ad-blocker immune)
+    if (type === 'INSERT' && whatsappApiKey && rawAdminPhone) {
+      try {
+        const cleanPhone = String(rawAdminPhone).replace(/\D/g, "");
+        const intlPhone = cleanPhone.startsWith("0") ? "2" + cleanPhone : cleanPhone;
+        const alertMsg = `[Centurai Workshop Alert] New Order Received!\n` +
+          `Tracking: ${record.tracking_code || 'N/A'}\n` +
+          `Client: ${record.name || 'Customer'}\n` +
+          `Phone: ${record.phone || 'N/A'}\n` +
+          `Part: ${record.ordername || 'Untitled Part'}\n` +
+          `Material: ${record.material || 'PLA'} (${record.color || 'Standard'})\n` +
+          `Weight: ${record.weightgrams ? `${record.weightgrams}g` : 'Reviewing'}\n` +
+          `Total: ${record.totalprice !== undefined && record.totalprice !== null ? `${Number(record.totalprice).toFixed(2)} EGP` : 'Pending'}`;
+
+        const botUrl = `https://api.callmebot.com/whatsapp.php?phone=${intlPhone}&text=${encodeURIComponent(alertMsg)}&apikey=${encodeURIComponent(String(whatsappApiKey).trim())}`;
+        console.log(`Dispatching cloud CallMeBot WhatsApp alert to ${intlPhone}...`);
+        const botRes = await fetch(botUrl);
+        const botText = await botRes.text();
+        console.log(`CallMeBot server response status: ${botRes.status}, body: ${botText.slice(0, 100)}`);
+      } catch (waErr) {
+        console.warn("Could not dispatch server-side CallMeBot WhatsApp notification:", waErr);
+      }
+    }
+
+    // Determine recipient for email
     const recipient = record.email || payload.email;
     if (!recipient || typeof recipient !== 'string' || !recipient.includes('@')) {
       console.log('Skipping email: No valid recipient email available for order:', record.id);
-      return new Response(JSON.stringify({ message: 'No valid recipient email' }), {
+      return new Response(JSON.stringify({ message: 'WhatsApp notification dispatched; skipped email (no valid recipient)' }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
