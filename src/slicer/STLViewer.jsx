@@ -13,9 +13,30 @@ import {
   generateElegooGcode
 } from './slicerEngine.js';
 
+export function resolveColorHex(colorVal) {
+  if (!colorVal) return 0x1e232a;
+  if (typeof colorVal === 'number') return colorVal;
+  const s = String(colorVal).toLowerCase().trim();
+  if (s.startsWith('#')) {
+    const parsed = parseInt(s.replace('#', ''), 16);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (s.includes('white') || s.includes('marble')) return 0xf1f5f9;
+  if (s.includes('black') || s.includes('carbon') || s.includes('obsidian')) return 0x1e232a;
+  if (s.includes('orange') || s.includes('mclaren')) return 0xff8000;
+  if (s.includes('silver') || s.includes('grey') || s.includes('gray') || s.includes('titanium')) return 0x94a3b8;
+  if (s.includes('red') || s.includes('crimson')) return 0xef4444;
+  if (s.includes('blue') || s.includes('sky') || s.includes('cobalt')) return 0x3b82f6;
+  if (s.includes('green') || s.includes('emerald')) return 0x10b981;
+  if (s.includes('yellow')) return 0xeab308;
+  if (s.includes('purple')) return 0x8b5cf6;
+  return 0x1e232a;
+}
+
 const STLViewer = forwardRef(function STLViewer({
   file,
   fileUrl,
+  color = 'Black',
   infillPercent = 20,
   materialKey = 'pla',
   pricePerGram = 3.0,
@@ -245,6 +266,19 @@ const STLViewer = forwardRef(function STLViewer({
     }
   }, [file, fileUrl]);
 
+  // Update mesh color when color prop changes
+  useEffect(() => {
+    if (modelGroupRef.current) {
+      const colorHex = resolveColorHex(color);
+      modelGroupRef.current.traverse((child) => {
+        if (child.isMesh && child.material) {
+          child.material.color.set(colorHex);
+          child.material.needsUpdate = true;
+        }
+      });
+    }
+  }, [color]);
+
   // Re-estimate metrics when infill, material, pricePerGram, layerHeight, or nozzleSize changes
   useEffect(() => {
     if (!geometryRef.current) return;
@@ -298,9 +332,9 @@ const STLViewer = forwardRef(function STLViewer({
     geo.translate(-cx, -cy, -cz);
     geo.computeBoundingBox();
 
-    // Material with liquid glass / McLaren aesthetic
+    // Material with chosen filament color aesthetic
     const mat = new THREE.MeshStandardMaterial({
-      color: 0xff8000, // McLaren Orange
+      color: resolveColorHex(color),
       metalness: 0.25,
       roughness: 0.35
     });
