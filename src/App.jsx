@@ -718,11 +718,11 @@ const DEFAULT_CONFIG = {
   colors: "White, Black, Silver, Red, Orange, Blue, Gray",
   whatsapp_number: "",
   whatsapp_api_key: "",
-  telegram_bot_token: "",
-  telegram_chat_id: "",
+  telegram_bot_token: "8667555636:AAHo8iluJWpdDJjwKbo18TfqmRwh9wF_KD0",
+  telegram_chat_id: "655459922",
   discord_webhook_url: "",
   instagram_link: "",
-  email_address: "",
+  email_address: "3bdallahhahmed@gmail.com",
   show_socials: true,
   privacy_policy: ""
 };
@@ -2053,8 +2053,8 @@ export default function App() {
   async function fetchConfig() {
     const { data, error } = await supabase.from("site_config").select("*").eq("id", 1).single();
     const storedThreshold = localStorage.getItem("centurai_price_review_threshold");
-    const storedTelegramToken = localStorage.getItem("centurai_telegram_bot_token") || "";
-    const storedTelegramChatId = localStorage.getItem("centurai_telegram_chat_id") || "";
+    const storedTelegramToken = localStorage.getItem("centurai_telegram_bot_token") || "8667555636:AAHo8iluJWpdDJjwKbo18TfqmRwh9wF_KD0";
+    const storedTelegramChatId = localStorage.getItem("centurai_telegram_chat_id") || "655459922";
     const storedDiscordWebhook = localStorage.getItem("centurai_discord_webhook_url") || "";
     const storedWhatsappApiKey = localStorage.getItem("centurai_whatsapp_api_key") || "";
 
@@ -2494,8 +2494,8 @@ export default function App() {
           admin_email: config.email_address || undefined,
           whatsapp_api_key: (config.whatsapp_api_key || "").trim() || undefined,
           whatsapp_number: (config.whatsapp_number || "").trim() || undefined,
-          telegram_bot_token: (config.telegram_bot_token || "").trim() || undefined,
-          telegram_chat_id: (config.telegram_chat_id || "").trim() || undefined,
+          telegram_bot_token: (config.telegram_bot_token || localStorage.getItem("centurai_telegram_bot_token") || "8667555636:AAHo8iluJWpdDJjwKbo18TfqmRwh9wF_KD0").trim() || undefined,
+          telegram_chat_id: (config.telegram_chat_id || localStorage.getItem("centurai_telegram_chat_id") || "655459922").trim() || undefined,
           discord_webhook_url: (config.discord_webhook_url || "").trim() || undefined
         }
       });
@@ -2524,12 +2524,12 @@ export default function App() {
       : "Pending review";
     const trackUrl = `https://etba3ly.store/#track?id=${encodeURIComponent(trackingCode)}`;
 
-    // 1. Send confirmation & invoice email via backend edge function
+    // 1. Send confirmation & invoice email + cloud Telegram alert via backend edge function
     triggerOrderEmail("INSERT", order);
 
-    // 2. Instant Telegram mobile alert (100% free & unbannable)
-    const tgToken = (config.telegram_bot_token || localStorage.getItem("centurai_telegram_bot_token") || "").trim();
-    const tgChatId = (config.telegram_chat_id || localStorage.getItem("centurai_telegram_chat_id") || "").trim();
+    // 2. Direct Telegram push fallback (with non-blocking 2s timeout)
+    const tgToken = (config.telegram_bot_token || localStorage.getItem("centurai_telegram_bot_token") || "8667555636:AAHo8iluJWpdDJjwKbo18TfqmRwh9wF_KD0").trim();
+    const tgChatId = (config.telegram_chat_id || localStorage.getItem("centurai_telegram_chat_id") || "655459922").trim();
     if (tgToken && tgChatId) {
       const tgText = `[NEW 3D PRINT ORDER]\n\n` +
         `Tracking: ${trackingCode}\n` +
@@ -2540,14 +2540,21 @@ export default function App() {
         `Weight: ${weight}\n` +
         `Total: ${total}\n\n` +
         `Live Tracking:\n${trackUrl}`;
-      fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: tgChatId,
-          text: tgText
-        })
-      }).catch(err => console.warn("Telegram alert error:", err));
+      try {
+        const ctl = new AbortController();
+        const tid = setTimeout(() => ctl.abort(), 2000);
+        fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: ctl.signal,
+          body: JSON.stringify({
+            chat_id: tgChatId,
+            text: tgText
+          })
+        }).then(() => clearTimeout(tid)).catch(() => clearTimeout(tid));
+      } catch (e) {
+        // Ignored; cloud edge function already dispatched
+      }
     }
 
     // 3. Instant Discord webhook alert (100% free channel card)
@@ -2605,25 +2612,12 @@ export default function App() {
     setIsTestingEmail(true);
     setEmailDiagnosticStatus({ state: "testing", message: "Sending test invoice email..." });
     try {
-      const testRecord = {
-        name: "Workshop Operator (Diagnostic)",
-        phone: config.whatsapp_number || "01000000000",
-        email: config.email_address,
-        ordername: "System Diagnostic Test Part",
-        material: "PLA",
-        color: "McLaren Orange",
-        weightgrams: 42,
-        pricepergram: 3,
-        totalprice: 126,
-        tracking_code: "TEST-" + Math.floor(1000 + Math.random() * 9000),
-        status: "queued",
-        createdat: new Date().toISOString()
-      };
       const { data, error } = await supabase.functions.invoke("email-notifier", {
         body: {
-          type: "INSERT",
-          record: testRecord,
-          admin_email: config.email_address
+          type: "TEST",
+          email: config.email_address,
+          admin_email: config.email_address,
+          name: "Workshop Operator Diagnostic"
         }
       });
       if (error) {
@@ -2644,37 +2638,44 @@ export default function App() {
         message: err.message || "Failed to send email. Check Supabase RESEND_API_KEY secret."
       });
       addToast("Email test failed: " + (err.message || "Check function logs"), "error");
+    } finally {
+      setIsTestingEmail(false);
     }
-    setIsTestingEmail(false);
   }
 
   async function handleTestTelegram() {
-    const token = (config.telegram_bot_token || localStorage.getItem("centurai_telegram_bot_token") || "").trim();
-    const chatId = (config.telegram_chat_id || localStorage.getItem("centurai_telegram_chat_id") || "").trim();
+    const token = (config.telegram_bot_token || localStorage.getItem("centurai_telegram_bot_token") || "8667555636:AAHo8iluJWpdDJjwKbo18TfqmRwh9wF_KD0").trim();
+    const chatId = (config.telegram_chat_id || localStorage.getItem("centurai_telegram_chat_id") || "655459922").trim();
     if (!token || !chatId) {
       addToast("Please enter both your Telegram Bot Token and Chat ID first.", "error");
       return;
     }
     setIsTestingTelegram(true);
     try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: `[Centurai Print OS - Test Alert]\n\nYour Telegram order notification bot is connected successfully! New customer orders will ping your phone here in real time.`
-        })
+      // Dispatch via Supabase Edge Function in Frankfurt (bypasses Egyptian ISP blocks)
+      const { data, error } = await supabase.functions.invoke("email-notifier", {
+        body: {
+          type: "TEST_TELEGRAM",
+          telegram_bot_token: token,
+          telegram_chat_id: chatId
+        }
       });
-      const data = await res.json();
-      if (!data.ok) {
+      if (error) {
+        throw new Error(error.message || "Failed to reach Telegram notification service.");
+      }
+      if (data && data.error) {
+        throw new Error(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
+      }
+      if (data && data.ok === false) {
         throw new Error(data.description || "Telegram API rejected the request.");
       }
       addToast("Telegram test message sent! Check your Telegram app.", "success");
     } catch (err) {
       console.error("Telegram test error:", err);
-      addToast("Telegram test failed: " + err.message, "error");
+      addToast("Telegram test failed: " + (err.message || String(err)), "error");
+    } finally {
+      setIsTestingTelegram(false);
     }
-    setIsTestingTelegram(false);
   }
 
   async function handleTestDiscord() {
@@ -2685,22 +2686,31 @@ export default function App() {
     }
     setIsTestingDiscord(true);
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: "[Centurai Print OS] Test alert: Discord Webhook is connected successfully! New 3D printing orders will appear here automatically."
-        })
+      // 1. Dispatch via cloud edge function
+      const { data, error } = await supabase.functions.invoke("email-notifier", {
+        body: {
+          type: "TEST_DISCORD",
+          discord_webhook_url: url
+        }
       });
-      if (!res.ok) {
-        throw new Error(`Discord returned status ${res.status}`);
+      if (error) {
+        // Fallback to direct client fetch
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: "[Centurai Print OS] Test alert: Discord Webhook is connected successfully! New 3D printing orders will appear here automatically."
+          })
+        });
+        if (!res.ok) throw new Error(`Discord returned status ${res.status}`);
       }
       addToast("Discord test message sent! Check your Discord channel.", "success");
     } catch (err) {
       console.error("Discord test error:", err);
       addToast("Discord test failed: " + err.message, "error");
+    } finally {
+      setIsTestingDiscord(false);
     }
-    setIsTestingDiscord(false);
   }
 
   async function handleTestWhatsApp() {
@@ -2737,8 +2747,9 @@ export default function App() {
     } catch (err) {
       console.error("CallMeBot test error:", err);
       addToast("Could not send WhatsApp test: " + err.message, "error");
+    } finally {
+      setIsTestingWhatsApp(false);
     }
-    setIsTestingWhatsApp(false);
   }
 
   async function handleUpdatePayment(id, status, paidAmount) {
