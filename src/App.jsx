@@ -718,6 +718,9 @@ const DEFAULT_CONFIG = {
   colors: "White, Black, Silver, Red, Orange, Blue, Gray",
   whatsapp_number: "",
   whatsapp_api_key: "",
+  telegram_bot_token: "",
+  telegram_chat_id: "",
+  discord_webhook_url: "",
   instagram_link: "",
   email_address: "",
   show_socials: true,
@@ -1804,6 +1807,8 @@ export default function App() {
   const [emailDiagnosticStatus, setEmailDiagnosticStatus] = useState(null);
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [isTestingWhatsApp, setIsTestingWhatsApp] = useState(false);
+  const [isTestingTelegram, setIsTestingTelegram] = useState(false);
+  const [isTestingDiscord, setIsTestingDiscord] = useState(false);
 
   // Admin Direct Order Creation State
   const [isCreateOrderOpen, setIsCreateOrderOpen] = useState(false);
@@ -2047,8 +2052,13 @@ export default function App() {
 
   async function fetchConfig() {
     const { data, error } = await supabase.from("site_config").select("*").eq("id", 1).single();
+    const storedThreshold = localStorage.getItem("centurai_price_review_threshold");
+    const storedTelegramToken = localStorage.getItem("centurai_telegram_bot_token") || "";
+    const storedTelegramChatId = localStorage.getItem("centurai_telegram_chat_id") || "";
+    const storedDiscordWebhook = localStorage.getItem("centurai_discord_webhook_url") || "";
+    const storedWhatsappApiKey = localStorage.getItem("centurai_whatsapp_api_key") || "";
+
     if (data && !error) {
-      const storedThreshold = localStorage.getItem("centurai_price_review_threshold");
       const effectiveThreshold = data.price_review_threshold !== undefined && data.price_review_threshold !== null
         ? Number(data.price_review_threshold)
         : (storedThreshold ? parseFloat(storedThreshold) : 300);
@@ -2064,6 +2074,10 @@ export default function App() {
         setConfig(prev => ({
           ...DEFAULT_CONFIG,
           ...data,
+          telegram_bot_token: data.telegram_bot_token || storedTelegramToken,
+          telegram_chat_id: data.telegram_chat_id || storedTelegramChatId,
+          discord_webhook_url: data.discord_webhook_url || storedDiscordWebhook,
+          whatsapp_api_key: data.whatsapp_api_key || storedWhatsappApiKey,
           brand_name: "Etba3ly",
           hero_title: DEFAULT_CONFIG.hero_title,
           hero_subtitle: DEFAULT_CONFIG.hero_subtitle,
@@ -2077,14 +2091,22 @@ export default function App() {
       } else {
         setConfig({
           ...data,
+          telegram_bot_token: data.telegram_bot_token || storedTelegramToken,
+          telegram_chat_id: data.telegram_chat_id || storedTelegramChatId,
+          discord_webhook_url: data.discord_webhook_url || storedDiscordWebhook,
+          whatsapp_api_key: data.whatsapp_api_key || storedWhatsappApiKey,
           price_review_threshold: effectiveThreshold,
         });
       }
     } else {
-      const storedThreshold = localStorage.getItem("centurai_price_review_threshold");
-      if (storedThreshold) {
-        setConfig(prev => ({ ...prev, price_review_threshold: parseFloat(storedThreshold) || 300 }));
-      }
+      setConfig(prev => ({
+        ...prev,
+        telegram_bot_token: prev.telegram_bot_token || storedTelegramToken,
+        telegram_chat_id: prev.telegram_chat_id || storedTelegramChatId,
+        discord_webhook_url: prev.discord_webhook_url || storedDiscordWebhook,
+        whatsapp_api_key: prev.whatsapp_api_key || storedWhatsappApiKey,
+        ...(storedThreshold ? { price_review_threshold: parseFloat(storedThreshold) || 300 } : {})
+      }));
     }
   }
 
@@ -2419,28 +2441,8 @@ export default function App() {
       const { error: insertErr } = await supabase.from("orders").insert([payload]);
       if (insertErr) throw new Error(insertErr.message);
 
-      // Send invoice and order confirmation email via edge function
-      triggerOrderEmail("INSERT", payload);
-
-      // Automated WhatsApp notification via CallMeBot if configured
-      try {
-        const rawAdminPhone = (config.whatsapp_number || "").replace(/\D/g, "");
-        const intlAdminPhone = rawAdminPhone.startsWith("0") ? "2" + rawAdminPhone : rawAdminPhone;
-        if (config.whatsapp_api_key && intlAdminPhone) {
-          const alertMsg = `[Centurai Workshop Alert] New Order Received!\n` +
-            `Tracking: ${trackingCode}\n` +
-            `Client: ${newOrder.name}\n` +
-            `Phone: ${newOrder.phone}\n` +
-            `Part: ${newOrder.orderName || "Untitled Part"}\n` +
-            `Material: ${finalMaterial} (${finalColor})\n` +
-            `Weight: ${weightGrams}g\n` +
-            `Total: ${calculatedTotal.toFixed(2)} EGP`;
-          const botUrl = `https://api.callmebot.com/whatsapp.php?phone=${intlAdminPhone}&text=${encodeURIComponent(alertMsg)}&apikey=${encodeURIComponent(config.whatsapp_api_key.trim())}`;
-          fetch(botUrl, { mode: "no-cors" }).catch(e => console.warn("CallMeBot alert dispatch warning:", e));
-        }
-      } catch (botErr) {
-        console.warn("Could not dispatch automated WhatsApp notification:", botErr);
-      }
+      // Dispatch automated order alerts across all configured channels (Email, Telegram, Discord, WhatsApp)
+      dispatchAllOrderAlerts(payload);
 
       // Save user info for next time
       localStorage.setItem("jp_user_info", JSON.stringify({ name: newOrder.name, phone: newOrder.phone, email: newOrder.email }));
@@ -2491,17 +2493,107 @@ export default function App() {
           old_record: oldRecord,
           admin_email: config.email_address || undefined,
           whatsapp_api_key: (config.whatsapp_api_key || "").trim() || undefined,
-          whatsapp_number: (config.whatsapp_number || "").trim() || undefined
+          whatsapp_number: (config.whatsapp_number || "").trim() || undefined,
+          telegram_bot_token: (config.telegram_bot_token || "").trim() || undefined,
+          telegram_chat_id: (config.telegram_chat_id || "").trim() || undefined,
+          discord_webhook_url: (config.discord_webhook_url || "").trim() || undefined
         }
       });
       if (error) {
-        console.warn("Email/WhatsApp notifier invocation returned warning:", error);
+        console.warn("Email notifier invocation returned notice:", error);
         return { success: false, error: error.message || error };
       }
       return { success: true, data };
     } catch (err) {
-      console.warn("Could not trigger email/WhatsApp notification:", err);
+      console.warn("Could not trigger email notification:", err);
       return { success: false, error: err.message || String(err) };
+    }
+  }
+
+  async function dispatchAllOrderAlerts(order) {
+    if (!order) return;
+    const trackingCode = order.tracking_code || order.id || "N/A";
+    const clientName = order.name || "Customer";
+    const clientPhone = order.phone || "N/A";
+    const partName = order.ordername || order.orderName || "Custom Part";
+    const material = order.material || "PLA";
+    const color = order.color || "Standard";
+    const weight = order.weightgrams ? `${order.weightgrams}g` : "Pending review";
+    const total = order.totalprice !== undefined && order.totalprice !== null
+      ? `${Number(order.totalprice).toFixed(2)} EGP`
+      : "Pending review";
+    const trackUrl = `https://etba3ly.store/#track?id=${encodeURIComponent(trackingCode)}`;
+
+    // 1. Send confirmation & invoice email via backend edge function
+    triggerOrderEmail("INSERT", order);
+
+    // 2. Instant Telegram mobile alert (100% free & unbannable)
+    const tgToken = (config.telegram_bot_token || localStorage.getItem("centurai_telegram_bot_token") || "").trim();
+    const tgChatId = (config.telegram_chat_id || localStorage.getItem("centurai_telegram_chat_id") || "").trim();
+    if (tgToken && tgChatId) {
+      const tgText = `[NEW 3D PRINT ORDER]\n\n` +
+        `Tracking: ${trackingCode}\n` +
+        `Client: ${clientName}\n` +
+        `Phone: ${clientPhone}\n` +
+        `Part: ${partName}\n` +
+        `Material: ${material} (${color})\n` +
+        `Weight: ${weight}\n` +
+        `Total: ${total}\n\n` +
+        `Live Tracking:\n${trackUrl}`;
+      fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: tgChatId,
+          text: tgText
+        })
+      }).catch(err => console.warn("Telegram alert error:", err));
+    }
+
+    // 3. Instant Discord webhook alert (100% free channel card)
+    const dcWebhook = (config.discord_webhook_url || localStorage.getItem("centurai_discord_webhook_url") || "").trim();
+    if (dcWebhook) {
+      fetch(dcWebhook, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: `[NEW 3D PRINT ORDER] Tracking #${trackingCode}`,
+          embeds: [{
+            title: `Order: ${partName}`,
+            color: 0xFF8000,
+            fields: [
+              { name: "Customer", value: `${clientName} (${clientPhone})`, inline: true },
+              { name: "Material", value: `${material} - ${color}`, inline: true },
+              { name: "Estimated Weight", value: weight, inline: true },
+              { name: "Total Price", value: total, inline: true },
+              { name: "Tracking Code", value: trackingCode, inline: true },
+              { name: "Track Order", value: `[Open Tracking](${trackUrl})`, inline: true }
+            ],
+            footer: { text: "Centurai Print OS • Etba3ly" },
+            timestamp: new Date().toISOString()
+          }]
+        })
+      }).catch(err => console.warn("Discord alert error:", err));
+    }
+
+    // 4. Automated WhatsApp notification via CallMeBot (if configured)
+    try {
+      const rawAdminPhone = (config.whatsapp_number || "").replace(/\D/g, "");
+      const intlAdminPhone = rawAdminPhone.startsWith("0") ? "2" + rawAdminPhone : rawAdminPhone;
+      if (config.whatsapp_api_key && intlAdminPhone) {
+        const alertMsg = `[Centurai Workshop Alert] New Order Received!\n` +
+          `Tracking: ${trackingCode}\n` +
+          `Client: ${clientName}\n` +
+          `Phone: ${clientPhone}\n` +
+          `Part: ${partName}\n` +
+          `Material: ${material} (${color})\n` +
+          `Weight: ${weight}\n` +
+          `Total: ${total}`;
+        const botUrl = `https://api.callmebot.com/whatsapp.php?phone=${intlAdminPhone}&text=${encodeURIComponent(alertMsg)}&apikey=${encodeURIComponent(config.whatsapp_api_key.trim())}`;
+        fetch(botUrl, { mode: "no-cors" }).catch(e => console.warn("CallMeBot alert dispatch warning:", e));
+      }
+    } catch (botErr) {
+      console.warn("Could not dispatch automated WhatsApp notification:", botErr);
     }
   }
 
@@ -2513,12 +2605,25 @@ export default function App() {
     setIsTestingEmail(true);
     setEmailDiagnosticStatus({ state: "testing", message: "Sending test invoice email..." });
     try {
+      const testRecord = {
+        name: "Workshop Operator (Diagnostic)",
+        phone: config.whatsapp_number || "01000000000",
+        email: config.email_address,
+        ordername: "System Diagnostic Test Part",
+        material: "PLA",
+        color: "McLaren Orange",
+        weightgrams: 42,
+        pricepergram: 3,
+        totalprice: 126,
+        tracking_code: "TEST-" + Math.floor(1000 + Math.random() * 9000),
+        status: "queued",
+        createdat: new Date().toISOString()
+      };
       const { data, error } = await supabase.functions.invoke("email-notifier", {
         body: {
-          type: "TEST",
-          email: config.email_address,
-          admin_email: config.email_address,
-          name: "Workshop Admin Diagnostic"
+          type: "INSERT",
+          record: testRecord,
+          admin_email: config.email_address
         }
       });
       if (error) {
@@ -2529,9 +2634,9 @@ export default function App() {
       }
       setEmailDiagnosticStatus({
         state: "success",
-        message: `Diagnostic test invoice sent successfully to ${config.email_address}!`
+        message: `Diagnostic test invoice sent successfully to ${config.email_address}! (Delivery ID: ${data?.id || "OK"})`
       });
-      addToast("Test email invoice sent successfully!", "success");
+      addToast("Test email invoice sent successfully! Check your inbox.", "success");
     } catch (err) {
       console.error("Test email diagnostic error:", err);
       setEmailDiagnosticStatus({
@@ -2541,6 +2646,61 @@ export default function App() {
       addToast("Email test failed: " + (err.message || "Check function logs"), "error");
     }
     setIsTestingEmail(false);
+  }
+
+  async function handleTestTelegram() {
+    const token = (config.telegram_bot_token || localStorage.getItem("centurai_telegram_bot_token") || "").trim();
+    const chatId = (config.telegram_chat_id || localStorage.getItem("centurai_telegram_chat_id") || "").trim();
+    if (!token || !chatId) {
+      addToast("Please enter both your Telegram Bot Token and Chat ID first.", "error");
+      return;
+    }
+    setIsTestingTelegram(true);
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: `[Centurai Print OS - Test Alert]\n\nYour Telegram order notification bot is connected successfully! New customer orders will ping your phone here in real time.`
+        })
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        throw new Error(data.description || "Telegram API rejected the request.");
+      }
+      addToast("Telegram test message sent! Check your Telegram app.", "success");
+    } catch (err) {
+      console.error("Telegram test error:", err);
+      addToast("Telegram test failed: " + err.message, "error");
+    }
+    setIsTestingTelegram(false);
+  }
+
+  async function handleTestDiscord() {
+    const url = (config.discord_webhook_url || localStorage.getItem("centurai_discord_webhook_url") || "").trim();
+    if (!url || !url.startsWith("https://discord.com/api/webhooks/")) {
+      addToast("Please enter a valid Discord Webhook URL first.", "error");
+      return;
+    }
+    setIsTestingDiscord(true);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: "[Centurai Print OS] Test alert: Discord Webhook is connected successfully! New 3D printing orders will appear here automatically."
+        })
+      });
+      if (!res.ok) {
+        throw new Error(`Discord returned status ${res.status}`);
+      }
+      addToast("Discord test message sent! Check your Discord channel.", "success");
+    } catch (err) {
+      console.error("Discord test error:", err);
+      addToast("Discord test failed: " + err.message, "error");
+    }
+    setIsTestingDiscord(false);
   }
 
   async function handleTestWhatsApp() {
@@ -2677,8 +2837,8 @@ export default function App() {
         if (fallbackErr) throw fallbackErr;
       }
 
-      // 2. Dispatch automated notifications (email invoice & backend WhatsApp alert)
-      triggerOrderEmail("INSERT", payload);
+      // 2. Dispatch automated notifications across all configured channels (Email, Telegram, Discord, WhatsApp)
+      dispatchAllOrderAlerts(payload);
 
       // 3. Refresh and toast
       await fetchOrders();
@@ -2967,10 +3127,19 @@ export default function App() {
     setSavingCMS(true);
     const thresholdVal = Number(config.price_review_threshold) || 300;
     localStorage.setItem("centurai_price_review_threshold", String(thresholdVal));
+    localStorage.setItem("centurai_telegram_bot_token", (config.telegram_bot_token || "").trim());
+    localStorage.setItem("centurai_telegram_chat_id", (config.telegram_chat_id || "").trim());
+    localStorage.setItem("centurai_discord_webhook_url", (config.discord_webhook_url || "").trim());
+    localStorage.setItem("centurai_whatsapp_api_key", (config.whatsapp_api_key || "").trim());
     
-    let { error } = await supabase.from("site_config").upsert({ ...config, price_review_threshold: thresholdVal, id: 1 });
+    const dbPayload = { ...config, price_review_threshold: thresholdVal, id: 1 };
+    let { error } = await supabase.from("site_config").upsert(dbPayload);
     if (error && error.message && error.message.toLowerCase().includes("column")) {
-      const safeConfig = { ...config, id: 1 };
+      const safeConfig = { ...dbPayload };
+      delete safeConfig.telegram_bot_token;
+      delete safeConfig.telegram_chat_id;
+      delete safeConfig.discord_webhook_url;
+      delete safeConfig.whatsapp_api_key;
       delete safeConfig.price_review_threshold;
       const retry = await supabase.from("site_config").upsert(safeConfig);
       error = retry.error;
@@ -3328,7 +3497,7 @@ export default function App() {
                               })()}
                             </div>
                             <div style={{ color: "var(--text-secondary)", marginTop: 6, fontSize: 13, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                              <span>{o.name} &bull; {o.phone}{o.email ? ` &bull; ${o.email}` : ""}</span>
+                              <span>{o.name} &bull; {o.phone}{o.email && <> &bull; {o.email}</>}</span>
                               {cleanPhone && (
                                 <a
                                   href={`https://wa.me/${waPhone}?text=${encodeURIComponent(waMessage)}`}
@@ -3592,12 +3761,81 @@ export default function App() {
                   <label>WhatsApp Number (International or Egyptian e.g. 010... / +20...)</label>
                   <input value={config.whatsapp_number || ""} onChange={e => setConfig(p => ({ ...p, whatsapp_number: e.target.value }))} placeholder="e.g. +201012345678 or 01012345678" />
                 </div>
-                <div style={{ marginBottom: 20, padding: "16px", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-glass-strong)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-                    <label style={{ margin: 0, fontWeight: 700 }}>CallMeBot WhatsApp Order Alerts API Key</label>
+                {/* 1. Telegram Push Alerts (Free & Unbannable) */}
+                <div style={{ marginBottom: 20, padding: "18px", borderRadius: "var(--radius-sm)", background: "rgba(0,136,204,0.04)", border: "1px solid rgba(0,136,204,0.25)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2AABEE", background: "rgba(42,171,238,0.14)", padding: "2px 8px", borderRadius: 4 }}>Recommended</span>
+                      <label style={{ margin: 0, fontWeight: 700 }}>Telegram Order Alerts (Free & Instant)</label>
+                    </div>
                     <button
                       type="button"
                       className="btn btn-sm btn-accent"
+                      style={{ padding: "4px 12px", fontSize: 11 }}
+                      disabled={isTestingTelegram}
+                      onClick={handleTestTelegram}
+                    >
+                      {isTestingTelegram ? "Sending..." : "Send Test Telegram Alert"}
+                    </button>
+                  </div>
+                  <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                    100% free, unbannable mobile alerts. When a customer places an order, your bot pings your phone immediately.
+                  </p>
+                  <div className="form-row" style={{ marginBottom: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12 }}>Telegram Bot Token</label>
+                      <input
+                        value={config.telegram_bot_token || ""}
+                        onChange={e => setConfig(p => ({ ...p, telegram_bot_token: e.target.value }))}
+                        placeholder="e.g. 7123456789:AAFlmX..."
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 12 }}>Telegram Chat ID</label>
+                      <input
+                        value={config.telegram_chat_id || ""}
+                        onChange={e => setConfig(p => ({ ...p, telegram_chat_id: e.target.value }))}
+                        placeholder="e.g. 987654321"
+                      />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.6, background: "rgba(255,255,255,0.02)", padding: "8px 12px", borderRadius: 6, border: "1px solid var(--border-glass)" }}>
+                    Quick 60-second setup: 1. Search <strong>@BotFather</strong> on Telegram and send <code>/newbot</code> to get your Bot Token. 2. Open your new bot and click <strong>Start</strong>. 3. Search <strong>@userinfobot</strong> on Telegram to get your numeric Chat ID.
+                  </div>
+                </div>
+
+                {/* 2. Discord Webhook Alerts */}
+                <div style={{ marginBottom: 20, padding: "16px", borderRadius: "var(--radius-sm)", background: "rgba(88,101,242,0.04)", border: "1px solid rgba(88,101,242,0.2)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                    <label style={{ margin: 0, fontWeight: 700 }}>Discord Webhook Order Alerts (Optional Backup)</label>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-glass"
+                      style={{ padding: "4px 12px", fontSize: 11 }}
+                      disabled={isTestingDiscord}
+                      onClick={handleTestDiscord}
+                    >
+                      {isTestingDiscord ? "Sending..." : "Send Test Discord Alert"}
+                    </button>
+                  </div>
+                  <input
+                    value={config.discord_webhook_url || ""}
+                    onChange={e => setConfig(p => ({ ...p, discord_webhook_url: e.target.value }))}
+                    placeholder="https://discord.com/api/webhooks/..."
+                    style={{ marginBottom: 8 }}
+                  />
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+                    Posts real-time order embed cards into your private Discord channel.
+                  </p>
+                </div>
+
+                {/* 3. CallMeBot WhatsApp Alerts (Legacy) */}
+                <div style={{ marginBottom: 20, padding: "16px", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-glass-strong)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                    <label style={{ margin: 0, fontWeight: 700 }}>CallMeBot WhatsApp Order Alerts API Key (Legacy)</label>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-glass"
                       style={{ padding: "4px 12px", fontSize: 11 }}
                       disabled={isTestingWhatsApp}
                       onClick={handleTestWhatsApp}
@@ -3612,7 +3850,7 @@ export default function App() {
                     style={{ marginBottom: 8 }}
                   />
                   <p style={{ margin: 0, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
-                    Free instant WhatsApp order alerts directly to your phone. To get your free key: send the message <strong>I allow callmebot to send me messages</strong> to <strong>+34 644 44 20 84</strong> on WhatsApp, then enter the key here.
+                    Note: CallMeBot WhatsApp public numbers are frequently unavailable due to gateway bans. For guaranteed 100% delivery, use Telegram above.
                   </p>
                 </div>
                 <div style={{ marginBottom: 20 }}><label>Instagram Link</label><input value={config.instagram_link || ""} onChange={e => setConfig(p => ({ ...p, instagram_link: e.target.value }))} placeholder="https://instagram.com/..." /></div>

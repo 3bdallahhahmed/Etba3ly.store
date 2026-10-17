@@ -23,6 +23,51 @@ Deno.serve(async (req) => {
     const type = payload.type || (payload.old_record ? 'UPDATE' : 'INSERT');
     const whatsappApiKey = payload.whatsapp_api_key || Deno.env.get('CALLMEBOT_API_KEY');
     const rawAdminPhone = payload.whatsapp_number || payload.admin_phone || Deno.env.get('CALLMEBOT_PHONE');
+    const telegramBotToken = payload.telegram_bot_token || Deno.env.get('TELEGRAM_BOT_TOKEN');
+    const telegramChatId = payload.telegram_chat_id || Deno.env.get('TELEGRAM_CHAT_ID');
+    const discordWebhookUrl = payload.discord_webhook_url || Deno.env.get('DISCORD_WEBHOOK_URL');
+
+    // Handle dedicated Telegram connectivity test
+    if (type === 'TEST_TELEGRAM') {
+      if (!telegramBotToken || !telegramChatId) {
+        return new Response(JSON.stringify({ 
+          error: 'Missing Telegram bot token or chat ID.' 
+        }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const tgRes = await fetch(`https://api.telegram.org/bot${String(telegramBotToken).trim()}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: String(telegramChatId).trim(),
+          text: `[Centurai Print OS] Cloud Telegram bot connection verified! Orders will appear here in real time.`
+        })
+      });
+      const tgData = await tgRes.json();
+      return new Response(JSON.stringify(tgData), { 
+        status: tgRes.ok ? 200 : 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    // Handle dedicated Discord connectivity test
+    if (type === 'TEST_DISCORD') {
+      if (!discordWebhookUrl) {
+        return new Response(JSON.stringify({ 
+          error: 'Missing Discord webhook URL.' 
+        }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const dcRes = await fetch(String(discordWebhookUrl).trim(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: `[Centurai Print OS] Cloud Discord webhook connection verified! Orders will appear here in real time.`
+        })
+      });
+      return new Response(JSON.stringify({ success: dcRes.ok }), { 
+        status: dcRes.ok ? 200 : 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
 
     // Handle dedicated WhatsApp connectivity test
     if (type === 'TEST_WHATSAPP') {
@@ -83,6 +128,63 @@ Deno.serve(async (req) => {
         console.log(`CallMeBot server response status: ${botRes.status}, body: ${botText.slice(0, 100)}`);
       } catch (waErr) {
         console.warn("Could not dispatch server-side CallMeBot WhatsApp notification:", waErr);
+      }
+    }
+
+    // Automated backend Telegram push alert on new orders
+    if (type === 'INSERT' && telegramBotToken && telegramChatId) {
+      try {
+        const tgText = `[NEW 3D PRINT ORDER]\n\n` +
+          `Tracking: ${record.tracking_code || record.id || 'N/A'}\n` +
+          `Client: ${record.name || 'Customer'}\n` +
+          `Phone: ${record.phone || 'N/A'}\n` +
+          `Part: ${record.ordername || 'Untitled Part'}\n` +
+          `Material: ${record.material || 'PLA'} (${record.color || 'Standard'})\n` +
+          `Weight: ${record.weightgrams ? `${record.weightgrams}g` : 'Reviewing'}\n` +
+          `Total: ${record.totalprice !== undefined && record.totalprice !== null ? `${Number(record.totalprice).toFixed(2)} EGP` : 'Pending'}\n\n` +
+          `Live Tracking:\nhttps://etba3ly.store/#track?id=${encodeURIComponent(record.tracking_code || record.id || '')}`;
+
+        console.log("Dispatching cloud Telegram alert...");
+        await fetch(`https://api.telegram.org/bot${String(telegramBotToken).trim()}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: String(telegramChatId).trim(),
+            text: tgText
+          })
+        });
+      } catch (tgErr) {
+        console.warn("Could not dispatch server-side Telegram alert:", tgErr);
+      }
+    }
+
+    // Automated backend Discord webhook alert on new orders
+    if (type === 'INSERT' && discordWebhookUrl) {
+      try {
+        console.log("Dispatching cloud Discord webhook alert...");
+        await fetch(String(discordWebhookUrl).trim(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: `[NEW 3D PRINT ORDER] Tracking #${record.tracking_code || record.id}`,
+            embeds: [{
+              title: `Order: ${record.ordername || "Custom 3D Print"}`,
+              color: 0xFF8000,
+              fields: [
+                { name: "Customer", value: `${record.name || 'Customer'} (${record.phone || 'N/A'})`, inline: true },
+                { name: "Material", value: `${record.material || 'PLA'} - ${record.color || 'Standard'}`, inline: true },
+                { name: "Estimated Weight", value: `${record.weightgrams ? `${record.weightgrams}g` : 'Reviewing'}`, inline: true },
+                { name: "Total Price", value: `${record.totalprice !== undefined && record.totalprice !== null ? `${Number(record.totalprice).toFixed(2)} EGP` : 'Pending'}`, inline: true },
+                { name: "Tracking Code", value: `${record.tracking_code || record.id || 'N/A'}`, inline: true },
+                { name: "Track Order", value: `[Open Tracking](https://etba3ly.store/#track?id=${encodeURIComponent(record.tracking_code || record.id || '')})`, inline: true }
+              ],
+              footer: { text: "Centurai Print OS • Etba3ly" },
+              timestamp: new Date().toISOString()
+            }]
+          })
+        });
+      } catch (dcErr) {
+        console.warn("Could not dispatch server-side Discord alert:", dcErr);
       }
     }
 
