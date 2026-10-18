@@ -1,5 +1,4 @@
 /* ===== JUST print — Liquid Glass Theme ===== */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 :root,
 [data-theme="dark"] {
@@ -368,7 +367,7 @@ input, select, textarea {
   font-size: 15px;
   font-weight: 500;
   color: var(--text-primary);
-  transition: all 0.3s var(--ease-smooth);
+  transition: border-color 0.2s var(--ease-smooth), background-color 0.2s var(--ease-smooth), box-shadow 0.2s var(--ease-smooth);
   font-family: inherit;
   outline: none;
 }
@@ -406,7 +405,7 @@ label {
   letter-spacing: 0.01em;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: all 0.4s var(--ease-spring);
+  transition: transform 0.2s var(--ease-spring), background-color 0.2s var(--ease-smooth), border-color 0.2s var(--ease-smooth), box-shadow 0.2s var(--ease-smooth), opacity 0.2s ease;
   position: relative;
   overflow: hidden;
   text-decoration: none;
@@ -468,7 +467,7 @@ label {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-glass);
-  transition: all 0.4s var(--ease-smooth);
+  transition: background 0.3s var(--ease-smooth), box-shadow 0.3s var(--ease-smooth), border-color 0.3s var(--ease-smooth);
 }
 
 .card:hover {
@@ -529,7 +528,7 @@ label {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-glass);
-  transition: all 0.5s var(--ease-spring);
+  transition: transform 0.3s var(--ease-spring), box-shadow 0.3s var(--ease-smooth), border-color 0.3s var(--ease-smooth), background 0.3s var(--ease-smooth);
   cursor: default;
 }
 
