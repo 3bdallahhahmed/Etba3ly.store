@@ -1707,7 +1707,14 @@ function AdminProfitTab({
 }
 
 export default function App() {
-  const [config, setConfig] = useState(DEFAULT_CONFIG);
+  const [config, setConfig] = useState(() => {
+    try {
+      const cached = localStorage.getItem("etba3ly_cached_config");
+      if (cached) return JSON.parse(cached);
+    } catch (e) {}
+    return DEFAULT_CONFIG;
+  });
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [orders, setOrders] = useState([]);
   const [queuedOrdersCount, setQueuedOrdersCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -1978,12 +1985,25 @@ export default function App() {
     fetchOrders();
     fetchConfig();
     fetchGallery();
+
+    let debounceOrdersTimer = null;
+    const handleRealtimeOrders = () => {
+      if (debounceOrdersTimer) clearTimeout(debounceOrdersTimer);
+      debounceOrdersTimer = setTimeout(() => {
+        fetchOrders();
+      }, 500);
+    };
+
     const sub = supabase.channel('schema-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchOrders)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, handleRealtimeOrders)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'site_config' }, fetchConfig)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'gallery_items' }, fetchGallery)
       .subscribe();
-    return () => supabase.removeChannel(sub);
+
+    return () => {
+      if (debounceOrdersTimer) clearTimeout(debounceOrdersTimer);
+      supabase.removeChannel(sub);
+    };
   }, [isAdmin]);
 
   // Auto-load user's past orders if they exist
@@ -2051,27 +2071,27 @@ export default function App() {
   }
 
   async function fetchConfig() {
-    const { data, error } = await supabase.from("site_config").select("*").eq("id", 1).single();
-    const storedThreshold = localStorage.getItem("centurai_price_review_threshold");
-    const storedTelegramToken = localStorage.getItem("centurai_telegram_bot_token") || "8667555636:AAHo8iluJWpdDJjwKbo18TfqmRwh9wF_KD0";
-    const storedTelegramChatId = localStorage.getItem("centurai_telegram_chat_id") || "655459922";
-    const storedDiscordWebhook = localStorage.getItem("centurai_discord_webhook_url") || "";
-    const storedWhatsappApiKey = localStorage.getItem("centurai_whatsapp_api_key") || "";
+    try {
+      const { data, error } = await supabase.from("site_config").select("*").eq("id", 1).single();
+      const storedThreshold = localStorage.getItem("centurai_price_review_threshold");
+      const storedTelegramToken = localStorage.getItem("centurai_telegram_bot_token") || "8667555636:AAHo8iluJWpdDJjwKbo18TfqmRwh9wF_KD0";
+      const storedTelegramChatId = localStorage.getItem("centurai_telegram_chat_id") || "655459922";
+      const storedDiscordWebhook = localStorage.getItem("centurai_discord_webhook_url") || "";
+      const storedWhatsappApiKey = localStorage.getItem("centurai_whatsapp_api_key") || "";
 
-    if (data && !error) {
-      const effectiveThreshold = data.price_review_threshold !== undefined && data.price_review_threshold !== null
-        ? Number(data.price_review_threshold)
-        : (storedThreshold ? parseFloat(storedThreshold) : 300);
+      if (data && !error) {
+        const effectiveThreshold = data.price_review_threshold !== undefined && data.price_review_threshold !== null
+          ? Number(data.price_review_threshold)
+          : (storedThreshold ? parseFloat(storedThreshold) : 300);
 
-      const isLegacy =
-        !data.hero_title ||
-        data.hero_title.includes("F1") ||
-        data.brand_name === "JUST print" ||
-        data.brand_name === "PrintQueue" ||
-        (data.why_title && data.why_title.includes("Speed"));
+        const isLegacy =
+          !data.hero_title ||
+          data.hero_title.includes("F1") ||
+          data.brand_name === "JUST print" ||
+          data.brand_name === "PrintQueue" ||
+          (data.why_title && data.why_title.includes("Speed"));
 
-      if (isLegacy) {
-        setConfig(prev => ({
+        const finalConfig = isLegacy ? {
           ...DEFAULT_CONFIG,
           ...data,
           telegram_bot_token: data.telegram_bot_token || storedTelegramToken,
@@ -2087,26 +2107,31 @@ export default function App() {
           colors: DEFAULT_CONFIG.colors,
           price_per_gram: data.price_per_gram || DEFAULT_CONFIG.price_per_gram,
           price_review_threshold: effectiveThreshold,
-        }));
-      } else {
-        setConfig({
+        } : {
           ...data,
           telegram_bot_token: data.telegram_bot_token || storedTelegramToken,
           telegram_chat_id: data.telegram_chat_id || storedTelegramChatId,
           discord_webhook_url: data.discord_webhook_url || storedDiscordWebhook,
           whatsapp_api_key: data.whatsapp_api_key || storedWhatsappApiKey,
           price_review_threshold: effectiveThreshold,
-        });
+        };
+
+        setConfig(finalConfig);
+        try { localStorage.setItem("etba3ly_cached_config", JSON.stringify(finalConfig)); } catch (e) {}
+      } else {
+        setConfig(prev => ({
+          ...prev,
+          telegram_bot_token: prev.telegram_bot_token || storedTelegramToken,
+          telegram_chat_id: prev.telegram_chat_id || storedTelegramChatId,
+          discord_webhook_url: prev.discord_webhook_url || storedDiscordWebhook,
+          whatsapp_api_key: prev.whatsapp_api_key || storedWhatsappApiKey,
+          ...(storedThreshold ? { price_review_threshold: parseFloat(storedThreshold) || 300 } : {})
+        }));
       }
-    } else {
-      setConfig(prev => ({
-        ...prev,
-        telegram_bot_token: prev.telegram_bot_token || storedTelegramToken,
-        telegram_chat_id: prev.telegram_chat_id || storedTelegramChatId,
-        discord_webhook_url: prev.discord_webhook_url || storedDiscordWebhook,
-        whatsapp_api_key: prev.whatsapp_api_key || storedWhatsappApiKey,
-        ...(storedThreshold ? { price_review_threshold: parseFloat(storedThreshold) || 300 } : {})
-      }));
+    } catch (err) {
+      console.error("fetchConfig error:", err);
+    } finally {
+      setConfigLoaded(true);
     }
   }
 
@@ -3010,10 +3035,17 @@ export default function App() {
         updateData.notes = setPrinterInNotes(order.notes, null);
       }
     }
-    await supabase.from("orders").update(updateData).eq("id", id);
-    fetchOrders();
-    if (order) {
-      triggerOrderEmail("UPDATE", { ...order, ...updateData }, order);
+    // Optimistic update: instantly reflect new status and printer notes
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, ...updateData } : o));
+
+    const { error } = await supabase.from("orders").update(updateData).eq("id", id);
+    if (error) {
+      addToast("Failed to update status: " + error.message, "error");
+      fetchOrders();
+    } else {
+      if (order) {
+        triggerOrderEmail("UPDATE", { ...order, ...updateData }, order);
+      }
     }
   }
 
@@ -3022,6 +3054,9 @@ export default function App() {
       message: "Delete this order permanently?",
       onConfirm: async () => {
         try {
+          // Optimistically remove from state
+          setOrders(prev => prev.filter(o => o.id !== id));
+
           // Find the order to get its file URLs
           const order = orders.find(o => o.id === id);
           if (order && order.fileurl) {
@@ -3036,15 +3071,16 @@ export default function App() {
           const { error } = await supabase.from("orders").delete().eq("id", id);
           if (error) {
             addToast("Delete failed: " + error.message, "error");
+            fetchOrders();
           } else {
             addToast("Order deleted permanently", "success");
           }
         } catch (err) {
           console.error('Delete order error:', err);
           addToast("Delete failed: " + err.message, "error");
+          fetchOrders();
         }
         setConfirmModal(null);
-        fetchOrders();
       }
     });
   }
@@ -3054,16 +3090,32 @@ export default function App() {
     const price = customPrice !== null && customPrice !== undefined && !isNaN(customPrice)
       ? parseFloat(customPrice)
       : weight * (parseFloat(config.price_per_gram) || 0);
-    await supabase.from("orders").update({ weightgrams: weight, pricepergram: config.price_per_gram, totalprice: price }).eq("id", id);
-    fetchOrders();
+
+    // Optimistic update: instantly reflect new weight and price
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, weightgrams: weight, pricepergram: config.price_per_gram, totalprice: price } : o));
+
+    const { error } = await supabase.from("orders").update({ weightgrams: weight, pricepergram: config.price_per_gram, totalprice: price }).eq("id", id);
+    if (error) {
+      addToast("Failed to update weight: " + error.message, "error");
+      fetchOrders();
+    }
   }
 
   async function handleUpdatePrice(id, priceStr) {
     const price = parseFloat(priceStr);
     if (isNaN(price)) return;
-    await supabase.from("orders").update({ totalprice: Math.max(0, price) }).eq("id", id);
-    fetchOrders();
-    addToast(`Updated order price to ${price.toFixed(2)} EGP`, "success");
+    const finalPrice = Math.max(0, price);
+
+    // Optimistic update: instantly reflect new totalprice
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, totalprice: finalPrice } : o));
+
+    const { error } = await supabase.from("orders").update({ totalprice: finalPrice }).eq("id", id);
+    if (error) {
+      addToast("Failed to update price: " + error.message, "error");
+      fetchOrders();
+    } else {
+      addToast(`Updated order price to ${finalPrice.toFixed(2)} EGP`, "success");
+    }
   }
 
   function isValidEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
@@ -3156,8 +3208,12 @@ export default function App() {
       error = retry.error;
     }
 
-    if (error) addToast("Failed to save config: " + error.message, "error");
-    else addToast("Configuration saved!", "success");
+    if (error) {
+      addToast("Failed to save config: " + error.message, "error");
+    } else {
+      try { localStorage.setItem("etba3ly_cached_config", JSON.stringify(dbPayload)); } catch (e) {}
+      addToast("Configuration saved!", "success");
+    }
     setSavingCMS(false);
   }
 
@@ -3613,7 +3669,7 @@ export default function App() {
                             <input
                               type="number"
                               step="0.1"
-                              key={`w_${o.id}_${o.weightgrams}`}
+                              key={`w_${o.id}`}
                               defaultValue={o.weightgrams || ""}
                               placeholder="0"
                               onBlur={(e) => handleUpdateWeight(o.id, e.target.value)}
@@ -3628,7 +3684,7 @@ export default function App() {
                             <input
                               type="number"
                               step="0.5"
-                              key={`p_${o.id}_${o.totalprice}`}
+                              key={`p_${o.id}`}
                               defaultValue={o.totalprice !== null && o.totalprice !== undefined ? Number(o.totalprice).toFixed(2) : calculatedPrice.toFixed(2)}
                               placeholder="0.00"
                               onBlur={(e) => handleUpdatePrice(o.id, e.target.value)}
