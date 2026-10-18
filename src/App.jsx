@@ -9,6 +9,7 @@ import MoonrakerDispatchModal from "./slicer/MoonrakerDispatchModal.jsx";
 import { generateElegooGcode } from "./slicer/slicerEngine.js";
 import GalleryStudioUploader from "./utils/GalleryStudioUploader.jsx";
 import { processPartImageFile } from "./utils/partImageProcessor.js";
+import { upscaleImageFile } from "./utils/imageUpscaler.js";
 
 const BENCHY_URL = `${import.meta.env.BASE_URL}benchy.glb`;
 useGLTF.preload(BENCHY_URL);
@@ -1789,6 +1790,8 @@ export default function App() {
   const [galleryUploading, setGalleryUploading] = useState(false);
   const [galleryProcessing, setGalleryProcessing] = useState(false);
   const [convertingMediaUrl, setConvertingMediaUrl] = useState(null);
+  const [upscalingMediaUrl, setUpscalingMediaUrl] = useState(null);
+  const [editUploadUpscale, setEditUploadUpscale] = useState(false);
   const [newGalleryItem, setNewGalleryItem] = useState({ title: "", description: "" });
   const [newGalleryFiles, setNewGalleryFiles] = useState([]);
 
@@ -2235,21 +2238,23 @@ export default function App() {
     }
   }
 
-  async function handleAddMediaToGalleryItem(files) {
+  async function handleAddMediaToGalleryItem(files, shouldUpscale = false) {
     if (!editingGalleryItem || !files.length) return;
     setGalleryUploading(true);
     try {
       const existingUrls = editingGalleryItem.media_urls ? editingGalleryItem.media_urls.split(',').filter(Boolean) : [];
       for (const rawFile of files) {
         let fileToUpload = rawFile;
-        try {
-          const processed = await processPartImageFile(rawFile);
-          fileToUpload = processed.file;
-          if (processed.previewUrl) URL.revokeObjectURL(processed.previewUrl);
-        } catch (procErr) {
-          console.warn("Could not auto-process gallery image, uploading original:", procErr);
+        if (shouldUpscale) {
+          try {
+            const upscaled = await upscaleImageFile(rawFile, 2);
+            fileToUpload = upscaled.file;
+            if (upscaled.previewUrl) URL.revokeObjectURL(upscaled.previewUrl);
+          } catch (uErr) {
+            console.warn("Could not upscale gallery image, uploading original:", uErr);
+          }
         }
-        const ext = fileToUpload.name.split('.').pop();
+        const ext = fileToUpload.name ? fileToUpload.name.split('.').pop() : 'png';
         const path = `gallery_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
         const { error: uploadError } = await supabase.storage.from('gallery-media').upload(path, fileToUpload);
         if (uploadError) throw uploadError;
@@ -2259,11 +2264,46 @@ export default function App() {
       const updatedItem = { ...editingGalleryItem, media_urls: existingUrls.join(',') };
       if (!updatedItem.cover_url && existingUrls.length > 0) updatedItem.cover_url = existingUrls[0];
       setEditingGalleryItem(updatedItem);
-      addToast(`Added ${files.length} glowing orange part photo(s).`, "success");
+      addToast(`Added ${files.length} photo(s).`, "success");
     } catch (err) {
       addToast("Upload failed: " + err.message, "error");
     }
     setGalleryUploading(false);
+  }
+
+  async function handleUpscaleExistingGalleryUrl(urlToUpscale, factor = 2) {
+    if (!editingGalleryItem || !urlToUpscale) return;
+    setUpscalingMediaUrl(urlToUpscale);
+    try {
+      const resp = await fetch(urlToUpscale);
+      if (!resp.ok) throw new Error("Could not fetch image");
+      const blob = await resp.blob();
+      const ext = urlToUpscale.split('.').pop().split('?')[0] || (blob.type === 'image/jpeg' ? 'jpg' : 'png');
+      const tempFile = new File([blob], `gallery_part.${ext}`, { type: blob.type || "image/png" });
+      const upscaled = await upscaleImageFile(tempFile, factor);
+      if (upscaled.previewUrl) URL.revokeObjectURL(upscaled.previewUrl);
+
+      const path = `gallery_${Date.now()}_${Math.random().toString(36).slice(2)}_upscaled_${factor}x.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("gallery-media").upload(path, upscaled.file);
+      if (uploadError) throw uploadError;
+      const { data: { publicUrl } } = supabase.storage.from("gallery-media").getPublicUrl(path);
+
+      const urls = editingGalleryItem.media_urls
+        .split(",")
+        .filter(Boolean)
+        .map((u) => (u === urlToUpscale ? publicUrl : u));
+      const updatedItem = {
+        ...editingGalleryItem,
+        media_urls: urls.join(","),
+        cover_url: editingGalleryItem.cover_url === urlToUpscale ? publicUrl : editingGalleryItem.cover_url,
+      };
+      setEditingGalleryItem(updatedItem);
+      addToast(`Image upscaled to ${factor}x HD!`, "success");
+    } catch (err) {
+      console.error("Upscale existing image error:", err);
+      addToast("Failed to upscale image: " + err.message, "error");
+    }
+    setUpscalingMediaUrl(null);
   }
 
   async function handleConvertExistingGalleryUrlToGlow(urlToConvert) {
@@ -3745,7 +3785,7 @@ export default function App() {
                   onProcessingStateChange={setGalleryProcessing}
                 />
                 <button className="btn btn-primary" onClick={handleAddGalleryItem} disabled={galleryUploading || galleryProcessing}>
-                  {galleryProcessing ? "Removing Background & Applying Glow..." : galleryUploading ? "Uploading..." : "Add to Gallery"}
+                  {galleryProcessing ? "Processing Images..." : galleryUploading ? "Uploading..." : "Add to Gallery"}
                 </button>
               </div>
 
@@ -4158,8 +4198,16 @@ export default function App() {
                   {editingGalleryItem.media_urls && editingGalleryItem.media_urls.split(',').filter(Boolean).map((url, idx) => (
                     <div key={idx} style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: editingGalleryItem.cover_url === url ? '3px solid var(--accent)' : '1px solid var(--border-glass)' }}>
                       <img src={url} alt="" style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block' }} />
-                      <div style={{ display: 'flex', gap: 4, padding: 4 }}>
+                      <div style={{ display: 'flex', gap: 4, padding: 4, flexWrap: 'wrap' }}>
                         <button style={{ flex: 1, fontSize: 10, padding: '4px', cursor: 'pointer', background: editingGalleryItem.cover_url === url ? 'var(--accent)' : 'rgba(255,255,255,0.1)', color: editingGalleryItem.cover_url === url ? '#fff' : 'var(--text-secondary)', border: 'none', borderRadius: 4 }} onClick={() => setEditingGalleryItem({...editingGalleryItem, cover_url: url})}>Cover</button>
+                        <button
+                          style={{ flex: 1, fontSize: 10, padding: '4px', cursor: 'pointer', background: 'rgba(59, 130, 246, 0.2)', color: '#60A5FA', border: '1px solid rgba(59, 130, 246, 0.4)', borderRadius: 4, fontWeight: 700 }}
+                          disabled={upscalingMediaUrl === url}
+                          onClick={() => handleUpscaleExistingGalleryUrl(url, 2)}
+                          title="Upscale to 2x High Definition"
+                        >
+                          {upscalingMediaUrl === url ? "..." : "Upscale 2x"}
+                        </button>
                         <button
                           style={{ flex: 1, fontSize: 10, padding: '4px', cursor: 'pointer', background: 'rgba(255,128,0,0.2)', color: 'var(--accent)', border: '1px solid rgba(255,128,0,0.4)', borderRadius: 4, fontWeight: 700 }}
                           disabled={convertingMediaUrl === url}
@@ -4175,9 +4223,32 @@ export default function App() {
                 </div>
 
                 <div style={{ marginBottom: 24 }}>
-                  <label>Add More Images / GIFs (Auto Background Removal + Glowing Orange BG)</label>
-                  <input type="file" multiple accept="image/*,.gif" onChange={e => handleAddMediaToGalleryItem(Array.from(e.target.files))} style={{ padding: 14, border: "2px dashed var(--border-glass)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.05)" }} />
-                  {galleryUploading && <div style={{ fontSize: 12, color: 'var(--accent)', marginTop: 6 }}>Removing background, applying orange glow, and uploading...</div>}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                    <label style={{ margin: 0 }}>Add More Images / GIFs (Normal Photos)</label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', margin: 0, fontWeight: 600 }}>
+                      <input
+                        type="checkbox"
+                        checked={editUploadUpscale}
+                        onChange={(e) => setEditUploadUpscale(e.target.checked)}
+                        style={{ width: 15, height: 15 }}
+                      />
+                      Upscale new images (2x HD)
+                    </label>
+                  </div>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,.gif"
+                    onChange={(e) => {
+                      const selected = Array.from(e.target.files);
+                      if (selected.length > 0) {
+                        handleAddMediaToGalleryItem(selected, editUploadUpscale);
+                        e.target.value = '';
+                      }
+                    }}
+                    style={{ padding: 14, border: "2px dashed var(--border-glass)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.05)", width: '100%', boxSizing: 'border-box' }}
+                  />
+                  {galleryUploading && <div style={{ fontSize: 12, color: 'var(--accent)', marginTop: 6 }}>Uploading photo(s)...</div>}
                 </div>
 
                 <div style={{ display: 'flex', gap: 16, justifyContent: 'flex-end' }}>
