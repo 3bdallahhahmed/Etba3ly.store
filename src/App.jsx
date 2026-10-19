@@ -5666,9 +5666,22 @@ export default function App() {
           <>
           {/* ── HERO ── */}
           <section id="home" className="section-container animate-in">
-            <div className="eyebrow-tag" style={{ display: "inline-block", marginBottom: 12 }}>
+            <span
+              className="sr-only"
+              style={{
+                position: "absolute",
+                width: "1px",
+                height: "1px",
+                padding: 0,
+                margin: "-1px",
+                overflow: "hidden",
+                clip: "rect(0, 0, 0, 0)",
+                whiteSpace: "nowrap",
+                border: 0
+              }}
+            >
               Etba3ly Store | اطبعلي — 3D Printing Service Egypt
-            </div>
+            </span>
             <h1 style={{ whiteSpace: "pre-line" }}>{config.hero_title}</h1>
             <p style={{ whiteSpace: "pre-line" }}>{config.hero_subtitle}</p>
             <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
