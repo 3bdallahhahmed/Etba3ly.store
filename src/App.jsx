@@ -2077,9 +2077,20 @@ export default function App() {
   }, [darkMode]);
 
   useEffect(() => {
-    const title = (config.brand_name && config.brand_name !== "JUST print" && config.brand_name !== "PrintQueue") ? config.brand_name : "Etba3ly";
-    document.title = title;
-  }, [config.brand_name]);
+    const brand = (config.brand_name && config.brand_name !== "JUST print" && config.brand_name !== "PrintQueue") ? config.brand_name : "Etba3ly";
+    const routeTitles = {
+      home: `${brand} Store | اطبعلي — 3D Printing Service Egypt & On-Demand 3D Store`,
+      order: `Order 3D Print | ${brand} Store (اطبعلي) — Instant Slicing & Quote`,
+      track: `Track Order | ${brand} Store (اطبعلي) — Live 3D Print Queue`,
+      "full-gallery": `3D Print Gallery | ${brand} Store (اطبعلي) — Custom Parts & Prototypes`,
+      why: `Why Print With Us | ${brand} Store (اطبعلي) — Rapid 3D Prototyping`,
+      about: `About Us | ${brand} Store (اطبعلي) — Student Engineering 3D Printing`,
+      contact: `Contact Us | ${brand} Store (اطبعلي) — WhatsApp & Email Support`,
+      boss: `${brand} Admin Dashboard`
+    };
+    const newTitle = routeTitles[currentRoute] || `${brand} Store | اطبعلي — 3D Printing Service Egypt`;
+    document.title = newTitle;
+  }, [config.brand_name, currentRoute]);
 
 
 
@@ -5655,6 +5666,9 @@ export default function App() {
           <>
           {/* ── HERO ── */}
           <section id="home" className="section-container animate-in">
+            <div className="eyebrow-tag" style={{ display: "inline-block", marginBottom: 12 }}>
+              Etba3ly Store | اطبعلي — 3D Printing Service Egypt
+            </div>
             <h1 style={{ whiteSpace: "pre-line" }}>{config.hero_title}</h1>
             <p style={{ whiteSpace: "pre-line" }}>{config.hero_subtitle}</p>
             <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -5822,9 +5836,10 @@ export default function App() {
         <div className="footer-grid">
           <div>
             <div className="footer-brand">
-              <img src={getAssetPath("logo-dark.svg")} alt={brandName} className="footer-logo-img footer-logo" />
+              <img src={getAssetPath("logo-dark.svg")} alt={`${brandName} Store - اطبعلي للطباعة ثلاثية الأبعاد`} className="footer-logo-img footer-logo" />
             </div>
-            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 14, margin: 0 }}>Student-powered 3D printing. Fast, affordable, on campus.</p>
+            <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 14, margin: "0 0 6px 0", fontWeight: 600 }}>Etba3ly Store | متجر اطبعلي للطباعة ثلاثية الأبعاد</p>
+            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: 0 }}>Student-powered 3D printing. Fast, affordable, on campus across Egypt.</p>
           </div>
           <div className="footer-col">
             <h4>Quick Links</h4>
@@ -5855,7 +5870,7 @@ export default function App() {
             )}
           </div>
         </div>
-        <div className="footer-bottom">&copy; {new Date().getFullYear()} {brandName}. All rights reserved.</div>
+        <div className="footer-bottom">&copy; {new Date().getFullYear()} {brandName} Store (اطبعلي). All rights reserved. | On-Demand 3D Printing Service Egypt</div>
       </footer>
 
       {/* Privacy Policy Modal */}

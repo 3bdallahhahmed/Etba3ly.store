@@ -1,0 +1,8 @@
+# Robots.txt for Etba3ly Store (اطبعلي)
+# https://etba3ly.store/
+
+User-agent: *
+Allow: /
+
+# Sitemaps
+Sitemap: https://etba3ly.store/sitemap.xml
