@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, Suspense, useMemo, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Environment, Float, Html, useProgress, useGLTF } from "@react-three/drei";
+import { Environment, Float, Html, useProgress, useGLTF, useEnvironment } from "@react-three/drei";
 import * as THREE from "three";
 import STLViewer from "./slicer/STLViewer.jsx";
 import AdminSlicerModal from "./slicer/AdminSlicerModal.jsx";
@@ -22,6 +22,13 @@ function getAssetPath(file) {
 
 const BENCHY_URL = getAssetPath("benchy.glb");
 useGLTF.preload(BENCHY_URL);
+
+const ENV_HDR_URL = getAssetPath("potsdamer_platz_1k.hdr");
+try {
+  useEnvironment.preload({ files: ENV_HDR_URL });
+} catch {
+  // Ignore preload error in SSR or headless testing
+}
 
 // ─────────────────────────────────────────────────────────
 // Supabase
@@ -358,6 +365,19 @@ function SceneLoader() {
   );
 }
 
+function SceneReadyNotifier({ onReady }) {
+  const renderedCount = useRef(0);
+  useFrame(() => {
+    if (renderedCount.current < 2) {
+      renderedCount.current += 1;
+      if (renderedCount.current === 2 && onReady) {
+        onReady();
+      }
+    }
+  });
+  return null;
+}
+
 /* ── Gear Shape (3D printing icon) ── */
 function GearShape({ position, scale = 1, color = "#FF8000" }) {
   const meshRef = useRef();
@@ -535,40 +555,38 @@ function PrintScene() {
       </Float>
 
       {/* 3 Same-Size Floating 3DBenchy Models in non-colliding orbits */}
-      <Suspense fallback={null}>
-        {/* Benchy 1 — Top sector */}
-        <Float speed={1.6} rotationIntensity={0.3} floatIntensity={0.35}>
-          <BenchyShape
-            position={[0.1, 1.92, 0.2]}
-            rotation={[0.2, -0.65, -0.1]}
-            scale={0.66}
-            spinSpeed={-0.25}
-            color={benchyColors[0]}
-          />
-        </Float>
+      {/* Benchy 1 — Top sector */}
+      <Float speed={1.6} rotationIntensity={0.3} floatIntensity={0.35}>
+        <BenchyShape
+          position={[0.1, 1.92, 0.2]}
+          rotation={[0.2, -0.65, -0.1]}
+          scale={0.66}
+          spinSpeed={-0.25}
+          color={benchyColors[0]}
+        />
+      </Float>
 
-        {/* Benchy 2 — Bottom-left sector */}
-        <Float speed={1.7} rotationIntensity={0.3} floatIntensity={0.35}>
-          <BenchyShape
-            position={[-1.58, -1.22, 0.35]}
-            rotation={[-0.14, 0.85, 0.12]}
-            scale={0.66}
-            spinSpeed={0.22}
-            color={benchyColors[1]}
-          />
-        </Float>
+      {/* Benchy 2 — Bottom-left sector */}
+      <Float speed={1.7} rotationIntensity={0.3} floatIntensity={0.35}>
+        <BenchyShape
+          position={[-1.58, -1.22, 0.35]}
+          rotation={[-0.14, 0.85, 0.12]}
+          scale={0.66}
+          spinSpeed={0.22}
+          color={benchyColors[1]}
+        />
+      </Float>
 
-        {/* Benchy 3 — Right sector */}
-        <Float speed={1.8} rotationIntensity={0.3} floatIntensity={0.35}>
-          <BenchyShape
-            position={[1.95, 0.08, 0.25]}
-            rotation={[0.15, -2.15, 0.1]}
-            scale={0.66}
-            spinSpeed={-0.22}
-            color={benchyColors[2]}
-          />
-        </Float>
-      </Suspense>
+      {/* Benchy 3 — Right sector */}
+      <Float speed={1.8} rotationIntensity={0.3} floatIntensity={0.35}>
+        <BenchyShape
+          position={[1.95, 0.08, 0.25]}
+          rotation={[0.15, -2.15, 0.1]}
+          scale={0.66}
+          spinSpeed={-0.22}
+          color={benchyColors[2]}
+        />
+      </Float>
 
       {/* Gear 1 — Top-left sector */}
       <Float speed={1.8} rotationIntensity={0.4} floatIntensity={0.4}>
@@ -1799,6 +1817,16 @@ export default function App() {
     }
   });
   const [currentRoute, setCurrentRoute] = useState(parseCurrentRoute);
+  const [canvasReady, setCanvasReady] = useState(false);
+  const handleCanvasReady = useCallback(() => setCanvasReady(true), []);
+
+  useEffect(() => {
+    // Safety fallback: ensure 3D canvas reveals even if network or WebGL stalls
+    const timer = setTimeout(() => {
+      setCanvasReady(true);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const hash = useMemo(() => {
     let r = currentRoute.toLowerCase();
@@ -5011,7 +5039,7 @@ export default function App() {
 
       {/* 3D Canvas */}
       {hash !== "#order" && hash !== "#boss" && (
-        <div className="canvas-wrapper">
+        <div className={`canvas-wrapper ${canvasReady ? "canvas-ready" : ""}`}>
           <div style={{ position: "sticky", top: 0, height: "100vh", width: "100%" }}>
             <CanvasErrorBoundary fallback={null}>
               <Canvas
@@ -5026,11 +5054,10 @@ export default function App() {
                 <directionalLight position={[-6, -4, -6]} intensity={0.6} color="#FFB347" />
                 <directionalLight position={[0, -8, 2]} intensity={0.3} color="#FF8000" />
                 <pointLight position={[3, 3, 3]} intensity={0.8} color="#FF8000" distance={12} decay={2} />
-                <Suspense fallback={<SceneLoader />}>
-                  <PrintScene />
-                </Suspense>
                 <Suspense fallback={null}>
-                  <Environment files={getAssetPath("potsdamer_platz_1k.hdr")} />
+                  <Environment files={ENV_HDR_URL} />
+                  <PrintScene />
+                  <SceneReadyNotifier onReady={handleCanvasReady} />
                 </Suspense>
               </Canvas>
             </CanvasErrorBoundary>
