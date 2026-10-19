@@ -2112,6 +2112,11 @@ export default function App() {
     fetchConfig();
     fetchGallery();
 
+    // Only establish persistent Realtime WebSocket connections for admin or tracking views
+    // to prevent saturating Supabase connection limits on general website traffic
+    const shouldSubscribeRealtime = isAdmin || hash === "#track";
+    if (!shouldSubscribeRealtime) return;
+
     let debounceOrdersTimer = null;
     const handleRealtimeOrders = () => {
       if (debounceOrdersTimer) clearTimeout(debounceOrdersTimer);
@@ -2130,7 +2135,7 @@ export default function App() {
       if (debounceOrdersTimer) clearTimeout(debounceOrdersTimer);
       supabase.removeChannel(sub);
     };
-  }, [isAdmin]);
+  }, [isAdmin, hash]);
 
   // Auto-load user's past orders if they exist
   useEffect(() => {
