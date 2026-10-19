@@ -1,0 +1,16 @@
+{
+  "name": "Etba3ly Store | متجر اطبعلي",
+  "short_name": "Etba3ly",
+  "description": "On-demand 3D printing service and online store in Egypt. Upload STL files, get instant quotes, and track orders live.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "icons": [
+    {
+      "src": "/logo-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

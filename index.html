@@ -31,38 +31,212 @@
       }(window.location));
     </script>
     <style>
-      html, body { background-color: #0a0a0f; color: #F0F0F5; }
+      html, body { background-color: #0a0a0f; color: #F0F0F5; margin: 0; padding: 0; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
       html[data-theme="light"], html[data-theme="light"] body { background-color: #F0F0F5; color: #1A1A1A; }
+      .seo-fallback { max-width: 900px; margin: 0 auto; padding: 48px 20px; font-family: inherit; line-height: 1.6; }
+      .seo-fallback h1 { font-size: 2.2rem; margin-bottom: 16px; color: #ff8000; }
+      .seo-fallback h2 { font-size: 1.4rem; margin-top: 32px; margin-bottom: 12px; }
+      .seo-fallback p { margin-bottom: 16px; font-size: 1.05rem; }
+      .seo-fallback a { color: #ff8000; text-decoration: underline; margin-right: 14px; }
+      .seo-fallback ul { margin: 12px 0 24px 20px; }
+      .seo-fallback li { margin-bottom: 8px; }
     </style>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/logo-icon.svg" />
+    <link rel="manifest" href="/site.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Etba3ly — Professional 3D printing order management. Submit print requests, track your queue position, and get real-time updates." />
+    <title>Etba3ly Store | اطبعلي — 3D Printing Service Egypt &amp; On-Demand 3D Store</title>
+    <meta name="description" content="Etba3ly Store (اطبعلي) is Egypt's premier on-demand 3D printing service and store. Upload STL/OBJ/3MF files, get instant quotes, and order custom 3D prints with campus pickup at E-JUST and nationwide delivery across Egypt. متجر وخدمة اطبعلي للطباعة ثلاثية الأبعاد في مصر." />
+    <meta name="keywords" content="etba3ly, etba3ly store, اطبعلي, متجر اطبعلي, etba3ley, 3d printing egypt, طباعة ثلاثية الابعاد مصر, 3d print service egypt, elegoo centauri carbon, rapid prototyping egypt, stl printing egypt, ejust 3d printing" />
+    <meta name="author" content="Etba3ly Store" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+    <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
     <meta name="theme-color" content="#0a0a0f" />
+
+    <!-- Canonical and Alternate Languages -->
     <link rel="canonical" href="https://etba3ly.store/" />
-    <link rel="image_src" href="https://etba3ly.store/og-image.png" />
+    <link rel="alternate" hreflang="ar" href="https://etba3ly.store/" />
+    <link rel="alternate" hreflang="en" href="https://etba3ly.store/" />
+    <link rel="alternate" hreflang="x-default" href="https://etba3ly.store/" />
+
+    <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://etba3ly.store/" />
-    <meta property="og:site_name" content="Etba3ly" />
-    <meta property="og:title" content="Etba3ly — Professional 3D Printing" />
-    <meta property="og:description" content="Professional 3D printing order management. Submit print requests, track your queue position, and get real-time updates." />
+    <meta property="og:site_name" content="Etba3ly Store | متجر اطبعلي" />
+    <meta property="og:title" content="Etba3ly Store | اطبعلي — 3D Printing Service Egypt &amp; On-Demand 3D Store" />
+    <meta property="og:description" content="Etba3ly Store (اطبعلي) is Egypt's premier on-demand 3D printing service and store. Upload STL/OBJ/3MF files, get instant slicing quotes, and track orders in real time. متجر وخدمة اطبعلي للطباعة ثلاثية الأبعاد." />
     <meta property="og:image" content="https://etba3ly.store/og-image.png" />
     <meta property="og:image:secure_url" content="https://etba3ly.store/og-image.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Etba3ly Logo" />
+    <meta property="og:image:alt" content="Etba3ly Store - On-Demand 3D Printing in Egypt" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="ar_EG" />
+
+    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Etba3ly — Professional 3D Printing" />
-    <meta name="twitter:description" content="Professional 3D printing order management. Submit print requests, track your queue position, and get real-time updates." />
+    <meta name="twitter:url" content="https://etba3ly.store/" />
+    <meta name="twitter:title" content="Etba3ly Store | اطبعلي — 3D Printing Service &amp; Store Egypt" />
+    <meta name="twitter:description" content="On-demand 3D printing service and store in Egypt. Instant STL slicing, rapid prototyping, and live order tracking. متجر وخدمة اطبعلي للطباعة ثلاثية الأبعاد." />
     <meta name="twitter:image" content="https://etba3ly.store/og-image.png" />
-    <title>Etba3ly</title>
+
+    <!-- Search Engine Verification Meta Tag Placeholders -->
+    <meta name="google-site-verification" content="GOOGLE_SEARCH_CONSOLE_KEY" />
+
+    <!-- Schema.org Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://etba3ly.store/#website",
+          "url": "https://etba3ly.store/",
+          "name": "Etba3ly Store",
+          "alternateName": [
+            "Etba3ly",
+            "اطبعلي",
+            "متجر اطبعلي",
+            "Etba3ley",
+            "Etba3ly 3D",
+            "Etba3ly 3D Printing Store"
+          ],
+          "description": "Etba3ly Store (اطبعلي) is Egypt's on-demand 3D printing platform, service, and store. Instant slicing, online quotes, and nationwide delivery.",
+          "inLanguage": ["en", "ar"],
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://etba3ly.store/track?id={search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
+        },
+        {
+          "@type": ["OnlineStore", "LocalBusiness", "Organization"],
+          "@id": "https://etba3ly.store/#organization",
+          "name": "Etba3ly Store",
+          "legalName": "Etba3ly 3D Printing Service",
+          "alternateName": ["Etba3ly", "اطبعلي", "متجر اطبعلي"],
+          "url": "https://etba3ly.store/",
+          "logo": "https://etba3ly.store/logo.svg",
+          "image": "https://etba3ly.store/og-image.png",
+          "description": "Etba3ly Store (اطبعلي) provides professional on-demand 3D printing services, CAD model slicing, rapid prototyping, and custom functional parts in Egypt. متجر اطبعلي يقدم خدمات الطباعة ثلاثية الأبعاد والنماذج الهندسية.",
+          "address": {
+            "@type": "PostalAddress",
+            "addressLocality": "New Borg El Arab",
+            "addressRegion": "Alexandria Governorate",
+            "addressCountry": "EG"
+          },
+          "areaServed": {
+            "@type": "Country",
+            "name": "Egypt"
+          },
+          "priceRange": "EGP",
+          "currenciesAccepted": "EGP",
+          "paymentAccepted": "Cash on Delivery, Instapay, Vodafone Cash",
+          "hasOfferCatalog": {
+            "@type": "OfferCatalog",
+            "name": "3D Printing Services & Custom Parts",
+            "itemListElement": [
+              {
+                "@type": "Offer",
+                "itemOffered": {
+                  "@type": "Service",
+                  "name": "On-Demand 3D Printing (FDM)",
+                  "description": "High precision FDM 3D printing using PLA, PETG, and TPU materials calibrated on Elegoo Centauri Carbon printers."
+                }
+              },
+              {
+                "@type": "Offer",
+                "itemOffered": {
+                  "@type": "Service",
+                  "name": "Instant STL File Slicing & Quoting",
+                  "description": "Automated online 3D model volume, weight, and pricing calculator with live order queue tracking."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://etba3ly.store/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What is Etba3ly Store (اطبعلي)?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Etba3ly Store (اطبعلي) is an Egyptian on-demand 3D printing service and store based in Alexandria (E-JUST campus) serving all of Egypt. We provide fast, affordable 3D printing for student engineering projects, functional prototypes, architectural models, and custom designs."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "ما هو متجر اطبعلي (Etba3ly Store) للطباعة ثلاثية الأبعاد؟",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "متجر وخدمة اطبعلي (Etba3ly Store) هي منصة مصرية متخصصة في خدمات الطباعة ثلاثية الأبعاد (3D Printing). تتيح للعملاء والطلاب رفع تصاميم STL/OBJ والحصول على تسعير فوري وتتبع مباشر لطلب الطباعة مع التوصيل داخل مصر والتسليم في الحرم الجامعي."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How do I order a 3D print on Etba3ly?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Visit https://etba3ly.store/order, enter your contact information, upload your 3D CAD model (.stl, .obj, .3mf), choose your material and color, review the estimated weight and price, and submit your order. You will receive an instant JP tracking code to track printing live."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What 3D printing materials and equipment are available at Etba3ly?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Etba3ly operates high-speed Elegoo Centauri Carbon (CC1) 3D printers with 0.4 mm nozzles on textured PEI beds. Available materials include high-quality PLA, PETG, and TPU across a wide range of colors."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Semantic Static Fallback for Search Engine Crawlers (Googlebot, Bingbot, Yandex) -->
+      <noscript>
+        <div class="seo-fallback">
+          <h1>Etba3ly Store — اطبعلي | متجر وخدمة الطباعة ثلاثية الأبعاد في مصر</h1>
+          <p>
+            مرحباً بكم في <strong>متجر اطبعلي (Etba3ly Store)</strong> — المنصة الأولى في مصر للطباعة ثلاثية الأبعاد عند الطلب للطلاب والمهندسين والمبتكرين.
+            احصل على تسعير فوري لملفات STL مع دقة تصنيع عالية باستخدام طابعات Elegoo Centauri Carbon.
+          </p>
+          <p>
+            Welcome to <strong>Etba3ly Store (اطبعلي)</strong>, Egypt's premier on-demand 3D printing service and store.
+            Upload your 3D models (STL, OBJ, 3MF), calculate weight and price instantly, and track production live.
+          </p>
+          <nav>
+            <a href="https://etba3ly.store/order">طلب طباعة جديد (Place Order)</a>
+            <a href="https://etba3ly.store/track">تتبع طلبك (Track Order)</a>
+            <a href="https://etba3ly.store/gallery">معرض المطبوعات (Gallery)</a>
+            <a href="https://etba3ly.store/why">مميزات الخدمة (Why Us)</a>
+            <a href="https://etba3ly.store/about">عن اطبعلي (About)</a>
+            <a href="https://etba3ly.store/contact">اتصل بنا (Contact)</a>
+          </nav>
+          <h2>مميزات خدمة متجر اطبعلي (Etba3ly Store Features)</h2>
+          <ul>
+            <li>طباعة سريعة خلال 24 إلى 48 ساعة في مصر (Fast Turnaround)</li>
+            <li>أسعار خاصة للطلاب والمشاريع الهندسية تبدأ من 3 جنيه للجرام (Affordable Student Rates)</li>
+            <li>دقة طبقة 0.2 مم وتشطيب عالي الجودة بخامات PLA و PETG و TPU (High Precision)</li>
+            <li>استلام مباشر داخل الحرم الجامعي وشحن لجميع محافظات مصر (Campus Pickup &amp; Egypt Delivery)</li>
+          </ul>
+          <h2>تواصل مع متجر اطبعلي (Contact Etba3ly Store)</h2>
+          <p>Email: support@etba3ly.store | Website: https://etba3ly.store</p>
+        </div>
+      </noscript>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
