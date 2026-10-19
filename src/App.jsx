@@ -22,7 +22,25 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publisha
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const PRINTERS = ["CC Abdalla", "CC Mazen"];
+const VALID_ROUTES = ["", "home", "order", "track", "full-gallery", "boss", "why", "about", "contact", "gallery"];
 const VALID_HASHES = ["", "#home", "#order", "#track", "#full-gallery", "#boss", "#why", "#about", "#contact", "#gallery"];
+
+function parseCurrentRoute() {
+  if (typeof window === "undefined") return "home";
+  let path = window.location.pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+  const base = (import.meta.env.BASE_URL || "/").replace(/^\/+/, "").replace(/\/+$/, "");
+  if (base && path.startsWith(base)) {
+    path = path.slice(base.length).replace(/^\/+/, "");
+  }
+
+  const rawHash = (window.location.hash || "").replace(/^#\/?/, "");
+
+  let route = path || rawHash || "home";
+  route = route.toLowerCase();
+  if (route === "gallery") route = "full-gallery";
+  if (route === "" || route === "index.html") route = "home";
+  return route;
+}
 
 // ─────────────────────────────────────────────────────────
 // Helpers
@@ -295,6 +313,25 @@ function uploadFileWithProgress(file, fileName, onProgress) {
 // ─────────────────────────────────────────────────────────
 // 3D SCENE — Abstract Geometry + 3D Print Icons
 // ─────────────────────────────────────────────────────────
+class CanvasErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(err) {
+    console.warn("Canvas 3D scene warning/fallback:", err);
+  }
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || null;
+    }
+    return this.props.children;
+  }
+}
+
 function SceneLoader() {
   const { progress } = useProgress();
   return (
@@ -459,7 +496,7 @@ function PrintScene() {
 
     const maxSafePosX = Math.max(0.9, frustumHalfWidth - 2.35 * scale);
     const posX = isMobile ? 0 : Math.min(2.2 + progress * 0.6, maxSafePosX);
-    const posY = isMobile ? (isSmallPhone ? 1.25 : 1.45) : 0;
+    const posY = isMobile ? (isSmallPhone ? 1.05 : 1.18) : 0;
     const rotY = progress * Math.PI * 0.5;
 
     groupRef.current.scale.lerp(new THREE.Vector3(scale, scale, scale), 0.08);
@@ -671,21 +708,22 @@ function CopyableCode({ code }) {
 // ═══════════════════════════════════════════════════════════
 // 404 NOT FOUND PAGE
 // ═══════════════════════════════════════════════════════════
-function NotFoundPage() {
+function NotFoundPage({ onGoHome }) {
   const [countdown, setCountdown] = useState(5);
   useEffect(() => {
     const timer = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
           clearInterval(timer);
-          window.location.hash = "#home";
+          if (onGoHome) onGoHome();
+          else window.location.pathname = "/home";
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [onGoHome]);
 
   return (
     <section className="not-found-container animate-in">
@@ -696,7 +734,17 @@ function NotFoundPage() {
         <p style={{ fontSize: 14, color: 'var(--text-tertiary)', marginBottom: 24 }}>
           Redirecting to home in <strong style={{ color: 'var(--accent)', fontSize: 18 }}>{countdown}</strong> seconds…
         </p>
-        <a href="#home" className="btn btn-accent">← Go Home Now</a>
+        <a
+          href="/home"
+          className="btn btn-accent"
+          onClick={(e) => {
+            e.preventDefault();
+            if (onGoHome) onGoHome();
+            else window.location.pathname = "/home";
+          }}
+        >
+          ← Go Home Now
+        </a>
       </div>
     </section>
   );
@@ -728,7 +776,7 @@ const DEFAULT_CONFIG = {
   privacy_policy: ""
 };
 
-function FullGalleryView({ items, onItemClick }) {
+function FullGalleryView({ items, onItemClick, onGoHome }) {
   const fallbackItems = [
     { id: 'p1', title: "Custom Gears", description: "PLA -- Mechanical parts" },
     { id: 'p2', title: "Phone Stand", description: "PETG -- Functional design" },
@@ -748,7 +796,17 @@ function FullGalleryView({ items, onItemClick }) {
         <h1>Full Gallery</h1>
         <p style={{ maxWidth: 500, margin: "0 auto" }}>Explore everything we've printed. From functional mechanical parts to beautiful art pieces.</p>
         <div style={{ marginTop: 24 }}>
-          <a href="#home" className="btn btn-glass">Back to Home</a>
+          <a
+            href="/home"
+            className="btn btn-glass"
+            onClick={(e) => {
+              e.preventDefault();
+              if (onGoHome) onGoHome();
+              else window.location.pathname = "/home";
+            }}
+          >
+            Back to Home
+          </a>
         </div>
       </div>
       <div className="gallery-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
@@ -1719,8 +1777,47 @@ export default function App() {
   const [orders, setOrders] = useState([]);
   const [queuedOrdersCount, setQueuedOrdersCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") !== "light");
-  const [hash, setHash] = useState(window.location.hash);
+  const [currentRoute, setCurrentRoute] = useState(parseCurrentRoute);
+
+  const hash = useMemo(() => {
+    let r = currentRoute.toLowerCase();
+    if (r === "home" || !r) return "#home";
+    if (r === "gallery") r = "full-gallery";
+    return `#${r}`;
+  }, [currentRoute]);
+
+  const navigateTo = useCallback((target) => {
+    let clean = (target || "").replace(/^#\/?/, "").replace(/^\/+/, "");
+    if (!clean || clean === "home") clean = "home";
+    if (clean === "gallery") clean = "full-gallery";
+
+    const targetPath = clean === "home" ? "/home" : `/${clean}`;
+    try {
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState(null, "", targetPath);
+      }
+    } catch (e) {
+      window.location.hash = `#${clean}`;
+    }
+
+    setCurrentRoute(clean);
+
+    if (clean !== "order") setOrderStep(1);
+    setEditingGalleryItem(null);
+    setActiveGalleryItem(null);
+    setConfirmModal(null);
+    setEditingOrder(null);
+    setMobileMenuOpen(false);
+
+    if (["why", "about", "contact"].includes(clean)) {
+      setTimeout(() => {
+        const el = document.getElementById(clean);
+        if (el) el.scrollIntoView({ behavior: "smooth" });
+      }, 50);
+    } else {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, []);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -1966,22 +2063,25 @@ export default function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setIsAdmin(!!session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => setIsAdmin(!!session));
-    function checkHash() {
-      const newHash = window.location.hash;
-      // Reset order wizard when navigating away from #order
-      if (newHash !== "#order") {
+    function handleLocationChange() {
+      const nextRoute = parseCurrentRoute();
+      if (nextRoute !== "order") {
         setOrderStep(1);
       }
-      // Close all modals/editors when navigating away
       setEditingGalleryItem(null);
       setActiveGalleryItem(null);
       setConfirmModal(null);
       setEditingOrder(null);
       setMobileMenuOpen(false);
-      setHash(newHash);
+      setCurrentRoute(nextRoute);
     }
-    window.addEventListener("hashchange", checkHash);
-    return () => { subscription.unsubscribe(); window.removeEventListener("hashchange", checkHash); };
+    window.addEventListener("popstate", handleLocationChange);
+    window.addEventListener("hashchange", handleLocationChange);
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("popstate", handleLocationChange);
+      window.removeEventListener("hashchange", handleLocationChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -3061,7 +3161,7 @@ export default function App() {
 
   async function handleAdminLogout() {
     await supabase.auth.signOut();
-    window.location.hash = "";
+    navigateTo("home");
   }
 
   async function handleUpdateOrderStatus(id, newStatus, printer) {
@@ -4873,29 +4973,33 @@ export default function App() {
       {/* 3D Canvas */}
       <div className="canvas-wrapper">
         <div style={{ position: "sticky", top: 0, height: "100vh", width: "100%" }}>
-          <Canvas
-            shadows
-            dpr={[1, 2]}
-            camera={{ position: [0, 0, 7], fov: 40 }}
-            gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.4 }}
-            performance={{ min: 0.5 }}
-          >
-            <ambientLight intensity={0.35} />
-            <directionalLight position={[8, 10, 5]} intensity={2.0} color="#ffffff" castShadow />
-            <directionalLight position={[-6, -4, -6]} intensity={0.5} color="#FFB347" />
-            <directionalLight position={[0, -8, 2]} intensity={0.2} color="#FF8000" />
-            <pointLight position={[3, 3, 3]} intensity={0.8} color="#FF8000" distance={12} decay={2} />
-            <Suspense fallback={<SceneLoader />}>
-              <PrintScene />
-              <Environment files={`${import.meta.env.BASE_URL}potsdamer_platz_1k.hdr`} />
-            </Suspense>
-          </Canvas>
+          <CanvasErrorBoundary fallback={null}>
+            <Canvas
+              shadows={typeof window !== "undefined" && window.innerWidth > 768}
+              dpr={[1, typeof window !== "undefined" && window.innerWidth <= 768 ? 1.5 : 2]}
+              camera={{ position: [0, 0, 7], fov: 40 }}
+              gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.4, powerPreference: "high-performance" }}
+              performance={{ min: 0.5 }}
+            >
+              <ambientLight intensity={0.4} />
+              <directionalLight position={[8, 10, 5]} intensity={2.0} color="#ffffff" castShadow={typeof window !== "undefined" && window.innerWidth > 768} />
+              <directionalLight position={[-6, -4, -6]} intensity={0.6} color="#FFB347" />
+              <directionalLight position={[0, -8, 2]} intensity={0.3} color="#FF8000" />
+              <pointLight position={[3, 3, 3]} intensity={0.8} color="#FF8000" distance={12} decay={2} />
+              <Suspense fallback={<SceneLoader />}>
+                <PrintScene />
+              </Suspense>
+              <Suspense fallback={null}>
+                <Environment files={`${import.meta.env.BASE_URL}potsdamer_platz_1k.hdr`} />
+              </Suspense>
+            </Canvas>
+          </CanvasErrorBoundary>
         </div>
       </div>
 
       {/* Navigation */}
       <nav className="header">
-        <a href="#home" className="logo" style={{ textDecoration: "none" }} onClick={() => setMobileMenuOpen(false)} aria-label={brandName}>
+        <a href="/home" className="logo" style={{ textDecoration: "none" }} onClick={(e) => { e.preventDefault(); navigateTo("home"); }} aria-label={brandName}>
           <img src={`${import.meta.env.BASE_URL}${darkMode ? "logo-dark.svg" : "logo-light.svg"}`} alt={brandName} className="brand-logo-img nav-logo" />
         </a>
         
@@ -4915,11 +5019,11 @@ export default function App() {
           <button className="theme-toggle desktop-theme-toggle" onClick={() => setDarkMode(!darkMode)} aria-label="Toggle Dark Mode" title="Toggle Light/Dark Theme">
             {darkMode ? <SunIcon /> : <MoonIcon />}
           </button>
-          <a href="#why" onClick={() => setMobileMenuOpen(false)}>Why Us</a>
-          <a href="#full-gallery" onClick={() => setMobileMenuOpen(false)}>Gallery</a>
-          <a href="#order" onClick={() => setMobileMenuOpen(false)}>Order</a>
-          <a href="#track" onClick={() => setMobileMenuOpen(false)}>Track</a>
-          <a href="#contact" onClick={() => setMobileMenuOpen(false)}>Contact</a>
+          <a href="/why" onClick={(e) => { e.preventDefault(); navigateTo("why"); }}>Why Us</a>
+          <a href="/gallery" onClick={(e) => { e.preventDefault(); navigateTo("full-gallery"); }}>Gallery</a>
+          <a href="/order" onClick={(e) => { e.preventDefault(); navigateTo("order"); }}>Order</a>
+          <a href="/track" onClick={(e) => { e.preventDefault(); navigateTo("track"); }}>Track</a>
+          <a href="/contact" onClick={(e) => { e.preventDefault(); navigateTo("contact"); }}>Contact</a>
         </div>
       </nav>
 
@@ -4930,7 +5034,7 @@ export default function App() {
       )}
 
       <main>
-        {hash === "#full-gallery" && <FullGalleryView items={galleryItems} onItemClick={(item) => { setActiveGalleryItem(item); setActiveMediaIndex(0); }} />}
+        {hash === "#full-gallery" && <FullGalleryView items={galleryItems} onGoHome={() => navigateTo("home")} onItemClick={(item) => { setActiveGalleryItem(item); setActiveMediaIndex(0); }} />}
         
         {hash === "#order" && (
           <section className="section-container animate-in" style={{ paddingTop: 130, minHeight: "100vh", position: "relative", zIndex: 10 }}>
@@ -4938,7 +5042,7 @@ export default function App() {
               <div className="eyebrow-tag">3D SLICER & ORDER WORKSTATION</div>
               <h1 style={{ fontSize: "clamp(32px, 5vw, 48px)", marginBottom: 8 }}>{orderStep === 4 ? "Order Dispatched" : "Configure Your 3D Print"}</h1>
               {orderStep < 4 && <p style={{ margin: 0 }}>Step {orderStep} of 3 — Instant STL Geometry & Weight Analysis</p>}
-              {orderStep === 1 && <a href="#home" style={{ display: "inline-block", marginTop: 10, fontSize: 13, color: "var(--text-tertiary)", textDecoration: "none", fontWeight: 600 }}>Return to Studio Home</a>}
+              {orderStep === 1 && <a href="/home" onClick={(e) => { e.preventDefault(); navigateTo("home"); }} style={{ display: "inline-block", marginTop: 10, fontSize: 13, color: "var(--text-tertiary)", textDecoration: "none", fontWeight: 600 }}>Return to Studio Home</a>}
             </div>
             
             {orderStep < 4 && (
@@ -5383,8 +5487,8 @@ export default function App() {
                   )}
                   
                   <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
-                    <a href="#track" className="btn btn-accent" style={{ width: "100%" }} onClick={() => setOrderStep(1)}>Go Track Your Order</a>
-                    <a href="#home" className="btn btn-glass" style={{ width: "100%" }} onClick={() => setOrderStep(1)}>Back to Studio Home</a>
+                    <a href="/track" className="btn btn-accent" style={{ width: "100%" }} onClick={(e) => { e.preventDefault(); setOrderStep(1); navigateTo("track"); }}>Go Track Your Order</a>
+                    <a href="/home" className="btn btn-glass" style={{ width: "100%" }} onClick={(e) => { e.preventDefault(); setOrderStep(1); navigateTo("home"); }}>Back to Studio Home</a>
                   </div>
                 </div>
               )}
@@ -5403,7 +5507,7 @@ export default function App() {
                   <div className="live-dot" />
                   <span><strong>{queuedOrdersCount}</strong> in queue</span>
                 </div>
-                <a href="#home" style={{ fontSize: 13, color: "var(--text-tertiary)", textDecoration: "none", fontWeight: 600 }}>Back to Studio Home</a>
+                <a href="/home" onClick={(e) => { e.preventDefault(); navigateTo("home"); }} style={{ fontSize: 13, color: "var(--text-tertiary)", textDecoration: "none", fontWeight: 600 }}>Back to Studio Home</a>
               </div>
             </div>
             
@@ -5524,13 +5628,13 @@ export default function App() {
             <h1 style={{ whiteSpace: "pre-line" }}>{config.hero_title}</h1>
             <p style={{ whiteSpace: "pre-line" }}>{config.hero_subtitle}</p>
             <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              <a href="#order" className="btn btn-accent">Place an Order</a>
+              <a href="/order" className="btn btn-accent" onClick={(e) => { e.preventDefault(); navigateTo("order"); }}>Place an Order</a>
               {config.whatsapp_number && (
                 <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}?text=${encodeURIComponent("Hello! I'd like to place an order.")}`} target="_blank" rel="noreferrer" className="btn btn-glass" style={{ gap: 8 }}>
                   <WhatsAppIcon /> Order via WhatsApp
                 </a>
               )}
-              <a href="#track" className="btn btn-glass">Track Order</a>
+              <a href="/track" className="btn btn-glass" onClick={(e) => { e.preventDefault(); navigateTo("track"); }}>Track Order</a>
             </div>
           </section>
 
@@ -5578,7 +5682,7 @@ export default function App() {
               ))}
             </div>
             <div style={{ textAlign: "center", marginTop: 48 }}>
-              <a href="#full-gallery" className="btn btn-glass">View Full Gallery</a>
+              <a href="/gallery" className="btn btn-glass" onClick={(e) => { e.preventDefault(); navigateTo("full-gallery"); }}>View Full Gallery</a>
             </div>
           </section>
 
@@ -5619,7 +5723,7 @@ export default function App() {
         </>
         )}
         {hash !== "#order" && hash !== "#boss" && (
-          <a href="#order" className="floating-cta">
+          <a href="/order" className="floating-cta" onClick={(e) => { e.preventDefault(); navigateTo("order"); }}>
             Order Now
           </a>
         )}
@@ -5694,10 +5798,10 @@ export default function App() {
           </div>
           <div className="footer-col">
             <h4>Quick Links</h4>
-            <a href="#order">Place Order</a>
-            <a href="#track">Track Order</a>
-            <a href="#full-gallery">Gallery</a>
-            <a href="#about">About</a>
+            <a href="/order" onClick={(e) => { e.preventDefault(); navigateTo("order"); }}>Place Order</a>
+            <a href="/track" onClick={(e) => { e.preventDefault(); navigateTo("track"); }}>Track Order</a>
+            <a href="/gallery" onClick={(e) => { e.preventDefault(); navigateTo("full-gallery"); }}>Gallery</a>
+            <a href="/about" onClick={(e) => { e.preventDefault(); navigateTo("about"); }}>About</a>
             <a href="#" onClick={(e) => { e.preventDefault(); setPrivacyModalOpen(true); }}>Privacy Policy</a>
           </div>
           <div className="footer-col">
