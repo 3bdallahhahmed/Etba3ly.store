@@ -2079,16 +2079,16 @@ export default function App() {
   useEffect(() => {
     const brand = (config.brand_name && config.brand_name !== "JUST print" && config.brand_name !== "PrintQueue") ? config.brand_name : "Etba3ly";
     const routeTitles = {
-      home: `${brand} Store | اطبعلي — 3D Printing Service Egypt & On-Demand 3D Store`,
-      order: `Order 3D Print | ${brand} Store (اطبعلي) — Instant Slicing & Quote`,
-      track: `Track Order | ${brand} Store (اطبعلي) — Live 3D Print Queue`,
-      "full-gallery": `3D Print Gallery | ${brand} Store (اطبعلي) — Custom Parts & Prototypes`,
-      why: `Why Print With Us | ${brand} Store (اطبعلي) — Rapid 3D Prototyping`,
-      about: `About Us | ${brand} Store (اطبعلي) — Student Engineering 3D Printing`,
-      contact: `Contact Us | ${brand} Store (اطبعلي) — WhatsApp & Email Support`,
+      home: `${brand} Store — 3D Printing Service Egypt & On-Demand 3D Store`,
+      order: `Order 3D Print | ${brand} Store — Instant Slicing & Quote`,
+      track: `Track Order | ${brand} Store — Live 3D Print Queue`,
+      "full-gallery": `3D Print Gallery | ${brand} Store — Custom Parts & Prototypes`,
+      why: `Why Print With Us | ${brand} Store — Rapid 3D Prototyping`,
+      about: `About Us | ${brand} Store — Student Engineering 3D Printing`,
+      contact: `Contact Us | ${brand} Store — WhatsApp & Email Support`,
       boss: `${brand} Admin Dashboard`
     };
-    const newTitle = routeTitles[currentRoute] || `${brand} Store | اطبعلي — 3D Printing Service Egypt`;
+    const newTitle = routeTitles[currentRoute] || `${brand} Store — 3D Printing Service Egypt`;
     document.title = newTitle;
   }, [config.brand_name, currentRoute]);
 
