@@ -11,7 +11,16 @@ import GalleryStudioUploader from "./utils/GalleryStudioUploader.jsx";
 import { processPartImageFile } from "./utils/partImageProcessor.js";
 import { upscaleImageFile } from "./utils/imageUpscaler.js";
 
-const BENCHY_URL = `${import.meta.env.BASE_URL}benchy.glb`;
+function getAssetPath(file) {
+  const clean = (file || "").replace(/^\/+/, "");
+  if (typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/3d-ejust")) {
+    return `/3D-EJUST/${clean}`;
+  }
+  const base = import.meta.env.BASE_URL || "/";
+  return `${base.replace(/\/+$/, "")}/${clean}`;
+}
+
+const BENCHY_URL = getAssetPath("benchy.glb");
 useGLTF.preload(BENCHY_URL);
 
 // ─────────────────────────────────────────────────────────
@@ -31,6 +40,11 @@ function parseCurrentRoute() {
   const base = (import.meta.env.BASE_URL || "/").replace(/^\/+/, "").replace(/\/+$/, "");
   if (base && path.startsWith(base)) {
     path = path.slice(base.length).replace(/^\/+/, "");
+  }
+
+  // Handle GitHub Pages project subpath (/3D-EJUST/)
+  if (path.toLowerCase().startsWith("3d-ejust")) {
+    path = path.slice("3d-ejust".length).replace(/^\/+/, "");
   }
 
   const rawHash = (window.location.hash || "").replace(/^#\/?/, "");
@@ -1777,6 +1791,13 @@ export default function App() {
   const [orders, setOrders] = useState([]);
   const [queuedOrdersCount, setQueuedOrdersCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      return localStorage.getItem("theme") !== "light";
+    } catch {
+      return true;
+    }
+  });
   const [currentRoute, setCurrentRoute] = useState(parseCurrentRoute);
 
   const hash = useMemo(() => {
@@ -1791,7 +1812,9 @@ export default function App() {
     if (!clean || clean === "home") clean = "home";
     if (clean === "gallery") clean = "full-gallery";
 
-    const targetPath = clean === "home" ? "/home" : `/${clean}`;
+    const isGhPagesSubpath = typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/3d-ejust");
+    const prefix = isGhPagesSubpath ? "/3D-EJUST" : "";
+    const targetPath = clean === "home" ? `${prefix}/home` : `${prefix}/${clean}`;
     try {
       if (window.location.pathname !== targetPath) {
         window.history.pushState(null, "", targetPath);
@@ -2038,9 +2061,9 @@ export default function App() {
   // Preload both logo variants for instant dark/light switching
   useEffect(() => {
     const dark = new Image();
-    dark.src = `${import.meta.env.BASE_URL}logo-dark.svg`;
+    dark.src = getAssetPath("logo-dark.svg");
     const light = new Image();
-    light.src = `${import.meta.env.BASE_URL}logo-light.svg`;
+    light.src = getAssetPath("logo-light.svg");
   }, []);
 
   useEffect(() => {
@@ -2089,6 +2112,11 @@ export default function App() {
     fetchConfig();
     fetchGallery();
 
+    // Only establish persistent Realtime WebSocket connections for admin or tracking views
+    // to prevent saturating Supabase connection limits on general website traffic
+    const shouldSubscribeRealtime = isAdmin || hash === "#track";
+    if (!shouldSubscribeRealtime) return;
+
     let debounceOrdersTimer = null;
     const handleRealtimeOrders = () => {
       if (debounceOrdersTimer) clearTimeout(debounceOrdersTimer);
@@ -2107,7 +2135,7 @@ export default function App() {
       if (debounceOrdersTimer) clearTimeout(debounceOrdersTimer);
       supabase.removeChannel(sub);
     };
-  }, [isAdmin]);
+  }, [isAdmin, hash]);
 
   // Auto-load user's past orders if they exist
   useEffect(() => {
@@ -3372,7 +3400,7 @@ export default function App() {
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg-page)' }}>
         <div className="bg-orbs"><div className="bg-orb bg-orb-1"/><div className="bg-orb bg-orb-2"/></div>
         <div className="card" style={{ maxWidth: 420, width: "100%", position: "relative", zIndex: 10, textAlign: "center" }}>
-          <img src={`${import.meta.env.BASE_URL}${darkMode ? "logo-dark.svg" : "logo-light.svg"}`} alt="Etba3ly" className="brand-logo-img admin-logo" style={{ height: 42, margin: '0 auto 20px', display: 'block' }} />
+          <img src={getAssetPath(darkMode ? "logo-dark.svg" : "logo-light.svg")} alt="Etba3ly" className="brand-logo-img admin-logo" style={{ height: 42, margin: '0 auto 20px', display: 'block' }} />
           <h2 style={{ fontSize: 26, marginBottom: 8 }}>Admin Access</h2>
           <p style={{ fontSize: 14, marginBottom: 24 }}>Log in with your Supabase credentials.</p>
           <div style={{ marginBottom: 16 }}><input placeholder="Email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} /></div>
@@ -3393,7 +3421,7 @@ export default function App() {
         <div className="bg-orbs"><div className="bg-orb bg-orb-1"/><div className="bg-orb bg-orb-2"/><div className="bg-orb bg-orb-3"/></div>
         <div style={{ position: "relative", zIndex: 10 }}>
           <div className="admin-header" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
-            <img src={`${import.meta.env.BASE_URL}${darkMode ? "logo-dark.svg" : "logo-light.svg"}`} alt="Etba3ly" className="brand-logo-img admin-logo" style={{ height: 34, display: 'block' }} />
+            <img src={getAssetPath(darkMode ? "logo-dark.svg" : "logo-light.svg")} alt="Etba3ly" className="brand-logo-img admin-logo" style={{ height: 34, display: 'block' }} />
             <h1 style={{ fontSize: 36, margin: 0, flex: 1 }}>Command Center</h1>
             <button className="btn btn-glass" onClick={() => { fetchOrders(); fetchConfig(); addToast("Queue and config refreshed", "info"); }}>Refresh Orders</button>
             <button className="btn btn-glass" onClick={exportCSV}>Export CSV</button>
@@ -4971,36 +4999,38 @@ export default function App() {
       </div>
 
       {/* 3D Canvas */}
-      <div className="canvas-wrapper">
-        <div style={{ position: "sticky", top: 0, height: "100vh", width: "100%" }}>
-          <CanvasErrorBoundary fallback={null}>
-            <Canvas
-              shadows={typeof window !== "undefined" && window.innerWidth > 768}
-              dpr={[1, typeof window !== "undefined" && window.innerWidth <= 768 ? 1.5 : 2]}
-              camera={{ position: [0, 0, 7], fov: 40 }}
-              gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.4, powerPreference: "high-performance" }}
-              performance={{ min: 0.5 }}
-            >
-              <ambientLight intensity={0.4} />
-              <directionalLight position={[8, 10, 5]} intensity={2.0} color="#ffffff" castShadow={typeof window !== "undefined" && window.innerWidth > 768} />
-              <directionalLight position={[-6, -4, -6]} intensity={0.6} color="#FFB347" />
-              <directionalLight position={[0, -8, 2]} intensity={0.3} color="#FF8000" />
-              <pointLight position={[3, 3, 3]} intensity={0.8} color="#FF8000" distance={12} decay={2} />
-              <Suspense fallback={<SceneLoader />}>
-                <PrintScene />
-              </Suspense>
-              <Suspense fallback={null}>
-                <Environment files={`${import.meta.env.BASE_URL}potsdamer_platz_1k.hdr`} />
-              </Suspense>
-            </Canvas>
-          </CanvasErrorBoundary>
+      {hash !== "#order" && hash !== "#boss" && (
+        <div className="canvas-wrapper">
+          <div style={{ position: "sticky", top: 0, height: "100vh", width: "100%" }}>
+            <CanvasErrorBoundary fallback={null}>
+              <Canvas
+                shadows={typeof window !== "undefined" && window.innerWidth > 768}
+                dpr={[1, typeof window !== "undefined" && window.innerWidth <= 768 ? 1.5 : 2]}
+                camera={{ position: [0, 0, 7], fov: 40 }}
+                gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.4, powerPreference: "high-performance" }}
+                performance={{ min: 0.5 }}
+              >
+                <ambientLight intensity={0.4} />
+                <directionalLight position={[8, 10, 5]} intensity={2.0} color="#ffffff" castShadow={typeof window !== "undefined" && window.innerWidth > 768} />
+                <directionalLight position={[-6, -4, -6]} intensity={0.6} color="#FFB347" />
+                <directionalLight position={[0, -8, 2]} intensity={0.3} color="#FF8000" />
+                <pointLight position={[3, 3, 3]} intensity={0.8} color="#FF8000" distance={12} decay={2} />
+                <Suspense fallback={<SceneLoader />}>
+                  <PrintScene />
+                </Suspense>
+                <Suspense fallback={null}>
+                  <Environment files={getAssetPath("potsdamer_platz_1k.hdr")} />
+                </Suspense>
+              </Canvas>
+            </CanvasErrorBoundary>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Navigation */}
       <nav className="header">
         <a href="/home" className="logo" style={{ textDecoration: "none" }} onClick={(e) => { e.preventDefault(); navigateTo("home"); }} aria-label={brandName}>
-          <img src={`${import.meta.env.BASE_URL}${darkMode ? "logo-dark.svg" : "logo-light.svg"}`} alt={brandName} className="brand-logo-img nav-logo" />
+          <img src={getAssetPath(darkMode ? "logo-dark.svg" : "logo-light.svg")} alt={brandName} className="brand-logo-img nav-logo" />
         </a>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -5792,7 +5822,7 @@ export default function App() {
         <div className="footer-grid">
           <div>
             <div className="footer-brand">
-              <img src={`${import.meta.env.BASE_URL}logo-dark.svg`} alt={brandName} className="footer-logo-img footer-logo" />
+              <img src={getAssetPath("logo-dark.svg")} alt={brandName} className="footer-logo-img footer-logo" />
             </div>
             <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 14, margin: 0 }}>Student-powered 3D printing. Fast, affordable, on campus.</p>
           </div>

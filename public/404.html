@@ -6,8 +6,8 @@
     <script type="text/javascript">
       // Single Page Apps for GitHub Pages
       // MIT License https://github.com/rafgraph/spa-github-pages
-      var pathSegmentsToKeep = 0;
       var l = window.location;
+      var pathSegmentsToKeep = l.hostname.endsWith('github.io') ? 1 : 0;
       l.replace(
         l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
         l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
