@@ -183,6 +183,153 @@ function getCleanNotes(notes) {
 }
 
 // ─────────────────────────────────────────────────────────
+// URL & Model Link Helpers
+// ─────────────────────────────────────────────────────────
+function isValidUrl(str) {
+  if (!str || typeof str !== "string") return false;
+  const s = str.trim();
+  try {
+    const parsed = new URL(s.startsWith("http://") || s.startsWith("https://") ? s : `https://${s}`);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.hostname.includes(".");
+  } catch (_) {
+    return false;
+  }
+}
+
+function normalizeUrl(str) {
+  if (!str) return "";
+  const trimmed = str.trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return trimmed;
+}
+
+function getPlatformFromUrl(str) {
+  if (!str) return null;
+  const lower = str.toLowerCase();
+  if (lower.includes("printables.com")) return { name: "Printables", color: "#FA6B1A" };
+  if (lower.includes("makerworld.com")) return { name: "MakerWorld", color: "#00AE42" };
+  if (lower.includes("thingiverse.com")) return { name: "Thingiverse", color: "#248BFB" };
+  if (lower.includes("thangs.com")) return { name: "Thangs", color: "#6C5CE7" };
+  if (lower.includes("cults3d.com")) return { name: "Cults3D", color: "#A020F0" };
+  if (lower.includes("drive.google.com")) return { name: "Google Drive", color: "#34A853" };
+  if (lower.includes("dropbox.com")) return { name: "Dropbox", color: "#0061FF" };
+  if (lower.includes("onedrive.live.com") || lower.includes("1drv.ms")) return { name: "OneDrive", color: "#0078D4" };
+  if (lower.includes("github.com")) return { name: "GitHub", color: "#8b949e" };
+  return { name: "Web Link", color: "#FF8000" };
+}
+
+function AdminOrderCardFooter({ order, config, onUpdateWeight, onUpdatePrice }) {
+  const rate = parseFloat(config.price_per_gram) || 0;
+
+  const getComputedPrice = (w, p) => {
+    if (p !== null && p !== undefined && !isNaN(Number(p))) {
+      return Number(p).toFixed(2);
+    }
+    const weightNum = parseFloat(w) || 0;
+    return (weightNum * rate).toFixed(2);
+  };
+
+  const [weightVal, setWeightVal] = useState(
+    order.weightgrams !== null && order.weightgrams !== undefined ? String(order.weightgrams) : ""
+  );
+  const [priceVal, setPriceVal] = useState(getComputedPrice(order.weightgrams, order.totalprice));
+  const [isManualPrice, setIsManualPrice] = useState(false);
+
+  useEffect(() => {
+    setWeightVal(order.weightgrams !== null && order.weightgrams !== undefined ? String(order.weightgrams) : "");
+    setPriceVal(getComputedPrice(order.weightgrams, order.totalprice));
+    setIsManualPrice(false);
+  }, [order.id, order.weightgrams, order.totalprice, config.price_per_gram]);
+
+  const handleWeightChange = (e) => {
+    const val = e.target.value;
+    setWeightVal(val);
+    const w = parseFloat(val) || 0;
+    const newAutoPrice = (w * rate).toFixed(2);
+    setPriceVal(newAutoPrice);
+    setIsManualPrice(false);
+  };
+
+  const commitWeight = () => {
+    const w = parseFloat(weightVal) || 0;
+    const p = parseFloat(priceVal) || (w * rate);
+    onUpdateWeight(order.id, w, p);
+  };
+
+  const handlePriceChange = (e) => {
+    setPriceVal(e.target.value);
+    setIsManualPrice(true);
+  };
+
+  const commitPrice = () => {
+    const p = parseFloat(priceVal);
+    if (!isNaN(p)) {
+      onUpdatePrice(order.id, Math.max(0, p));
+    }
+  };
+
+  return (
+    <div className="admin-order-footer" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label style={{ margin: 0, whiteSpace: "nowrap", fontSize: 12 }}>Weight (g)</label>
+        <input
+          type="number"
+          step="0.1"
+          min="0"
+          value={weightVal}
+          placeholder="0"
+          onChange={handleWeightChange}
+          onBlur={commitWeight}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.currentTarget.blur();
+              commitWeight();
+            }
+          }}
+          style={{ width: 85, padding: "6px 10px", fontSize: 13 }}
+          title="Change weight in grams - price updates automatically"
+        />
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+        Rate: <strong style={{ color: "var(--text-primary)" }}>{config.price_per_gram} EGP/g</strong>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+        <label style={{ margin: 0, whiteSpace: "nowrap", fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>
+          Price (EGP)
+        </label>
+        <input
+          type="number"
+          step="0.5"
+          min="0"
+          value={priceVal}
+          placeholder="0.00"
+          onChange={handlePriceChange}
+          onBlur={commitPrice}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.currentTarget.blur();
+              commitPrice();
+            }
+          }}
+          style={{
+            width: 110,
+            padding: "6px 10px",
+            fontSize: 14,
+            fontWeight: 900,
+            color: isManualPrice ? "#60a5fa" : "var(--accent)",
+            borderColor: isManualPrice ? "rgba(96, 165, 250, 0.4)" : undefined,
+            textAlign: "right"
+          }}
+          title={isManualPrice ? "Custom manual price override" : "Calculated automatically from weight x rate"}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
 // Archive (.zip & .rar) & STL validation helpers
 // ─────────────────────────────────────────────────────────
 function inspectArchiveBuffer(buffer) {
@@ -1886,7 +2033,8 @@ export default function App() {
   const savedUserInfo = useMemo(() => {
     try { return JSON.parse(localStorage.getItem("jp_user_info") || "{}"); } catch { return {}; }
   }, []);
-  const [newOrder, setNewOrder] = useState({ name: savedUserInfo.name || "", phone: savedUserInfo.phone || "", email: savedUserInfo.email || "", orderName: "", material: "", color: "", notes: "", fileName: "" });
+  const [newOrder, setNewOrder] = useState({ name: savedUserInfo.name || "", phone: savedUserInfo.phone || "", email: savedUserInfo.email || "", orderName: "", material: "", color: "", notes: "", fileName: "", fileLink: "" });
+  const [orderSourceTab, setOrderSourceTab] = useState("file");
   const [fileError, setFileError] = useState("");
   const [formErrors, setFormErrors] = useState({});
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -1980,6 +2128,7 @@ export default function App() {
     weightgrams: "",
     pricepergram: "",
     totalprice: "",
+    fileurl: "",
     status: "queued",
     printer: PRINTERS[0] || "CC Abdalla",
     payment_status: "unpaid",
@@ -2592,7 +2741,17 @@ export default function App() {
     else if (!isValidEmail(newOrder.email)) errors.email = "Please enter a valid email.";
     if (!newOrder.phone) errors.phone = "Phone is required.";
     else if (!isValidEgyptPhone(newOrder.phone)) errors.phone = "Enter a valid Egyptian number (e.g. 01012345678).";
-    if (selectedFiles.length === 0) errors.file = "Please upload at least one STL, ZIP, or RAR file.";
+    
+    const cleanLink = (newOrder.fileLink || "").trim();
+    const hasFiles = selectedFiles.length > 0;
+    const hasLink = Boolean(cleanLink);
+
+    if (!hasFiles && !hasLink) {
+      errors.file = "Please upload a 3D file (.stl, .zip, .rar) or share a model link.";
+    }
+    if (hasLink && !isValidUrl(cleanLink)) {
+      errors.fileLink = "Please enter a valid URL (e.g. https://www.printables.com/model/...)";
+    }
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -2600,13 +2759,13 @@ export default function App() {
     const totalBytes = selectedFiles.reduce((acc, f) => acc + (f.size || 0), 0);
     setUploadProgress({
       active: true,
-      percent: 5,
-      currentFile: selectedFiles[0]?.name || "",
+      percent: hasFiles ? 5 : 50,
+      currentFile: hasFiles ? (selectedFiles[0]?.name || "") : "Saving model link...",
       fileIndex: 1,
-      totalFiles: selectedFiles.length,
+      totalFiles: selectedFiles.length || 1,
       loadedBytes: 0,
-      totalBytes,
-      stage: "uploading"
+      totalBytes: totalBytes || 1,
+      stage: hasFiles ? "uploading" : "saving"
     });
 
     try {
@@ -2639,6 +2798,10 @@ export default function App() {
         totalSize += file.size;
       }
 
+      if (hasLink) {
+        urls.push(normalizeUrl(cleanLink));
+      }
+
       setUploadProgress(prev => ({ ...prev, percent: 98, stage: "saving" }));
 
       const trackingCode = generateTrackingCode();
@@ -2651,12 +2814,13 @@ export default function App() {
       const defCol = config.colors ? config.colors.split(',')[0].trim() : "White";
       const finalMaterial = (newOrder.material || defMat).trim();
       const finalColor = (newOrder.color || defCol).trim();
+      const fallbackName = hasLink && !hasFiles ? `${getPlatformFromUrl(cleanLink)?.name || 'Online'} 3D Model` : "Untitled Part";
 
       const payload = {
         name: newOrder.name,
         phone: newOrder.phone.replace(/[\s\-()]/g, ""),
         email: newOrder.email,
-        ordername: newOrder.orderName || "Untitled Part",
+        ordername: newOrder.orderName || fallbackName,
         material: finalMaterial,
         color: finalColor,
         notes: cleanNotes,
@@ -2687,7 +2851,7 @@ export default function App() {
       } catch (err) { console.error("Could not save tracking code", err); }
 
       setLastSubmittedQuote({
-        orderName: newOrder.orderName || "Untitled Part",
+        orderName: payload.ordername,
         trackingCode,
         weightGrams,
         totalPrice: calculatedTotal,
@@ -2700,7 +2864,7 @@ export default function App() {
       setOrderStep(4);
       setSuccessModal(trackingCode);
       setCopiedTrackingCode(false);
-      setNewOrder({ name: newOrder.name, phone: newOrder.phone, email: newOrder.email, orderName: "", material: defMat, color: defCol, notes: "", fileName: "" });
+      setNewOrder({ name: newOrder.name, phone: newOrder.phone, email: newOrder.email, orderName: "", material: defMat, color: defCol, notes: "", fileName: "", fileLink: "" });
       setClientMetrics(null);
       setOrderInfill(20);
       setFormErrors({});
@@ -2771,6 +2935,7 @@ export default function App() {
         `Material: ${material} (${color})\n` +
         `Weight: ${weight}\n` +
         `Total: ${total}\n\n` +
+        (order.fileurl ? `Model / File Link:\n${order.fileurl}\n\n` : '') +
         `Live Tracking:\n${trackUrl}`;
       try {
         const ctl = new AbortController();
@@ -2792,6 +2957,18 @@ export default function App() {
     // 3. Instant Discord webhook alert (100% free channel card)
     const dcWebhook = (config.discord_webhook_url || localStorage.getItem("centurai_discord_webhook_url") || "").trim();
     if (dcWebhook) {
+      const discordFields = [
+        { name: "Customer", value: `${clientName} (${clientPhone})`, inline: true },
+        { name: "Material", value: `${material} - ${color}`, inline: true },
+        { name: "Estimated Weight", value: weight, inline: true },
+        { name: "Total Price", value: total, inline: true },
+        { name: "Tracking Code", value: trackingCode, inline: true },
+        { name: "Track Order", value: `[Open Tracking](${trackUrl})`, inline: true }
+      ];
+      if (order.fileurl) {
+        discordFields.push({ name: "Model / File Link", value: String(order.fileurl).slice(0, 1000), inline: false });
+      }
+
       fetch(dcWebhook, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2800,14 +2977,7 @@ export default function App() {
           embeds: [{
             title: `Order: ${partName}`,
             color: 0xFF8000,
-            fields: [
-              { name: "Customer", value: `${clientName} (${clientPhone})`, inline: true },
-              { name: "Material", value: `${material} - ${color}`, inline: true },
-              { name: "Estimated Weight", value: weight, inline: true },
-              { name: "Total Price", value: total, inline: true },
-              { name: "Tracking Code", value: trackingCode, inline: true },
-              { name: "Track Order", value: `[Open Tracking](${trackUrl})`, inline: true }
-            ],
+            fields: discordFields,
             footer: { text: "Centurai Print OS • Etba3ly" },
             timestamp: new Date().toISOString()
           }]
@@ -2849,7 +3019,21 @@ export default function App() {
           type: "TEST",
           email: config.email_address,
           admin_email: config.email_address,
-          name: "Workshop Operator Diagnostic"
+          name: "Workshop Diagnostic",
+          order: {
+            name: "Workshop Diagnostic",
+            email: config.email_address,
+            phone: config.whatsapp_number || "01012345678",
+            ordername: "Centurai Calibration Cube (20mm)",
+            material: "PLA",
+            color: "McLaren Orange",
+            weightgrams: 45,
+            pricepergram: parseFloat(config.price_per_gram) || 3,
+            totalprice: 135,
+            tracking_code: "JP-TEST99",
+            fileurl: "https://www.printables.com/model/12345",
+            status: "queued"
+          }
         }
       });
       if (error) {
@@ -3059,7 +3243,7 @@ export default function App() {
         material: newAdminOrder.material || "PLA",
         color: newAdminOrder.color || "White",
         notes: finalNotes,
-        fileurl: "",
+        fileurl: (newAdminOrder.fileurl || "").trim(),
         filesize: 0,
         status: newAdminOrder.status,
         priority: orders.length,
@@ -3269,10 +3453,12 @@ export default function App() {
           if (order && order.fileurl) {
             const fileUrls = order.fileurl.split(',').filter(Boolean);
             for (const url of fileUrls) {
-              const parts = url.split('/storage/v1/object/public/stl-files/');
-              const storagePath = parts.length > 1 ? decodeURIComponent(parts[1]) : url.split('/').pop();
-              const { error: storageErr } = await supabase.storage.from('stl-files').remove([storagePath]);
-              if (storageErr) console.error('STL storage delete error:', storagePath, storageErr);
+              if (url.includes('/storage/v1/object/public/stl-files/')) {
+                const parts = url.split('/storage/v1/object/public/stl-files/');
+                const storagePath = parts.length > 1 ? decodeURIComponent(parts[1]) : url.split('/').pop();
+                const { error: storageErr } = await supabase.storage.from('stl-files').remove([storagePath]);
+                if (storageErr) console.error('STL storage delete error:', storagePath, storageErr);
+              }
             }
           }
           const { error } = await supabase.from("orders").delete().eq("id", id);
@@ -3861,46 +4047,33 @@ export default function App() {
                             >
                               Send to Printer
                             </button>
-                            {o.fileurl && o.fileurl.split(',').map((url, idx, arr) => (
-                              <a key={idx} href={url} download target="_blank" rel="noreferrer" className="btn btn-glass" style={{ padding: "8px 14px", fontSize: 12 }}>
-                                Download {arr.length > 1 ? idx + 1 : ""}
-                              </a>
-                            ))}
+                            {o.fileurl && o.fileurl.split(',').filter(Boolean).map((url, idx, arr) => {
+                              const isStorage = url.includes('/storage/v1/object/public/stl-files/') || url.match(/\.(stl|zip|rar)($|\?)/i);
+                              const plat = getPlatformFromUrl(url);
+                              if (isStorage) {
+                                return (
+                                  <a key={idx} href={url} download target="_blank" rel="noreferrer" className="btn btn-glass" style={{ padding: "8px 14px", fontSize: 12 }}>
+                                    Download File {arr.length > 1 ? idx + 1 : ""}
+                                  </a>
+                                );
+                              }
+                              return (
+                                <a key={idx} href={url} target="_blank" rel="noreferrer" className="btn btn-glass" style={{ padding: "8px 14px", fontSize: 12, borderColor: plat?.color || "var(--accent)", color: plat?.color || "var(--accent)", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                  {plat?.name || 'Model Link'} {arr.length > 1 ? idx + 1 : ""}
+                                </a>
+                              );
+                            })}
                             <button onClick={() => setEditingOrder(o)} className="btn btn-glass" style={{ padding: "8px 14px", fontSize: 12 }}>Edit</button>
                             <button onClick={() => handleDeleteOrder(o.id)} style={{ padding: "8px 14px", background: "#FF3B30", color: "#fff", border: "none", borderRadius: "var(--radius-full)", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Delete</button>
                           </div>
                         </div>
-                        <div className="admin-order-footer" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <label style={{ margin: 0, whiteSpace: "nowrap", fontSize: 12 }}>Weight (g)</label>
-                            <input
-                              type="number"
-                              step="0.1"
-                              key={`w_${o.id}`}
-                              defaultValue={o.weightgrams || ""}
-                              placeholder="0"
-                              onBlur={(e) => handleUpdateWeight(o.id, e.target.value)}
-                              style={{ width: 85, padding: "6px 10px", fontSize: 13 }}
-                            />
-                          </div>
-                          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                            Rate: <strong style={{ color: "var(--text-primary)" }}>{config.price_per_gram} EGP/g</strong>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
-                            <label style={{ margin: 0, whiteSpace: "nowrap", fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>Price (EGP)</label>
-                            <input
-                              type="number"
-                              step="0.5"
-                              key={`p_${o.id}`}
-                              defaultValue={o.totalprice !== null && o.totalprice !== undefined ? Number(o.totalprice).toFixed(2) : calculatedPrice.toFixed(2)}
-                              placeholder="0.00"
-                              onBlur={(e) => handleUpdatePrice(o.id, e.target.value)}
-                              onKeyDown={(e) => e.key === "Enter" && handleUpdatePrice(o.id, e.target.value)}
-                              style={{ width: 110, padding: "6px 10px", fontSize: 14, fontWeight: 900, color: "var(--accent)", textAlign: "right" }}
-                              title="Click to edit final order price"
-                            />
-                          </div>
-                        </div>
+                        <AdminOrderCardFooter
+                          order={o}
+                          config={config}
+                          onUpdateWeight={handleUpdateWeight}
+                          onUpdatePrice={handleUpdatePrice}
+                        />
                       </div>
                     </div>
                   );
@@ -4310,22 +4483,63 @@ export default function App() {
                 })()}
 
                 <div>
-                  <label>Files</label>
-                  {editingOrder.fileurl ? editingOrder.fileurl.split(',').map((url, idx) => {
-                    const parts = url.split('/');
-                    const filename = parts[parts.length - 1];
-                    return (
-                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', padding: '8px 12px', borderRadius: 8, marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, wordBreak: 'break-all' }}>{filename}</span>
-                        <button className="btn btn-sm" style={{ background: '#FF3B30', color: 'white', padding: "4px 8px", border: "none", borderRadius: "var(--radius-full)", cursor: "pointer" }} onClick={async () => {
-                           if(!window.confirm("Permanently delete this file?")) return;
-                           const newUrls = editingOrder.fileurl.split(',').filter((_, i) => i !== idx);
-                           await supabase.storage.from('stl-files').remove([filename]);
-                           setEditingOrder({ ...editingOrder, fileurl: newUrls.join(',') });
-                        }}>Delete</button>
-                      </div>
-                    );
-                  }) : <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>No files attached.</div>}
+                  <label>Files & Model Links</label>
+                  {editingOrder.fileurl && editingOrder.fileurl.split(',').filter(Boolean).length > 0 ? (
+                    editingOrder.fileurl.split(',').filter(Boolean).map((url, idx) => {
+                      const isStorage = url.includes('/storage/v1/object/public/stl-files/') || url.match(/\.(stl|zip|rar)($|\?)/i);
+                      const plat = getPlatformFromUrl(url);
+                      const parts = url.split('/');
+                      const filename = parts[parts.length - 1];
+                      return (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', padding: '8px 12px', borderRadius: 8, marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                            <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: isStorage ? 'rgba(0,122,255,0.15)' : 'rgba(255,128,0,0.15)', color: isStorage ? '#3B82F6' : plat?.color || '#FF8000', fontWeight: 800 }}>
+                              {isStorage ? 'FILE' : plat?.name?.toUpperCase() || 'LINK'}
+                            </span>
+                            <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--text-primary)', textDecoration: 'underline', wordBreak: 'break-all' }}>
+                              {isStorage ? filename : url}
+                            </a>
+                          </div>
+                          <button type="button" className="btn btn-sm" style={{ background: '#FF3B30', color: 'white', padding: "4px 8px", border: "none", borderRadius: "var(--radius-full)", cursor: "pointer", marginLeft: 8 }} onClick={async () => {
+                             if(!window.confirm("Permanently delete this " + (isStorage ? "file?" : "link?"))) return;
+                             const newUrls = editingOrder.fileurl.split(',').filter(Boolean).filter((_, i) => i !== idx);
+                             if (isStorage) {
+                               await supabase.storage.from('stl-files').remove([filename]);
+                             }
+                             setEditingOrder({ ...editingOrder, fileurl: newUrls.join(',') });
+                          }}>Delete</button>
+                        </div>
+                      );
+                    })
+                  ) : <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 8 }}>No files or links attached.</div>}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8, marginBottom: 16 }}>
+                    <input
+                      type="url"
+                      id="editOrderAddLinkInput"
+                      placeholder="Attach external model link (https://...)"
+                      style={{ flex: 1, padding: "6px 10px", fontSize: 12.5 }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-glass"
+                      onClick={() => {
+                        const input = document.getElementById("editOrderAddLinkInput");
+                        if (!input || !input.value.trim()) return;
+                        const link = normalizeUrl(input.value.trim());
+                        if (!isValidUrl(link)) {
+                          addToast("Please enter a valid URL.", "error");
+                          return;
+                        }
+                        const curUrls = editingOrder.fileurl ? editingOrder.fileurl.split(',').filter(Boolean) : [];
+                        curUrls.push(link);
+                        setEditingOrder({ ...editingOrder, fileurl: curUrls.join(',') });
+                        input.value = "";
+                        addToast("Link attached to order.", "success");
+                      }}
+                    >
+                      Attach Link
+                    </button>
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: 16, justifyContent: 'flex-end', marginTop: 32 }}>
@@ -4718,6 +4932,17 @@ export default function App() {
                       </div>
                     )}
                   </div>
+                </div>
+
+                <div>
+                  <label>3D Model or Design URL (Optional)</label>
+                  <input
+                    type="url"
+                    value={newAdminOrder.fileurl || ""}
+                    onChange={e => setNewAdminOrder({ ...newAdminOrder, fileurl: e.target.value })}
+                    placeholder="https://www.printables.com/model/... or Google Drive"
+                    style={{ width: "100%", marginBottom: 14 }}
+                  />
                 </div>
 
                 <div>
@@ -5248,19 +5473,127 @@ export default function App() {
                   </div>
 
                   <div style={{ marginBottom: 24 }}>
-                    <label>STL, ZIP, or RAR File(s) *</label>
-                    <div className={`drop-zone ${isDragging ? 'active' : ''}`} 
-                         onDragOver={handleDragOver} 
-                         onDragLeave={handleDragLeave} 
-                         onDrop={handleDrop}
-                         style={{ padding: "40px", border: formErrors.file ? "2px dashed #FF3B30" : "2px dashed var(--border-glass-strong)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.03)", textAlign: "center", cursor: "pointer" }}>
-                      <input type="file" multiple accept=".stl,.zip,.rar" onChange={handleFileChange} style={{ display: 'none' }} id="fileInput" />
-                      <label htmlFor="fileInput" style={{ cursor: 'pointer', display: 'block', margin: 0 }}>
-                        {selectedFiles.length > 0 ? selectedFiles.map(f => f.name).join(", ") : "Drag & Drop .STL, .ZIP, or .RAR File(s) or Click to Browse"}
-                      </label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <label style={{ margin: 0 }}>Provide 3D Model *</label>
+                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                        Choose file upload or paste an online design link
+                      </span>
                     </div>
+
+                    {/* Mode Toggle Buttons */}
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                      <button
+                        type="button"
+                        onClick={() => setOrderSourceTab("file")}
+                        className={`btn btn-sm ${orderSourceTab === "file" ? "btn-accent" : "btn-glass"}`}
+                        style={{ flex: 1, padding: "9px 14px", fontSize: 13, fontWeight: 700 }}
+                      >
+                        Upload File (.stl, .zip, .rar) {selectedFiles.length > 0 ? `(${selectedFiles.length})` : ''}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOrderSourceTab("link")}
+                        className={`btn btn-sm ${orderSourceTab === "link" ? "btn-accent" : "btn-glass"}`}
+                        style={{ flex: 1, padding: "9px 14px", fontSize: 13, fontWeight: 700 }}
+                      >
+                        Share Model Link {newOrder.fileLink ? "(Added)" : ""}
+                      </button>
+                    </div>
+
+                    {orderSourceTab === "file" && (
+                      <div>
+                        <div className={`drop-zone ${isDragging ? 'active' : ''}`} 
+                             onDragOver={handleDragOver} 
+                             onDragLeave={handleDragLeave} 
+                             onDrop={handleDrop}
+                             style={{ padding: "36px 20px", border: formErrors.file ? "2px dashed #FF3B30" : "2px dashed var(--border-glass-strong)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.03)", textAlign: "center", cursor: "pointer" }}>
+                          <input type="file" multiple accept=".stl,.zip,.rar" onChange={handleFileChange} style={{ display: 'none' }} id="fileInput" />
+                          <label htmlFor="fileInput" style={{ cursor: 'pointer', display: 'block', margin: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>
+                              {selectedFiles.length > 0 ? selectedFiles.map(f => f.name).join(", ") : "Drag & Drop .STL, .ZIP, or .RAR File(s) or Click to Browse"}
+                            </div>
+                            <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
+                              Supports direct single STL models or multi-part archives (.zip / .rar)
+                            </div>
+                          </label>
+                        </div>
+                        {selectedFiles.length > 0 && (
+                          <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: 12, color: "var(--status-done)", fontWeight: 700 }}>
+                              {selectedFiles.length} file(s) attached
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => { setSelectedFiles([]); setNewOrder(p => ({ ...p, fileName: "" })); }}
+                              style={{ background: "transparent", border: "none", color: "#FF3B30", fontSize: 12, cursor: "pointer", fontWeight: 700 }}
+                            >
+                              Clear Files
+                            </button>
+                          </div>
+                        )}
+                        <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>Prefer an online repository?</span>
+                          <button
+                            type="button"
+                            onClick={() => setOrderSourceTab("link")}
+                            style={{ background: "transparent", border: "none", color: "var(--accent)", padding: 0, cursor: "pointer", fontWeight: 700, textDecoration: "underline" }}
+                          >
+                            Paste link instead
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {orderSourceTab === "link" && (
+                      <div style={{ padding: "18px", background: "rgba(255,255,255,0.02)", border: formErrors.fileLink || formErrors.file ? "1px solid #FF3B30" : "1px solid var(--border-glass)", borderRadius: "var(--radius-sm)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <label style={{ margin: 0, fontSize: 12.5, fontWeight: 700 }}>3D Model or Cloud URL</label>
+                          {Boolean(newOrder.fileLink && isValidUrl(newOrder.fileLink)) && (
+                            <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "rgba(255,128,0,0.15)", color: getPlatformFromUrl(newOrder.fileLink)?.color || "var(--accent)", fontWeight: 800 }}>
+                              {getPlatformFromUrl(newOrder.fileLink)?.name || "Web Link"}
+                            </span>
+                          )}
+                        </div>
+                        <input
+                          type="url"
+                          value={newOrder.fileLink}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setNewOrder(p => ({
+                              ...p,
+                              fileLink: val,
+                              fileName: p.fileName || (val ? `Link: ${val.slice(0, 40)}` : "")
+                            }));
+                            if (formErrors.file || formErrors.fileLink) {
+                              setFormErrors(prev => ({ ...prev, file: null, fileLink: null }));
+                            }
+                          }}
+                          placeholder="https://www.printables.com/model/... or Thingiverse, MakerWorld, Drive"
+                          style={{ width: "100%", marginBottom: 8, borderColor: (formErrors.fileLink || formErrors.file) ? '#FF3B30' : undefined }}
+                        />
+                        <div style={{ fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+                          Supports links from <strong>Printables</strong>, <strong>Thingiverse</strong>, <strong>MakerWorld</strong>, <strong>Google Drive</strong>, <strong>Dropbox</strong>, or any public 3D CAD URL. Our workshop team will inspect and slice your model upon review.
+                        </div>
+                        {newOrder.fileLink && (
+                          <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <a href={normalizeUrl(newOrder.fileLink)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "var(--accent)", textDecoration: "underline" }}>
+                              Preview external link &rarr;
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => setNewOrder(p => ({ ...p, fileLink: "" }))}
+                              style={{ background: "transparent", border: "none", color: "#FF3B30", fontSize: 12, cursor: "pointer", fontWeight: 700 }}
+                            >
+                              Remove Link
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {fileError && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 8 }}>{fileError}</div>}
                     {formErrors.file && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 8, fontWeight: 600 }}>{formErrors.file}</div>}
+                    {formErrors.fileLink && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 8, fontWeight: 600 }}>{formErrors.fileLink}</div>}
                     {selectedFiles.some(f => f.name.toLowerCase().endsWith(".zip") || f.name.toLowerCase().endsWith(".rar")) && (
                       <div style={{ marginTop: 12, padding: "12px 16px", background: "rgba(255,128,0,0.08)", border: "1px solid rgba(255,128,0,0.2)", borderRadius: "var(--radius-sm)", fontSize: 12.5, color: "var(--text-secondary)" }}>
                         <strong style={{ color: "var(--accent)" }}>Archive Uploaded:</strong> Multiple 3D files detected. Contained .stl models verified. Final weight and quote will be calculated and confirmed upon operator review (Standard Rate: <strong>{config.price_per_gram} EGP/g</strong>).
@@ -5368,7 +5701,16 @@ export default function App() {
                     <button className="btn btn-glass" onClick={() => setOrderStep(1)}>Back</button>
                     <button className="btn btn-accent" onClick={() => {
                       const errors = {};
-                      if (selectedFiles.length === 0) errors.file = "Please upload at least one STL, ZIP, or RAR file.";
+                      const cleanLink = (newOrder.fileLink || "").trim();
+                      const hasFiles = selectedFiles.length > 0;
+                      const hasLink = Boolean(cleanLink);
+
+                      if (!hasFiles && !hasLink) {
+                        errors.file = "Please upload a 3D file (.stl, .zip, .rar) or provide a model/cloud link.";
+                      }
+                      if (hasLink && !isValidUrl(cleanLink)) {
+                        errors.fileLink = "Please enter a valid URL (starting with http:// or https://)";
+                      }
                       setFormErrors(errors);
                       if (Object.keys(errors).length === 0) setOrderStep(3);
                     }}>Review Order</button>
@@ -5405,8 +5747,18 @@ export default function App() {
                       </span>
                     </div>
                     <div className="review-item">
-                      <span className="review-item-label">File Name</span>
-                      <span className="review-item-value" style={{ wordBreak: "break-all" }}>{newOrder.fileName}</span>
+                      <span className="review-item-label">Model Source</span>
+                      <span className="review-item-value" style={{ wordBreak: "break-all" }}>
+                        {selectedFiles.length > 0 && <div>{selectedFiles.map(f => f.name).join(", ")}</div>}
+                        {newOrder.fileLink && (
+                          <div style={{ marginTop: selectedFiles.length > 0 ? 4 : 0 }}>
+                            <a href={normalizeUrl(newOrder.fileLink)} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                              <span>{getPlatformFromUrl(newOrder.fileLink)?.name || "External Link"}:</span> {newOrder.fileLink}
+                            </a>
+                          </div>
+                        )}
+                        {!selectedFiles.length && !newOrder.fileLink && "No file or link"}
+                      </span>
                     </div>
 
                     {clientMetrics ? (
