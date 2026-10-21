@@ -106,6 +106,37 @@ function setPrinterInNotes(notes, printer) {
   return `[PRINTER:${printer}] ${cleanNotes}`.trim();
 }
 
+function getDeliveryMode(order) {
+  if (!order) return 'pickup';
+  if (order.delivery_mode) return order.delivery_mode;
+  if (order.notes) {
+    const match = order.notes.match(/\[DELIVERY:([^\]]+)\]/i) || order.notes.match(/\[Mode:\s*([^\]|]+)/i);
+    if (match) return match[1].trim().toLowerCase();
+  }
+  return 'pickup';
+}
+
+function getOrderDeposit(order) {
+  if (!order) return 0;
+  if (order.deposit_required !== undefined && order.deposit_required !== null) return Number(order.deposit_required);
+  if (order.notes) {
+    const match = order.notes.match(/\[DEPOSIT:([^\]]+)\]/i) || order.notes.match(/\[Deposit:\s*([^\]|EGP]+)/i);
+    if (match) return parseFloat(match[1]) || 0;
+  }
+  return Math.round((Number(order.totalprice) || 0) * 0.5);
+}
+
+function getOrderPrintHours(order) {
+  if (!order) return 0.5;
+  if (order.printhours !== undefined && order.printhours !== null) return Number(order.printhours);
+  if (order.notes) {
+    const match = order.notes.match(/\[HOURS:([^\]]+)\]/i) || order.notes.match(/\[Time:\s*([^\]|h]+)/i);
+    if (match) return parseFloat(match[1]) || 0;
+  }
+  const w = Number(order.weightgrams) || 0;
+  return w > 0 ? Number((w / 35).toFixed(1)) : 0.5;
+}
+
 export default function AdminDashboard({
   orders = [],
   setOrders = () => {},
@@ -328,8 +359,8 @@ export default function AdminDashboard({
 
   const handleRecalculateOrderPrice = async (order) => {
     const w = Number(order.weightgrams) || 0;
-    const h = Number(order.printhours) || (w > 0 ? (w / 35) : 0.2);
-    const mode = order.delivery_mode || 'pickup';
+    const h = getOrderPrintHours(order);
+    const mode = getDeliveryMode(order);
     const quote = calculateOrderQuote({
       items: [{ weightGrams: w, printHours: h, materialKey: order.material || 'pla' }],
       deliveryMode: mode,
@@ -341,8 +372,15 @@ export default function AdminDashboard({
     const newDeposit = quote.depositRequired;
     const newRemaining = quote.remainingBalance;
 
+    let updatedNotes = (order.notes || '')
+      .replace(/\[DEPOSIT:[^\]]+\]/gi, '')
+      .replace(/\[BALANCE:[^\]]+\]/gi, '')
+      .trim();
+    updatedNotes = `${updatedNotes} [DEPOSIT:${newDeposit}] [BALANCE:${newRemaining}]`.trim();
+
     const priceUpdates = {
       totalprice: newPrice,
+      notes: updatedNotes,
       deposit_required: newDeposit,
       remaining_balance: newRemaining,
       price_locked: true
@@ -353,15 +391,16 @@ export default function AdminDashboard({
 
     try {
       if (supabase) {
-        await supabase.from('orders').update({
+        const { error } = await supabase.from('orders').update({
           totalprice: newPrice,
-          deposit_required: newDeposit,
-          remaining_balance: newRemaining
+          notes: updatedNotes
         }).eq('id', order.id);
+        if (error) throw error;
       }
       addToast(`Price updated: ${newPrice.toFixed(2)} EGP`, 'success');
     } catch (err) {
       console.error('Failed to recalculate order price:', err);
+      addToast('Failed to save updated price', 'error');
     }
   };
 
@@ -373,9 +412,9 @@ export default function AdminDashboard({
       ordername: order.ordername || '',
       material: (order.material || 'PLA').toUpperCase(),
       weightgrams: order.weightgrams || 0,
-      printhours: order.printhours || (Number(order.weightgrams) ? (Number(order.weightgrams) / 35).toFixed(1) : 1),
+      printhours: getOrderPrintHours(order),
       totalprice: order.totalprice || 0,
-      delivery_mode: order.delivery_mode || 'pickup',
+      delivery_mode: getDeliveryMode(order),
       printer: getPrinterFromNotes(order.notes) || 'CC Abdalla'
     });
     setIsEditModalOpen(true);
@@ -387,45 +426,46 @@ export default function AdminDashboard({
     const { id, name, phone, ordername, material, weightgrams, printhours, totalprice, delivery_mode, printer } = editingOrderData;
 
     const currentOrder = orders.find(o => o.id === id);
-    const updatedNotes = setPrinterInNotes(currentOrder?.notes || '', printer);
+    let updatedNotes = setPrinterInNotes(currentOrder?.notes || '', printer);
+    updatedNotes = updatedNotes
+      .replace(/\[DELIVERY:[^\]]+\]/gi, '')
+      .replace(/\[HOURS:[^\]]+\]/gi, '')
+      .replace(/\[Time:[^\]]+\]/gi, '')
+      .replace(/\[Mode:[^\]]+\]/gi, '')
+      .trim();
+    updatedNotes = `${updatedNotes} [DELIVERY:${delivery_mode || 'pickup'}] [HOURS:${printhours || 1}]`.trim();
 
-    const updatePayload = {
+    const dbPayload = {
       name,
       phone,
       ordername,
       material,
       weightgrams: Number(weightgrams) || 0,
-      printhours: Number(printhours) || 0,
       totalprice: Number(totalprice) || 0,
-      delivery_mode,
       notes: updatedNotes
     };
 
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, ...updatePayload } : o));
-    setSelectedOrder(prev => (prev && prev.id === id ? { ...prev, ...updatePayload } : prev));
+    const updatedState = {
+      ...(currentOrder || {}),
+      ...dbPayload,
+      printhours: Number(printhours) || 0,
+      delivery_mode: delivery_mode || 'pickup'
+    };
+
+    setOrders(prev => prev.map(o => o.id === id ? updatedState : o));
+    setSelectedOrder(prev => (prev && prev.id === id ? updatedState : prev));
     setIsEditModalOpen(false);
 
     try {
       if (supabase) {
-        let updateRes = await supabase.from('orders').update(updatePayload).eq('id', id);
-        if (updateRes.error && updateRes.error.message && updateRes.error.message.includes('schema cache')) {
-          const safePayload = {
-            name,
-            phone,
-            ordername,
-            material,
-            weightgrams: Number(weightgrams) || 0,
-            totalprice: Number(totalprice) || 0,
-            notes: `${updatedNotes} [Time: ${printhours}h | Mode: ${delivery_mode}]`.trim()
-          };
-          updateRes = await supabase.from('orders').update(safePayload).eq('id', id);
-        }
-        if (updateRes.error) throw updateRes.error;
+        const { error: updateErr } = await supabase.from('orders').update(dbPayload).eq('id', id);
+        if (updateErr) throw updateErr;
       }
       addToast('Order details updated', 'success');
+      fetchOrders();
     } catch (err) {
       console.error('Error updating order:', err);
-      addToast('Failed to save order details', 'error');
+      addToast('Failed to save order details: ' + (err.message || err), 'error');
       fetchOrders();
     }
   };
@@ -486,69 +526,60 @@ export default function AdminDashboard({
     const finalPrice = quickOrder.customPrice !== '' ? Number(quickOrder.customPrice) : calculatedQuote.customerTotal;
     const trackingCode = 'ETB-' + Math.random().toString(36).substring(2, 7).toUpperCase();
 
-    const payload = {
+    const assignedNotes = setPrinterInNotes('', quickOrder.printer);
+    const enrichedNotes = `${assignedNotes} [DELIVERY:${delivery}] [DEPOSIT:${calculatedQuote.depositRequired}] [HOURS:${h}]`.trim();
+
+    const dbPayload = {
       name: quickOrder.name || 'Direct Client',
       phone: quickOrder.phone || '01000000000',
       email: 'direct@etba3ly.store',
       ordername: quickOrder.orderName || 'Workshop Print Job',
       material: mat.toUpperCase(),
       color: 'Standard',
-      notes: setPrinterInNotes('', quickOrder.printer),
+      notes: enrichedNotes,
       status: 'queued',
       weightgrams: w,
       totalprice: finalPrice,
-      deposit_required: calculatedQuote.depositRequired,
-      deposit_paid: finalPrice,
-      remaining_balance: 0,
       tracking_code: trackingCode,
-      delivery_mode: delivery,
       createdat: new Date().toISOString()
     };
 
+    const newOrderState = {
+      id: 'ETB-' + Date.now(),
+      ...dbPayload,
+      delivery_mode: delivery,
+      deposit_required: calculatedQuote.depositRequired,
+      deposit_paid: finalPrice,
+      remaining_balance: 0,
+      printhours: h
+    };
+
+    setOrders(prev => [newOrderState, ...prev]);
+    setSelectedOrder(newOrderState);
+    setIsQuickAddOpen(false);
+    setQuickOrder({
+      name: '',
+      phone: '',
+      orderName: '',
+      weightGrams: 30,
+      printHours: 1.5,
+      material: 'pla',
+      printer: 'CC Abdalla',
+      customPrice: '',
+      deliveryMode: 'pickup'
+    });
+
     try {
       if (supabase) {
-        let insertRes = await supabase.from('orders').insert([payload]).select().single();
-        if (insertRes.error && insertRes.error.message && insertRes.error.message.includes('schema cache')) {
-          const basePayload = {
-            name: payload.name,
-            phone: payload.phone,
-            email: payload.email,
-            ordername: payload.ordername,
-            material: payload.material,
-            color: payload.color,
-            notes: `${payload.notes || ''} [Delivery: ${delivery} | Deposit: ${calculatedQuote.depositRequired} EGP]`.trim(),
-            status: payload.status,
-            weightgrams: payload.weightgrams,
-            totalprice: payload.totalprice,
-            tracking_code: payload.tracking_code,
-            createdat: payload.createdat
-          };
-          insertRes = await supabase.from('orders').insert([basePayload]).select().single();
-        }
-        if (insertRes.error) throw insertRes.error;
-        setOrders(prev => [insertRes.data, ...prev]);
-        setSelectedOrder(insertRes.data);
-      } else {
-        const mock = { id: Date.now(), ...payload };
-        setOrders(prev => [mock, ...prev]);
-        setSelectedOrder(mock);
+        const { error: insertErr } = await supabase.from('orders').insert([dbPayload]);
+        if (insertErr) throw insertErr;
       }
       addToast(`Order assigned to ${quickOrder.printer}`, 'success');
-      setIsQuickAddOpen(false);
-      setQuickOrder({
-        name: '',
-        phone: '',
-        orderName: '',
-        weightGrams: 30,
-        printHours: 1.5,
-        material: 'pla',
-        printer: 'CC Abdalla',
-        customPrice: '',
-        deliveryMode: 'pickup'
-      });
+      fetchOrders();
     } catch (err) {
       console.error('Failed to log order:', err);
-      addToast('Error logging order', 'error');
+      addToast('Error saving order to database: ' + (err.message || err), 'error');
+      fetchOrders();
     }
   };
 
@@ -575,7 +606,7 @@ export default function AdminDashboard({
       const isPrinting = o.status === 'printing';
       const printer = getPrinterFromNotes(o.notes);
       const w = Number(o.weightgrams) || 0;
-      const h = Number(o.printhours) || (w > 0 ? (w / 35) : 0.2);
+      const h = getOrderPrintHours(o);
       const rev = Number(o.totalprice) || 0;
 
       const matKey = normalizeMaterialKey(o.material);
@@ -1790,7 +1821,7 @@ export default function AdminDashboard({
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
                     <span style={{ color: theme.textSecondary }}>Deposit Status</span>
                     <span style={{ color: theme.statusGreen, fontWeight: 600 }}>
-                      {selectedOrder.deposit_required ? `${selectedOrder.deposit_required} EGP Required` : 'Standard 50%'}
+                      {getOrderDeposit(selectedOrder) ? `${getOrderDeposit(selectedOrder).toFixed(2)} EGP Required` : 'Standard 50%'}
                     </span>
                   </div>
 
@@ -1841,7 +1872,7 @@ export default function AdminDashboard({
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: theme.textSecondary }}>Fulfillment Mode</span>
-                    <strong style={{ color: theme.text, textTransform: 'capitalize' }}>{selectedOrder.delivery_mode || 'Pickup'}</strong>
+                    <strong style={{ color: theme.text, textTransform: 'capitalize' }}>{getDeliveryMode(selectedOrder)}</strong>
                   </div>
                 </div>
               )}

@@ -1898,14 +1898,24 @@ export default function App() {
       const finalColor = (newOrder.color || defCol).trim();
       const fallbackName = hasLink && !hasFiles ? `${getPlatformFromUrl(cleanLink)?.name || 'Online'} 3D Model` : "Untitled Part";
 
+      const dynamicTags = [
+        `[DELIVERY:${deliveryMode || "pickup"}]`,
+        `[DEPOSIT:${depositRequired || 0}]`,
+        `[BALANCE:${remainingBalance || 0}]`,
+        quote.printTimeHours ? `[HOURS:${quote.printTimeHours.toFixed(2)}]` : null,
+        referralCode ? `[REF:${referralCode}]` : null
+      ].filter(Boolean).join(" ");
+
+      const fullNotes = `${cleanNotes ? cleanNotes + " " : ""}${dynamicTags}`.trim();
+
       const payload = {
         name: newOrder.name,
         phone: newOrder.phone.replace(/[\s\-()]/g, ""),
-        email: newOrder.email,
+        email: newOrder.email || null,
         ordername: newOrder.orderName || fallbackName,
         material: finalMaterial,
         color: finalColor,
-        notes: cleanNotes,
+        notes: fullNotes,
         fileurl: urls.join(","),
         filesize: totalSize,
         status: "queued",
@@ -1914,43 +1924,10 @@ export default function App() {
         pricepergram: Math.round((quote.materialCharge / (weightGrams || 1)) * 100) / 100,
         totalprice: calculatedTotal,
         tracking_code: trackingCode,
-        delivery_mode: deliveryMode,
-        deposit_required: depositRequired,
-        deposit_paid: 0,
-        remaining_balance: remainingBalance,
-        referral_code: referralCode,
-        referral_commission_amount: quote.profitability.referralCommission,
-        pricing_snapshot: quote.snapshot,
-        financial_breakdown: {
-          directCosts: quote.costs.totalDirectCosts,
-          referralCommission: quote.profitability.referralCommission,
-          orderContribution: quote.profitability.orderContribution
-        }
+        createdat: new Date().toISOString()
       };
 
-      let { error: insertErr } = await supabase.from("orders").insert([payload]);
-      if (insertErr && insertErr.message && insertErr.message.includes("schema cache")) {
-        console.warn("Supabase schema missing extended pricing columns. Using fallback base payload:", insertErr.message);
-        const fallbackPayload = {
-          name: payload.name,
-          phone: payload.phone,
-          email: payload.email,
-          ordername: payload.ordername,
-          material: payload.material,
-          color: payload.color,
-          notes: `${payload.notes || ""}\n[Mode: ${payload.delivery_mode || "pickup"} | Deposit: ${payload.deposit_required || 0} EGP | Remaining: ${payload.remaining_balance || 0} EGP]`.trim(),
-          fileurl: payload.fileurl,
-          filesize: payload.filesize,
-          status: payload.status,
-          priority: payload.priority,
-          weightgrams: payload.weightgrams,
-          pricepergram: payload.pricepergram,
-          totalprice: payload.totalprice,
-          tracking_code: payload.tracking_code
-        };
-        const retryRes = await supabase.from("orders").insert([fallbackPayload]);
-        insertErr = retryRes.error;
-      }
+      const { error: insertErr } = await supabase.from("orders").insert([payload]);
       if (insertErr) throw new Error(insertErr.message);
 
       // Dispatch automated order alerts across all configured channels (Email, Telegram, Discord, WhatsApp)
