@@ -9,7 +9,82 @@ import {
 } from '../utils/pricingEngine';
 import GalleryStudioUploader from '../utils/GalleryStudioUploader';
 
-// Printer helper functions
+// ─────────────────────────────────────────────────────────────
+// Minimalist Apple HIG Icons (1.5px Stroke, SVG Monochrome)
+// ─────────────────────────────────────────────────────────────
+const Icons = {
+  Apple: () => (
+    <svg viewBox="0 0 170 170" width="16" height="16" fill="currentColor">
+      <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.7-3.04-7.59-7.71-11.66-14.01-6.19-9.68-11.08-20.73-14.67-33.15-3.59-12.43-5.39-24.16-5.39-35.18 0-14.89 3.82-27.18 11.45-36.87 7.63-9.69 17.15-14.68 28.56-14.97 4.58 0 9.78 1.15 15.6 3.44 5.82 2.29 9.54 3.49 11.16 3.6 2.01-.22 5.86-1.46 11.55-3.71 5.69-2.26 10.74-3.32 15.16-3.18 11.43.53 20.89 4.67 28.37 12.43-10.03 6.1-15 14.62-14.91 25.56.09 8.64 3.37 16.03 9.85 22.18 6.47 6.14 14.05 9.77 22.73 10.88-2.35 6.94-5.35 14.39-8.99 22.36zM119.22 31.84c0-7.39 2.65-14.35 7.96-20.87 5.3-6.53 11.83-10.45 19.57-11.78.22 1.1.33 2.1.33 3 0 7.39-2.73 14.36-8.2 20.91-5.46 6.55-12.01 10.33-19.66 11.34-.1-.88-.15-1.78-.15-2.71z"/>
+    </svg>
+  ),
+  Orders: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+    </svg>
+  ),
+  Fleet: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 6 2 18 2 18 9" />
+      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+      <rect x="6" y="14" width="12" height="8" />
+    </svg>
+  ),
+  Finance: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <line x1="2" y1="10" x2="22" y2="10" />
+    </svg>
+  ),
+  Settings: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  ),
+  Gallery: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <polyline points="21 15 16 10 5 21" />
+    </svg>
+  ),
+  ChevronRight: () => (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  ),
+  Search: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  ),
+  Sun: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="5" />
+      <line x1="12" y1="1" x2="12" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="23" />
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+      <line x1="1" y1="12" x2="3" y2="12" />
+      <line x1="21" y1="12" x2="23" y2="12" />
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+  ),
+  Moon: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  )
+};
+
+// ─────────────────────────────────────────────────────────────
+// Printer Helper Functions
+// ─────────────────────────────────────────────────────────────
 function getPrinterFromNotes(notes) {
   if (!notes) return null;
   const match = notes.match(/^\[PRINTER:([^\]]+)\]/);
@@ -22,10 +97,6 @@ function setPrinterInNotes(notes, printer) {
   return `[PRINTER:${printer}] ${cleanNotes}`.trim();
 }
 
-function getCleanNotes(notes) {
-  return (notes || "").replace(/^\[PRINTER:[^\]]+\]\s*/, "").trim();
-}
-
 export default function AdminDashboard({
   orders = [],
   setOrders = () => {},
@@ -33,7 +104,6 @@ export default function AdminDashboard({
   setConfig = () => {},
   supabase,
   PRINTERS = ["CC Abdalla", "CC Mazen"],
-  darkMode = true,
   fetchOrders = () => {},
   fetchConfig = () => {},
   handleAdminLogout = () => {},
@@ -56,15 +126,83 @@ export default function AdminDashboard({
   handleTestEmail = () => {},
   isTestingEmail = false
 }) {
+  // Theme state: Apple Business Light vs Apple Pro Dark
+  const [isAppleDark, setIsAppleDark] = useState(() => {
+    try {
+      return localStorage.getItem('apple_admin_theme') === 'dark';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleAppleTheme = () => {
+    setIsAppleDark(prev => {
+      const next = !prev;
+      localStorage.setItem('apple_admin_theme', next ? 'dark' : 'light');
+      return next;
+    });
+  };
+
+  // Apple Color Tokens
+  const theme = useMemo(() => {
+    if (isAppleDark) {
+      return {
+        bg: '#000000',
+        canvas: '#161617',
+        surface: '#1c1c1e',
+        surfaceHover: '#2c2c2e',
+        border: 'rgba(255, 255, 255, 0.1)',
+        borderSubtle: 'rgba(255, 255, 255, 0.05)',
+        text: '#f5f5f7',
+        textSecondary: '#86868b',
+        textMuted: '#636366',
+        accent: '#2997ff',
+        buttonPrimaryBg: '#ffffff',
+        buttonPrimaryText: '#000000',
+        buttonSecondaryBg: 'rgba(255, 255, 255, 0.08)',
+        buttonSecondaryText: '#f5f5f7',
+        statusGreen: '#30d158',
+        statusOrange: '#ff9f0a',
+        statusRed: '#ff453a',
+        inspectorBg: '#1c1c1e'
+      };
+    }
+    // Apple Business Light (Default matching screenshots)
+    return {
+      bg: '#f5f5f7',
+      canvas: '#ffffff',
+      surface: '#ffffff',
+      surfaceHover: '#f5f5f7',
+      border: 'rgba(0, 0, 0, 0.08)',
+      borderSubtle: 'rgba(0, 0, 0, 0.04)',
+      text: '#1d1d1f',
+      textSecondary: '#86868b',
+      textMuted: '#a1a1a6',
+      accent: '#0071e3',
+      buttonPrimaryBg: '#000000',
+      buttonPrimaryText: '#ffffff',
+      buttonSecondaryBg: 'rgba(0, 0, 0, 0.05)',
+      buttonSecondaryText: '#1d1d1f',
+      statusGreen: '#34c759',
+      statusOrange: '#ff9500',
+      statusRed: '#ff3b30',
+      inspectorBg: '#ffffff'
+    };
+  }, [isAppleDark]);
+
   // Navigation: 'orders' | 'fleet' | 'partners' | 'settings' | 'gallery'
   const [activeNav, setActiveNav] = useState('orders');
 
-  // Search & Filters
+  // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'queued' | 'printing' | 'done' | 'cancelled'
   const [printerFilter, setPrinterFilter] = useState('all'); // 'all' | 'CC Abdalla' | 'CC Mazen'
 
-  // Settings State
+  // Selected Order for Apple Inspector Slide-out Sheet
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [inspectorTab, setInspectorTab] = useState('overview'); // 'overview' | 'specs' | 'payment'
+
+  // Pricing Parameters State
   const [pricingSettings, setPricingSettings] = useState(() => {
     try {
       const cached = localStorage.getItem('etba3ly_pricing_settings');
@@ -97,10 +235,7 @@ export default function AdminDashboard({
     deliveryMode: 'pickup'
   });
 
-  // Edit Order Price/Details Modal
-  const [editingOrder, setEditingOrder] = useState(null);
-
-  // Load Remote Settings from Supabase
+  // Sync Remote Settings
   useEffect(() => {
     if (!supabase) return;
     let isMounted = true;
@@ -132,35 +267,17 @@ export default function AdminDashboard({
     return () => { isMounted = false; };
   }, [supabase]);
 
-  // Save Pricing & Financial Settings
-  const handleSaveFinancials = async (e) => {
-    if (e) e.preventDefault();
-    setSavingSettings(true);
-    try {
-      localStorage.setItem('etba3ly_pricing_settings', JSON.stringify(pricingSettings));
-      localStorage.setItem('etba3ly_material_rates', JSON.stringify(materials));
-
-      if (supabase) {
-        await supabase.from('pricing_settings').upsert({
-          id: 'default',
-          ...pricingSettings,
-          updated_at: new Date().toISOString()
-        });
-      }
-      addToast('Pricing parameters saved. Historical approved orders preserved.', 'success');
-    } catch (err) {
-      console.error('Error saving pricing:', err);
-      addToast('Saved locally in browser', 'info');
-    } finally {
-      setSavingSettings(false);
+  // Keep selected order synced when orders list updates
+  useEffect(() => {
+    if (selectedOrder) {
+      const fresh = orders.find(o => o.id === selectedOrder.id);
+      if (fresh) setSelectedOrder(fresh);
     }
-  };
+  }, [orders]);
 
   // ─────────────────────────────────────────────────────────────
   // Order Actions & Database Sync
   // ─────────────────────────────────────────────────────────────
-
-  // Update order status with instant optimistic update + Supabase write
   const handleUpdateStatus = async (orderId, newStatus) => {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     try {
@@ -168,15 +285,14 @@ export default function AdminDashboard({
         const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
         if (error) throw error;
       }
-      addToast(`Order #${String(orderId).slice(0, 8)} updated to ${newStatus}`, 'info');
+      addToast(`Status updated: ${newStatus}`, 'info');
     } catch (err) {
       console.error('Status update failed:', err);
-      addToast('Failed to update status on server', 'error');
+      addToast('Status update failed', 'error');
       fetchOrders();
     }
   };
 
-  // Assign Printer (CC Abdalla vs CC Mazen)
   const handleAssignPrinter = async (orderId, printerName) => {
     const targetOrder = orders.find(o => o.id === orderId);
     if (!targetOrder) return;
@@ -191,12 +307,10 @@ export default function AdminDashboard({
       addToast(`Assigned to ${printerName}`, 'success');
     } catch (err) {
       console.error('Printer assignment failed:', err);
-      addToast('Failed to save printer assignment', 'error');
       fetchOrders();
     }
   };
 
-  // Recalculate price for an order using current rates
   const handleRecalculateOrderPrice = async (order) => {
     const w = Number(order.weightgrams) || 0;
     const h = Number(order.printhours) || (w > 0 ? (w / 35) : 0.2);
@@ -228,31 +342,51 @@ export default function AdminDashboard({
           remaining_balance: newRemaining
         }).eq('id', order.id);
       }
-      addToast(`Order price updated to ${newPrice.toFixed(2)} EGP`, 'success');
+      addToast(`Price updated: ${newPrice.toFixed(2)} EGP`, 'success');
     } catch (err) {
       console.error('Failed to recalculate order price:', err);
     }
   };
 
-  // Delete Order
   const handleDeleteOrder = async (orderId) => {
-    if (!window.confirm(`Are you sure you want to permanently delete order #${String(orderId).slice(0, 8)}?`)) return;
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, _deleting: true } : o));
+    if (!window.confirm(`Permanently delete order #${String(orderId).slice(0, 8)}?`)) return;
+    setOrders(prev => prev.filter(o => o.id !== orderId));
+    if (selectedOrder?.id === orderId) setSelectedOrder(null);
     try {
       if (supabase) {
         const { error } = await supabase.from('orders').delete().eq('id', orderId);
         if (error) throw error;
       }
-      setOrders(prev => prev.filter(o => o.id !== orderId));
-      addToast('Order deleted successfully', 'info');
+      addToast('Order deleted', 'info');
     } catch (err) {
       console.error('Failed to delete order:', err);
-      addToast('Error deleting order', 'error');
       fetchOrders();
     }
   };
 
-  // Quick Add Order Handler (Replaces USB jobs seamlessly)
+  const handleSaveFinancials = async (e) => {
+    if (e) e.preventDefault();
+    setSavingSettings(true);
+    try {
+      localStorage.setItem('etba3ly_pricing_settings', JSON.stringify(pricingSettings));
+      localStorage.setItem('etba3ly_material_rates', JSON.stringify(materials));
+
+      if (supabase) {
+        await supabase.from('pricing_settings').upsert({
+          id: 'default',
+          ...pricingSettings,
+          updated_at: new Date().toISOString()
+        });
+      }
+      addToast('Parameters saved successfully', 'success');
+    } catch (err) {
+      console.error('Error saving pricing:', err);
+      addToast('Saved locally', 'info');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   const handleCreateQuickOrder = async (e) => {
     e.preventDefault();
     const w = Number(quickOrder.weightGrams) || 0;
@@ -271,7 +405,7 @@ export default function AdminDashboard({
     const trackingCode = 'ETB-' + Math.random().toString(36).substring(2, 7).toUpperCase();
 
     const payload = {
-      name: quickOrder.name || 'Direct Workshop Client',
+      name: quickOrder.name || 'Direct Client',
       phone: quickOrder.phone || '01000000000',
       email: 'direct@etba3ly.store',
       ordername: quickOrder.orderName || 'Workshop Print Job',
@@ -282,7 +416,7 @@ export default function AdminDashboard({
       weightgrams: w,
       totalprice: finalPrice,
       deposit_required: calculatedQuote.depositRequired,
-      deposit_paid: finalPrice, // Direct workshop walk-ins often pay upfront
+      deposit_paid: finalPrice,
       remaining_balance: 0,
       tracking_code: trackingCode,
       delivery_mode: delivery,
@@ -294,10 +428,13 @@ export default function AdminDashboard({
         const { data, error } = await supabase.from('orders').insert([payload]).select().single();
         if (error) throw error;
         setOrders(prev => [data, ...prev]);
+        setSelectedOrder(data);
       } else {
-        setOrders(prev => [{ id: Date.now(), ...payload }, ...prev]);
+        const mock = { id: Date.now(), ...payload };
+        setOrders(prev => [mock, ...prev]);
+        setSelectedOrder(mock);
       }
-      addToast(`Order logged & assigned to ${quickOrder.printer}`, 'success');
+      addToast(`Order assigned to ${quickOrder.printer}`, 'success');
       setIsQuickAddOpen(false);
       setQuickOrder({
         name: '',
@@ -312,12 +449,12 @@ export default function AdminDashboard({
       });
     } catch (err) {
       console.error('Failed to log order:', err);
-      addToast('Error logging order to database', 'error');
+      addToast('Error logging order', 'error');
     }
   };
 
   // ─────────────────────────────────────────────────────────────
-  // Fleet & Partner Separation Metrics
+  // Minimalist Fleet Metrics (Mazen vs Abdalla)
   // ─────────────────────────────────────────────────────────────
   const fleetData = useMemo(() => {
     let abdallaHours = 0;
@@ -332,7 +469,6 @@ export default function AdminDashboard({
     let mazenCosts = 0;
     let mazenActiveJob = null;
 
-    let unassignedRevenue = 0;
     let totalFleetHours = 0;
 
     orders.forEach(o => {
@@ -343,7 +479,6 @@ export default function AdminDashboard({
       const h = Number(o.printhours) || (w > 0 ? (w / 35) : 0.2);
       const rev = Number(o.totalprice) || 0;
 
-      // Direct variable costs (raw material + wear 5/h + dep 4.5/h + failed reserve 8%)
       const matKey = normalizeMaterialKey(o.material);
       const matCostRate = materials[matKey]?.cost || 0.65;
       const materialCost = w * matCostRate;
@@ -369,37 +504,33 @@ export default function AdminDashboard({
           mazenGrams += w;
           mazenRevenue += rev;
           mazenCosts += directCost;
-        } else {
-          unassignedRevenue += rev;
         }
       }
     });
 
     const abdallaProfit = abdallaRevenue - abdallaCosts;
     const mazenProfit = mazenRevenue - mazenCosts;
-    const totalNetProfit = (abdallaProfit + mazenProfit + unassignedRevenue);
+    const totalNetProfit = abdallaProfit + mazenProfit;
 
     const partnerDistributions = calculatePartnerDistributions(totalNetProfit, pricingSettings);
 
     return {
       abdalla: {
-        printer: 'CC Abdalla',
-        operator: 'Abdalla',
+        name: 'CC Abdalla',
+        partner: 'Abdalla',
         hours: Math.round(abdallaHours * 10) / 10,
         grams: Math.round(abdallaGrams),
         revenue: Math.round(abdallaRevenue * 100) / 100,
-        costs: Math.round(abdallaCosts * 100) / 100,
-        netProfit: Math.round(abdallaProfit * 100) / 100,
+        profit: Math.round(abdallaProfit * 100) / 100,
         activeJob: abdallaActiveJob
       },
       mazen: {
-        printer: 'CC Mazen',
-        operator: 'Mazen',
+        name: 'CC Mazen',
+        partner: 'Mazen',
         hours: Math.round(mazenHours * 10) / 10,
         grams: Math.round(mazenGrams),
         revenue: Math.round(mazenRevenue * 100) / 100,
-        costs: Math.round(mazenCosts * 100) / 100,
-        netProfit: Math.round(mazenProfit * 100) / 100,
+        profit: Math.round(mazenProfit * 100) / 100,
         activeJob: mazenActiveJob
       },
       totalFleetHours: Math.round(totalFleetHours * 10) / 10,
@@ -408,30 +539,25 @@ export default function AdminDashboard({
     };
   }, [orders, pricingSettings, materials]);
 
-  // Filtered Orders for the Table
+  // Filtered Orders
   const filteredOrders = useMemo(() => {
     return orders.filter(o => {
-      // Status filter
       if (statusFilter !== 'all' && o.status !== statusFilter) return false;
-
-      // Printer filter
       const p = getPrinterFromNotes(o.notes);
       if (printerFilter !== 'all') {
         if (printerFilter === 'CC Abdalla' && p !== 'CC Abdalla') return false;
         if (printerFilter === 'CC Mazen' && p !== 'CC Mazen') return false;
       }
-
-      // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
-        const matchName = (o.name || '').toLowerCase().includes(q);
-        const matchOrder = (o.ordername || '').toLowerCase().includes(q);
-        const matchPhone = (o.phone || '').includes(q);
-        const matchCode = (o.tracking_code || '').toLowerCase().includes(q);
-        const matchId = String(o.id || '').toLowerCase().includes(q);
-        return matchName || matchOrder || matchPhone || matchCode || matchId;
+        return (
+          (o.name || '').toLowerCase().includes(q) ||
+          (o.ordername || '').toLowerCase().includes(q) ||
+          (o.phone || '').includes(q) ||
+          (o.tracking_code || '').toLowerCase().includes(q) ||
+          String(o.id || '').toLowerCase().includes(q)
+        );
       }
-
       return true;
     });
   }, [orders, statusFilter, printerFilter, searchQuery]);
@@ -439,472 +565,340 @@ export default function AdminDashboard({
   return (
     <div style={{
       display: 'flex',
+      flexDirection: 'column',
       minHeight: '100vh',
-      background: '#090d16',
-      color: '#f8fafc',
-      fontFamily: 'Inter, system-ui, -apple-system, sans-serif'
+      background: theme.bg,
+      color: theme.text,
+      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif',
+      WebkitFontSmoothing: 'antialiased',
+      transition: 'background 0.2s, color 0.2s'
     }}>
       {/* ───────────────────────────────────────────────────────────── */}
-      {/* STRIPE / SHOPIFY STYLE LEFT VERTICAL SIDEBAR */}
+      {/* 1. APPLE TOP NAVIGATION BAR */}
       {/* ───────────────────────────────────────────────────────────── */}
-      <aside style={{
-        width: 260,
-        background: 'rgba(15, 23, 42, 0.85)',
-        backdropFilter: 'blur(20px)',
-        borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+      <header style={{
+        height: 52,
+        background: theme.canvas,
+        borderBottom: `1px solid ${theme.border}`,
         display: 'flex',
-        flexDirection: 'column',
+        alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '24px 16px',
+        padding: '0 24px',
         position: 'sticky',
         top: 0,
-        height: '100vh',
-        zIndex: 50
+        zIndex: 100
       }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          {/* Brand Header */}
-          <div style={{ padding: '0 8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{
-                width: 32,
-                height: 32,
-                borderRadius: 8,
-                background: 'linear-gradient(135deg, #38bdf8 0%, #0284c7 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 900,
-                color: '#000'
-              }}>
-                E
-              </div>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-0.02em', color: '#fff' }}>
-                  Etba3ly OS
-                </div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                  Staging Workshop
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Navigation Links */}
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {[
-              { id: 'orders', label: 'Orders & Queue', badge: orders.filter(o => o.status === 'queued' || o.status === 'printing').length },
-              { id: 'fleet', label: 'Fleet & Working Hours', badge: '2 CC1' },
-              { id: 'partners', label: 'Partner P&L & Splits' },
-              { id: 'settings', label: 'Pricing & Store CMS' },
-              { id: 'gallery', label: 'Product Gallery', badge: galleryItems.length }
-            ].map(item => (
-              <button
-                key={item.id}
-                onClick={() => setActiveNav(item.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '10px 14px',
-                  borderRadius: 10,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  border: 'none',
-                  transition: 'all 0.15s ease',
-                  background: activeNav === item.id ? 'rgba(56, 189, 248, 0.12)' : 'transparent',
-                  color: activeNav === item.id ? '#38bdf8' : '#94a3b8',
-                  textAlign: 'left'
-                }}
-              >
-                <span>{item.label}</span>
-                {item.badge !== undefined && (
-                  <span style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    padding: '2px 8px',
-                    borderRadius: 12,
-                    background: activeNav === item.id ? '#38bdf8' : 'rgba(255, 255, 255, 0.06)',
-                    color: activeNav === item.id ? '#000' : '#cbd5e1'
-                  }}>
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
+        {/* Brand */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icons.Apple />
+          <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em', color: theme.text }}>
+            Business
+          </span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, marginLeft: 4 }}>
+            · Etba3ly OS
+          </span>
         </div>
 
-        {/* Sidebar Footer Controls */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: 16 }}>
+        {/* Apple Horizontal Segmented Navigation */}
+        <nav style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {[
+            { id: 'orders', label: 'Orders' },
+            { id: 'fleet', label: 'Devices' },
+            { id: 'partners', label: 'Finance' },
+            { id: 'settings', label: 'Settings' },
+            { id: 'gallery', label: 'Showcase' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveNav(tab.id)}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 980,
+                fontSize: 13,
+                fontWeight: activeNav === tab.id ? 600 : 500,
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                background: activeNav === tab.id ? theme.buttonSecondaryBg : 'transparent',
+                color: activeNav === tab.id ? theme.text : theme.textSecondary
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        {/* User / Theme / Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
-            onClick={() => { fetchOrders(); fetchConfig(); addToast('Database queue refreshed', 'info'); }}
+            onClick={toggleAppleTheme}
+            title={isAppleDark ? 'Switch to Apple Business Light' : 'Switch to Apple Pro Dark'}
             style={{
-              padding: '8px 12px',
-              borderRadius: 8,
-              fontSize: 12,
-              fontWeight: 600,
-              background: 'rgba(255, 255, 255, 0.03)',
-              color: '#94a3b8',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
+              width: 32,
+              height: 32,
+              borderRadius: 980,
+              border: `1px solid ${theme.border}`,
+              background: theme.surface,
+              color: theme.text,
               cursor: 'pointer',
-              textAlign: 'center'
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}
           >
-            Refresh Data
+            {isAppleDark ? <Icons.Sun /> : <Icons.Moon />}
           </button>
+
           <button
-            onClick={exportCSV}
+            onClick={() => setIsQuickAddOpen(true)}
             style={{
-              padding: '8px 12px',
-              borderRadius: 8,
+              padding: '6px 14px',
+              borderRadius: 980,
               fontSize: 12,
               fontWeight: 600,
-              background: 'rgba(255, 255, 255, 0.03)',
-              color: '#94a3b8',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
+              border: 'none',
               cursor: 'pointer',
-              textAlign: 'center'
+              background: theme.buttonPrimaryBg,
+              color: theme.buttonPrimaryText
             }}
           >
-            Export Orders CSV
+            + New Order
           </button>
+
           <button
             onClick={handleAdminLogout}
             style={{
-              padding: '8px 12px',
-              borderRadius: 8,
+              padding: '6px 12px',
+              borderRadius: 980,
               fontSize: 12,
-              fontWeight: 600,
-              background: 'rgba(239, 68, 68, 0.1)',
-              color: '#ef4444',
-              border: '1px solid rgba(239, 68, 68, 0.2)',
-              cursor: 'pointer',
-              textAlign: 'center'
+              fontWeight: 500,
+              border: `1px solid ${theme.border}`,
+              background: 'transparent',
+              color: theme.textSecondary,
+              cursor: 'pointer'
             }}
           >
             Sign Out
           </button>
         </div>
-      </aside>
+      </header>
 
       {/* ───────────────────────────────────────────────────────────── */}
-      {/* MAIN VIEW CONTENT AREA */}
+      {/* 2. MAIN APP CONTAINER (DATA TABLE + SLIDE-OUT INSPECTOR SHEET) */}
       {/* ───────────────────────────────────────────────────────────── */}
-      <main style={{ flex: 1, padding: '32px 40px', overflowY: 'auto', minWidth: 0 }}>
-        {/* Top Header Bar */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 16,
-          marginBottom: 28,
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-          paddingBottom: 20
-        }}>
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0, letterSpacing: '-0.02em', color: '#fff' }}>
-              {activeNav === 'orders' && 'Orders & Production Queue'}
-              {activeNav === 'fleet' && 'Printer Fleet & Working Hours'}
-              {activeNav === 'partners' && 'Two-Partner Profit Sharing (Mazen & Abdalla)'}
-              {activeNav === 'settings' && 'Dynamic Pricing & Store Parameters'}
-              {activeNav === 'gallery' && 'Product Portfolio & Gallery Studio'}
-            </h1>
-            <p style={{ fontSize: 13, color: '#94a3b8', margin: '4px 0 0' }}>
-              {activeNav === 'orders' && 'Manage student orders, assign to Mazen or Abdalla, lock pricing, and dispatch prints.'}
-              {activeNav === 'fleet' && 'Track distinct machine hours, maintenance wear, and filament extrusion per 3D printer.'}
-              {activeNav === 'partners' && 'Audited partner splits, growth funds, and realized cashflow distributions.'}
-              {activeNav === 'settings' && 'Real-time parameters for setup fees, hourly rates, materials, and dormant power rates.'}
-              {activeNav === 'gallery' && 'Manage public showcase items and client print models.'}
-            </p>
-          </div>
+      <div style={{ display: 'flex', flex: 1, minHeight: 'calc(100vh - 52px)', position: 'relative' }}>
+        {/* Main Content Area */}
+        <div style={{ flex: 1, padding: '24px 32px', overflowY: 'auto', minWidth: 0 }}>
+          {/* Subheader / Action Bar */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 20,
+            flexWrap: 'wrap',
+            gap: 12
+          }}>
+            <div>
+              <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0, color: theme.text }}>
+                {activeNav === 'orders' && 'Orders'}
+                {activeNav === 'fleet' && 'Devices'}
+                {activeNav === 'partners' && 'Finance & Partner Allocations'}
+                {activeNav === 'settings' && 'Workshop Settings'}
+                {activeNav === 'gallery' && 'Showcase Portfolio'}
+              </h1>
+              <span style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2, display: 'inline-block' }}>
+                {activeNav === 'orders' && `${filteredOrders.length} orders configured`}
+                {activeNav === 'fleet' && '2 CoreXY Elegoo Centauri Carbon devices active'}
+                {activeNav === 'partners' && 'Realized distributions for Mazen and Abdalla'}
+                {activeNav === 'settings' && 'Dynamic pricing rates and CMS settings'}
+                {activeNav === 'gallery' && `${galleryItems.length} published products`}
+              </span>
+            </div>
 
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              onClick={() => setIsQuickAddOpen(true)}
-              style={{
-                padding: '9px 18px',
-                borderRadius: 8,
-                background: '#38bdf8',
-                color: '#000',
-                fontWeight: 700,
-                fontSize: 13,
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6
-              }}
-            >
-              + Quick Add Order
-            </button>
-          </div>
-        </div>
-
-        {/* ───────────────────────────────────────────────────────────── */}
-        {/* VIEW 1: ORDERS & PRODUCTION QUEUE */}
-        {/* ───────────────────────────────────────────────────────────── */}
-        {activeNav === 'orders' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* Filter Bar */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 16,
-              background: 'rgba(15, 23, 42, 0.65)',
-              padding: '14px 18px',
-              borderRadius: 12,
-              border: '1px solid rgba(255, 255, 255, 0.08)'
-            }}>
-              {/* Status Tabs */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {[
-                  { id: 'all', label: 'All Orders' },
-                  { id: 'queued', label: 'Queued' },
-                  { id: 'printing', label: 'Printing' },
-                  { id: 'done', label: 'Completed' },
-                  { id: 'cancelled', label: 'Cancelled' }
-                ].map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => setStatusFilter(s.id)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: 6,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      border: 'none',
-                      background: statusFilter === s.id ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
-                      color: statusFilter === s.id ? '#38bdf8' : '#94a3b8'
-                    }}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Printer Filter & Search */}
+            {/* Orders specific filters */}
+            {activeNav === 'orders' && (
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                {/* Search */}
+                <div style={{
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                  background: theme.surface,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 8,
+                  padding: '5px 10px'
+                }}>
+                  <Icons.Search />
+                  <input
+                    type="text"
+                    placeholder="Search orders..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      color: theme.text,
+                      fontSize: 13,
+                      paddingLeft: 8,
+                      outline: 'none',
+                      width: 180
+                    }}
+                  />
+                </div>
+
+                {/* Status Segmented Pill */}
+                <select
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 8,
+                    background: theme.surface,
+                    border: `1px solid ${theme.border}`,
+                    color: theme.text,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="queued">Queued</option>
+                  <option value="printing">Printing</option>
+                  <option value="done">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+
                 <select
                   value={printerFilter}
                   onChange={e => setPrinterFilter(e.target.value)}
                   style={{
-                    padding: '8px 12px',
+                    padding: '6px 12px',
                     borderRadius: 8,
-                    background: '#1e293b',
-                    color: '#fff',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    background: theme.surface,
+                    border: `1px solid ${theme.border}`,
+                    color: theme.text,
                     fontSize: 12,
+                    fontWeight: 500,
                     cursor: 'pointer'
                   }}
                 >
-                  <option value="all">All Printers</option>
+                  <option value="all">All Hardware</option>
                   <option value="CC Abdalla">CC Abdalla (Abdalla)</option>
                   <option value="CC Mazen">CC Mazen (Mazen)</option>
                 </select>
-
-                <input
-                  type="text"
-                  placeholder="Search order, customer, phone..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  style={{
-                    padding: '8px 14px',
-                    borderRadius: 8,
-                    background: '#1e293b',
-                    color: '#fff',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    fontSize: 12,
-                    width: 240
-                  }}
-                />
               </div>
-            </div>
+            )}
+          </div>
 
-            {/* Orders Table */}
+          {/* ───────────────────────────────────────────────────────── */}
+          {/* VIEW: ORDERS (FULL-WIDTH APPLE DATA TABLE) */}
+          {/* ───────────────────────────────────────────────────────── */}
+          {activeNav === 'orders' && (
             <div style={{
-              background: 'rgba(15, 23, 42, 0.65)',
-              borderRadius: 14,
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              overflowX: 'auto'
+              background: theme.surface,
+              borderRadius: 12,
+              border: `1px solid ${theme.border}`,
+              overflow: 'hidden'
             }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.08)', color: '#94a3b8', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    <th style={{ padding: '14px 16px' }}>Order Details</th>
-                    <th style={{ padding: '14px 16px' }}>Part Specs</th>
-                    <th style={{ padding: '14px 16px' }}>Assigned Hardware</th>
-                    <th style={{ padding: '14px 16px' }}>Price & Immutability</th>
-                    <th style={{ padding: '14px 16px' }}>Status</th>
-                    <th style={{ padding: '14px 16px', textAlign: 'right' }}>Actions</th>
+                  <tr style={{
+                    borderBottom: `1px solid ${theme.border}`,
+                    color: theme.textSecondary,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase'
+                  }}>
+                    <th style={{ padding: '12px 18px' }}>Name / Details</th>
+                    <th style={{ padding: '12px 18px' }}>Specifications</th>
+                    <th style={{ padding: '12px 18px' }}>Device</th>
+                    <th style={{ padding: '12px 18px' }}>Price</th>
+                    <th style={{ padding: '12px 18px' }}>Status</th>
+                    <th style={{ padding: '12px 18px', textAlign: 'right' }}>Inspection</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredOrders.length === 0 ? (
                     <tr>
-                      <td colSpan="6" style={{ padding: '40px 16px', textAlign: 'center', color: '#64748b' }}>
-                        No orders match the selected filters.
+                      <td colSpan="6" style={{ padding: '48px 18px', textAlign: 'center', color: theme.textSecondary, fontSize: 13 }}>
+                        No orders found.
                       </td>
                     </tr>
                   ) : (
                     filteredOrders.map(order => {
-                      const assignedPrinter = getPrinterFromNotes(order.notes) || 'Unassigned';
+                      const isSelected = selectedOrder?.id === order.id;
+                      const printer = getPrinterFromNotes(order.notes) || 'Unassigned';
                       const isLocked = order.status === 'approved' || order.status === 'printing' || order.status === 'done' || order.totalprice !== null;
                       const weight = Number(order.weightgrams) || 0;
                       const price = Number(order.totalprice) || 0;
 
+                      let statusColor = theme.textSecondary;
+                      if (order.status === 'printing') statusColor = theme.statusOrange;
+                      if (order.status === 'done') statusColor = theme.statusGreen;
+                      if (order.status === 'cancelled') statusColor = theme.statusRed;
+
                       return (
                         <tr
                           key={order.id}
+                          onClick={() => setSelectedOrder(order)}
                           style={{
-                            borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
-                            transition: 'background 0.15s',
-                            opacity: order._deleting ? 0.4 : 1
+                            borderBottom: `1px solid ${theme.borderSubtle}`,
+                            cursor: 'pointer',
+                            background: isSelected ? (isAppleDark ? '#2c2c2e' : '#f0f0f5') : 'transparent',
+                            transition: 'background 0.1s ease'
                           }}
                         >
-                          {/* Order Details */}
-                          <td style={{ padding: '14px 16px' }}>
-                            <div style={{ fontWeight: 700, color: '#f8fafc' }}>{order.ordername || 'Custom Print'}</div>
-                            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                              {order.name || 'Client'} &bull; {order.phone}
-                            </div>
-                            <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace', marginTop: 2 }}>
-                              {order.tracking_code || `#${String(order.id).slice(0, 8)}`}
+                          {/* Name / Customer */}
+                          <td style={{ padding: '14px 18px' }}>
+                            <div style={{ fontWeight: 600, color: theme.text }}>{order.ordername || 'Custom 3D Print'}</div>
+                            <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
+                              {order.name || 'Client'} · {order.tracking_code || `#${String(order.id).slice(0, 6)}`}
                             </div>
                           </td>
 
-                          {/* Part Specs */}
-                          <td style={{ padding: '14px 16px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontWeight: 600 }}>{order.material || 'PLA'}</span>
-                              <span style={{ fontSize: 11, color: '#94a3b8' }}>({order.color || 'White'})</span>
+                          {/* Specifications */}
+                          <td style={{ padding: '14px 18px' }}>
+                            <div style={{ color: theme.text, fontWeight: 500 }}>
+                              {order.material || 'PLA'} · {weight}g
                             </div>
-                            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                              {weight}g &bull; ~{Math.max(0.2, (weight / 35)).toFixed(1)} hrs
+                            <div style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>
+                              ~{Math.max(0.2, (weight / 35)).toFixed(1)} hrs
                             </div>
-                            {order.fileurl && (
-                              <a
-                                href={order.fileurl.split(',')[0]}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={{ fontSize: 11, color: '#38bdf8', textDecoration: 'none', display: 'inline-block', marginTop: 4 }}
-                              >
-                                Download STL &rarr;
-                              </a>
-                            )}
                           </td>
 
-                          {/* Assigned Hardware */}
-                          <td style={{ padding: '14px 16px' }}>
-                            <select
-                              value={assignedPrinter}
-                              onChange={e => handleAssignPrinter(order.id, e.target.value)}
-                              style={{
-                                padding: '6px 10px',
-                                borderRadius: 6,
-                                background: '#1e293b',
-                                color: assignedPrinter.includes('Abdalla') ? '#38bdf8' : assignedPrinter.includes('Mazen') ? '#a855f7' : '#94a3b8',
-                                border: '1px solid rgba(255, 255, 255, 0.1)',
-                                fontSize: 12,
-                                fontWeight: 600,
-                                cursor: 'pointer'
-                              }}
-                            >
-                              <option value="Unassigned">Assign Printer...</option>
-                              <option value="CC Abdalla">CC Abdalla (Abdalla)</option>
-                              <option value="CC Mazen">CC Mazen (Mazen)</option>
-                            </select>
+                          {/* Device Assigned */}
+                          <td style={{ padding: '14px 18px' }}>
+                            <span style={{
+                              fontSize: 12,
+                              fontWeight: 500,
+                              color: printer.includes('Abdalla') ? theme.accent : printer.includes('Mazen') ? '#af52de' : theme.textSecondary
+                            }}>
+                              {printer}
+                            </span>
                           </td>
 
-                          {/* Price & Immutability */}
-                          <td style={{ padding: '14px 16px' }}>
-                            <div style={{ fontWeight: 800, fontSize: 15, color: '#fff' }}>
-                              {price.toFixed(2)} EGP
-                            </div>
-                            <div style={{ marginTop: 4 }}>
-                              <span style={{
-                                fontSize: 10,
-                                fontWeight: 700,
-                                padding: '2px 6px',
-                                borderRadius: 4,
-                                textTransform: 'uppercase',
-                                background: isLocked ? 'rgba(34, 197, 94, 0.12)' : 'rgba(234, 179, 8, 0.12)',
-                                color: isLocked ? '#22c55e' : '#eab308',
-                                border: isLocked ? '1px solid rgba(34, 197, 94, 0.25)' : '1px solid rgba(234, 179, 8, 0.25)'
-                              }}>
-                                {isLocked ? 'Price Locked' : 'Draft Quote'}
-                              </span>
+                          {/* Price */}
+                          <td style={{ padding: '14px 18px' }}>
+                            <div style={{ fontWeight: 600, color: theme.text }}>{price.toFixed(2)} EGP</div>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: isLocked ? theme.statusGreen : theme.statusOrange, marginTop: 2 }}>
+                              {isLocked ? 'Price Locked' : 'Draft'}
                             </div>
                           </td>
 
                           {/* Status */}
-                          <td style={{ padding: '14px 16px' }}>
-                            <select
-                              value={order.status}
-                              onChange={e => handleUpdateStatus(order.id, e.target.value)}
-                              style={{
-                                padding: '6px 10px',
-                                borderRadius: 6,
-                                background: order.status === 'printing' ? 'rgba(56, 189, 248, 0.15)' :
-                                            order.status === 'done' ? 'rgba(34, 197, 94, 0.15)' :
-                                            order.status === 'cancelled' ? 'rgba(239, 68, 68, 0.15)' : '#1e293b',
-                                color: order.status === 'printing' ? '#38bdf8' :
-                                       order.status === 'done' ? '#22c55e' :
-                                       order.status === 'cancelled' ? '#ef4444' : '#cbd5e1',
-                                border: '1px solid rgba(255, 255, 255, 0.1)',
-                                fontSize: 12,
-                                fontWeight: 700,
-                                cursor: 'pointer'
-                              }}
-                            >
-                              <option value="queued">Queued</option>
-                              <option value="approved">Approved</option>
-                              <option value="printing">Printing Now</option>
-                              <option value="done">Completed</option>
-                              <option value="cancelled">Cancelled</option>
-                            </select>
+                          <td style={{ padding: '14px 18px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />
+                              <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'capitalize', color: theme.text }}>
+                                {order.status}
+                              </span>
+                            </div>
                           </td>
 
-                          {/* Quick Actions */}
-                          <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                              <button
-                                onClick={() => handleRecalculateOrderPrice(order)}
-                                title="Recalculate price using latest dynamic rates"
-                                style={{
-                                  padding: '5px 10px',
-                                  borderRadius: 6,
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  background: 'rgba(255, 255, 255, 0.05)',
-                                  color: '#cbd5e1',
-                                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                Recalc
-                              </button>
-                              <button
-                                onClick={() => handleDeleteOrder(order.id)}
-                                title="Delete order"
-                                style={{
-                                  padding: '5px 10px',
-                                  borderRadius: 6,
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  background: 'rgba(239, 68, 68, 0.1)',
-                                  color: '#ef4444',
-                                  border: '1px solid rgba(239, 68, 68, 0.2)',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                Delete
-                              </button>
-                            </div>
+                          {/* Right Chevron */}
+                          <td style={{ padding: '14px 18px', textAlign: 'right', color: theme.textMuted }}>
+                            <Icons.ChevronRight />
                           </td>
                         </tr>
                       );
@@ -913,382 +907,397 @@ export default function AdminDashboard({
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* ───────────────────────────────────────────────────────────── */}
-        {/* VIEW 2: FLEET ALLOCATION & WORKING HOURS (MAZEN VS ABDALLA) */}
-        {/* ───────────────────────────────────────────────────────────── */}
-        {activeNav === 'fleet' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            {/* Two Distinct Machine Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 24 }}>
-              {/* CC Abdalla Card */}
+          {/* ───────────────────────────────────────────────────────── */}
+          {/* VIEW: DEVICES (MINIMALIST APPLE TELEMETRY ROWS) */}
+          {/* ───────────────────────────────────────────────────────── */}
+          {activeNav === 'fleet' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* CC Abdalla Row */}
               <div style={{
-                background: 'rgba(15, 23, 42, 0.75)',
-                border: '1px solid rgba(56, 189, 248, 0.25)',
-                borderRadius: 16,
-                padding: 24,
-                position: 'relative'
+                background: theme.surface,
+                borderRadius: 12,
+                border: `1px solid ${theme.border}`,
+                padding: '20px 24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 20
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#38bdf8' }}>Elegoo Centauri Carbon #1</div>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Partner Operator: Abdalla</div>
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <div style={{
-                    padding: '4px 10px',
-                    borderRadius: 20,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    background: fleetData.abdalla.activeJob ? 'rgba(56, 189, 248, 0.15)' : 'rgba(34, 197, 94, 0.15)',
-                    color: fleetData.abdalla.activeJob ? '#38bdf8' : '#22c55e',
-                    border: '1px solid currentColor'
+                    width: 44,
+                    height: 44,
+                    borderRadius: 10,
+                    background: theme.buttonSecondaryBg,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: theme.text
                   }}>
-                    {fleetData.abdalla.activeJob ? 'Printing: ' + fleetData.abdalla.activeJob.ordername : 'Idle / Ready'}
+                    <Icons.Fleet />
                   </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
-                  <div style={{ background: '#1e293b', padding: 14, borderRadius: 10 }}>
-                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Working Hours</div>
-                    <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4, color: '#fff' }}>{fleetData.abdalla.hours} hrs</div>
-                  </div>
-                  <div style={{ background: '#1e293b', padding: 14, borderRadius: 10 }}>
-                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Filament Extruded</div>
-                    <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4, color: '#fff' }}>{fleetData.abdalla.grams} g</div>
-                  </div>
-                  <div style={{ background: '#1e293b', padding: 14, borderRadius: 10 }}>
-                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Revenue Generated</div>
-                    <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4, color: '#22c55e' }}>{fleetData.abdalla.revenue.toFixed(2)} EGP</div>
-                  </div>
-                  <div style={{ background: '#1e293b', padding: 14, borderRadius: 10 }}>
-                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Abdalla Machine Profit</div>
-                    <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4, color: '#38bdf8' }}>{fleetData.abdalla.netProfit.toFixed(2)} EGP</div>
-                  </div>
-                </div>
-
-                <div style={{ fontSize: 12, color: '#94a3b8', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: 12 }}>
-                  Direct machine burdens (wear 5 EGP/h + depreciation 4.5 EGP/h): <strong>{fleetData.abdalla.costs.toFixed(2)} EGP</strong>
-                </div>
-              </div>
-
-              {/* CC Mazen Card */}
-              <div style={{
-                background: 'rgba(15, 23, 42, 0.75)',
-                border: '1px solid rgba(168, 85, 247, 0.25)',
-                borderRadius: 16,
-                padding: 24,
-                position: 'relative'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                   <div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#a855f7' }}>Elegoo Centauri Carbon #2</div>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Partner Operator: Mazen</div>
-                  </div>
-                  <div style={{
-                    padding: '4px 10px',
-                    borderRadius: 20,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    background: fleetData.mazen.activeJob ? 'rgba(168, 85, 247, 0.15)' : 'rgba(34, 197, 94, 0.15)',
-                    color: fleetData.mazen.activeJob ? '#a855f7' : '#22c55e',
-                    border: '1px solid currentColor'
-                  }}>
-                    {fleetData.mazen.activeJob ? 'Printing: ' + fleetData.mazen.activeJob.ordername : 'Idle / Ready'}
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
-                  <div style={{ background: '#1e293b', padding: 14, borderRadius: 10 }}>
-                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Working Hours</div>
-                    <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4, color: '#fff' }}>{fleetData.mazen.hours} hrs</div>
-                  </div>
-                  <div style={{ background: '#1e293b', padding: 14, borderRadius: 10 }}>
-                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Filament Extruded</div>
-                    <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4, color: '#fff' }}>{fleetData.mazen.grams} g</div>
-                  </div>
-                  <div style={{ background: '#1e293b', padding: 14, borderRadius: 10 }}>
-                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Revenue Generated</div>
-                    <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4, color: '#22c55e' }}>{fleetData.mazen.revenue.toFixed(2)} EGP</div>
-                  </div>
-                  <div style={{ background: '#1e293b', padding: 14, borderRadius: 10 }}>
-                    <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase' }}>Mazen Machine Profit</div>
-                    <div style={{ fontSize: 24, fontWeight: 900, marginTop: 4, color: '#a855f7' }}>{fleetData.mazen.netProfit.toFixed(2)} EGP</div>
-                  </div>
-                </div>
-
-                <div style={{ fontSize: 12, color: '#94a3b8', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: 12 }}>
-                  Direct machine burdens (wear 5 EGP/h + depreciation 4.5 EGP/h): <strong>{fleetData.mazen.costs.toFixed(2)} EGP</strong>
-                </div>
-              </div>
-            </div>
-
-            {/* Combined Fleet Odometer */}
-            <div style={{
-              background: 'rgba(15, 23, 42, 0.65)',
-              borderRadius: 14,
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              padding: 20,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 16
-            }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Combined Fleet Working Hours</div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: '#38bdf8', marginTop: 4 }}>
-                  {fleetData.totalFleetHours} total machine hours logged
-                </div>
-              </div>
-              <button
-                onClick={() => setIsQuickAddOpen(true)}
-                style={{
-                  padding: '10px 18px',
-                  borderRadius: 8,
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  color: '#fff',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  fontWeight: 600,
-                  fontSize: 13,
-                  cursor: 'pointer'
-                }}
-              >
-                + Log Offline Print Job
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ───────────────────────────────────────────────────────────── */}
-        {/* VIEW 3: TWO-PARTNER PROFIT SHARING & P&L */}
-        {/* ───────────────────────────────────────────────────────────── */}
-        {activeNav === 'partners' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            <div style={{
-              background: 'rgba(15, 23, 42, 0.75)',
-              borderRadius: 16,
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              padding: 24
-            }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: '#fff', marginBottom: 6 }}>
-                Realized Net Earnings & Distributions
-              </div>
-              <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 24 }}>
-                Calculated strictly after filament plastic costs, 5 EGP/hr wear, 4.5 EGP/hr depreciation, 0 EGP/hr electricity, and 8% failure reserve.
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20 }}>
-                {/* 40% Distributable Partner Pool */}
-                <div style={{
-                  background: 'rgba(34, 197, 94, 0.05)',
-                  border: '1px solid rgba(34, 197, 94, 0.25)',
-                  borderRadius: 14,
-                  padding: 20
-                }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#22c55e', textTransform: 'uppercase' }}>
-                    Distributable Partner Pool ({fleetData.partnerDistributions.distributionPoolPct}%)
-                  </div>
-                  <div style={{ fontSize: 32, fontWeight: 900, color: '#fff', margin: '8px 0' }}>
-                    {fleetData.partnerDistributions.totalDistributionPool.toFixed(2)} EGP
-                  </div>
-
-                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: 12, marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                      <span style={{ color: '#94a3b8' }}>Partner Abdalla (50%):</span>
-                      <strong style={{ color: '#38bdf8' }}>{fleetData.partnerDistributions.partnerA.payout.toFixed(2)} EGP</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 16, fontWeight: 600, color: theme.text }}>Elegoo Centauri Carbon #1</span>
+                      <span style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: fleetData.abdalla.activeJob ? theme.statusOrange : theme.statusGreen
+                      }} />
+                      <span style={{ fontSize: 12, color: theme.textSecondary }}>
+                        {fleetData.abdalla.activeJob ? 'Printing: ' + fleetData.abdalla.activeJob.ordername : 'Ready'}
+                      </span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                      <span style={{ color: '#94a3b8' }}>Partner Mazen (50%):</span>
-                      <strong style={{ color: '#a855f7' }}>{fleetData.partnerDistributions.partnerB.payout.toFixed(2)} EGP</strong>
+                    <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
+                      Assigned Partner: Abdalla · CoreXY 0.4mm Nozzle
                     </div>
                   </div>
                 </div>
 
-                {/* 40% Business Growth Fund */}
-                <div style={{
-                  background: 'rgba(56, 189, 248, 0.05)',
-                  border: '1px solid rgba(56, 189, 248, 0.25)',
-                  borderRadius: 14,
-                  padding: 20
-                }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase' }}>
-                    Business Growth Fund ({fleetData.partnerDistributions.growthPoolPct}%)
+                {/* Inline Telemetry Metrics */}
+                <div style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: theme.textSecondary, textTransform: 'uppercase' }}>Hours</div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: theme.text, marginTop: 2 }}>{fleetData.abdalla.hours} hrs</div>
                   </div>
-                  <div style={{ fontSize: 32, fontWeight: 900, color: '#fff', margin: '8px 0' }}>
-                    {fleetData.partnerDistributions.growthFund.toFixed(2)} EGP
+                  <div>
+                    <div style={{ fontSize: 11, color: theme.textSecondary, textTransform: 'uppercase' }}>Extruded</div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: theme.text, marginTop: 2 }}>{fleetData.abdalla.grams} g</div>
                   </div>
-                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
-                    Retained for workshop inventory, hardened steel nozzles, and Elegoo hardware spare parts.
+                  <div>
+                    <div style={{ fontSize: 11, color: theme.textSecondary, textTransform: 'uppercase' }}>Revenue</div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: theme.text, marginTop: 2 }}>{fleetData.abdalla.revenue.toFixed(2)} EGP</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: theme.textSecondary, textTransform: 'uppercase' }}>Abdalla Profit</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: theme.accent, marginTop: 2 }}>{fleetData.abdalla.profit.toFixed(2)} EGP</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setQuickOrder(p => ({ ...p, printer: 'CC Abdalla' }));
+                      setIsQuickAddOpen(true);
+                    }}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: 980,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      border: `1px solid ${theme.border}`,
+                      background: theme.buttonSecondaryBg,
+                      color: theme.buttonSecondaryText,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    + Log Job
+                  </button>
+                </div>
+              </div>
+
+              {/* CC Mazen Row */}
+              <div style={{
+                background: theme.surface,
+                borderRadius: 12,
+                border: `1px solid ${theme.border}`,
+                padding: '20px 24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 20
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 10,
+                    background: theme.buttonSecondaryBg,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: theme.text
+                  }}>
+                    <Icons.Fleet />
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 16, fontWeight: 600, color: theme.text }}>Elegoo Centauri Carbon #2</span>
+                      <span style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: fleetData.mazen.activeJob ? theme.statusOrange : theme.statusGreen
+                      }} />
+                      <span style={{ fontSize: 12, color: theme.textSecondary }}>
+                        {fleetData.mazen.activeJob ? 'Printing: ' + fleetData.mazen.activeJob.ordername : 'Ready'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
+                      Assigned Partner: Mazen · CoreXY 0.4mm Nozzle
+                    </div>
                   </div>
                 </div>
 
-                {/* 20% Cash Reserves */}
+                {/* Inline Telemetry Metrics */}
+                <div style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: theme.textSecondary, textTransform: 'uppercase' }}>Hours</div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: theme.text, marginTop: 2 }}>{fleetData.mazen.hours} hrs</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: theme.textSecondary, textTransform: 'uppercase' }}>Extruded</div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: theme.text, marginTop: 2 }}>{fleetData.mazen.grams} g</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: theme.textSecondary, textTransform: 'uppercase' }}>Revenue</div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: theme.text, marginTop: 2 }}>{fleetData.mazen.revenue.toFixed(2)} EGP</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: theme.textSecondary, textTransform: 'uppercase' }}>Mazen Profit</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#af52de', marginTop: 2 }}>{fleetData.mazen.profit.toFixed(2)} EGP</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setQuickOrder(p => ({ ...p, printer: 'CC Mazen' }));
+                      setIsQuickAddOpen(true);
+                    }}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: 980,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      border: `1px solid ${theme.border}`,
+                      background: theme.buttonSecondaryBg,
+                      color: theme.buttonSecondaryText,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    + Log Job
+                  </button>
+                </div>
+              </div>
+
+              {/* Total Fleet Odometer */}
+              <div style={{
+                background: theme.surface,
+                borderRadius: 12,
+                border: `1px solid ${theme.border}`,
+                padding: '16px 24px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: 13,
+                color: theme.textSecondary
+              }}>
+                <div>Total combined fleet operating hours logged: <strong style={{ color: theme.text }}>{fleetData.totalFleetHours} hours</strong></div>
+                <div>Wear & maintenance provisions applied: <strong style={{ color: theme.text }}>5.00 EGP/hr</strong></div>
+              </div>
+            </div>
+          )}
+
+          {/* ───────────────────────────────────────────────────────── */}
+          {/* VIEW: FINANCE & PARTNER ALLOCATIONS */}
+          {/* ───────────────────────────────────────────────────────── */}
+          {activeNav === 'partners' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Partner Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div style={{
-                  background: 'rgba(234, 179, 8, 0.05)',
-                  border: '1px solid rgba(234, 179, 8, 0.25)',
-                  borderRadius: 14,
-                  padding: 20
+                  background: theme.surface,
+                  borderRadius: 12,
+                  border: `1px solid ${theme.border}`,
+                  padding: 24
                 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#eab308', textTransform: 'uppercase' }}>
-                    Emergency Cash Reserves ({fleetData.partnerDistributions.reservePoolPct}%)
+                  <div style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                    Partner Abdalla (50% Distributable)
                   </div>
-                  <div style={{ fontSize: 32, fontWeight: 900, color: '#fff', margin: '8px 0' }}>
-                    {fleetData.partnerDistributions.cashReserves.toFixed(2)} EGP
+                  <div style={{ fontSize: 32, fontWeight: 700, margin: '8px 0', color: theme.text, letterSpacing: '-0.02em' }}>
+                    {fleetData.partnerDistributions.partnerA.payout.toFixed(2)} EGP
                   </div>
-                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
-                    Emergency operating liquidity buffer for courier re-deliveries and print cancellations.
+                  <div style={{ fontSize: 12, color: theme.textSecondary }}>
+                    Direct machine contribution: {fleetData.abdalla.profit.toFixed(2)} EGP
+                  </div>
+                </div>
+
+                <div style={{
+                  background: theme.surface,
+                  borderRadius: 12,
+                  border: `1px solid ${theme.border}`,
+                  padding: 24
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                    Partner Mazen (50% Distributable)
+                  </div>
+                  <div style={{ fontSize: 32, fontWeight: 700, margin: '8px 0', color: theme.text, letterSpacing: '-0.02em' }}>
+                    {fleetData.partnerDistributions.partnerB.payout.toFixed(2)} EGP
+                  </div>
+                  <div style={{ fontSize: 12, color: theme.textSecondary }}>
+                    Direct machine contribution: {fleetData.mazen.profit.toFixed(2)} EGP
+                  </div>
+                </div>
+              </div>
+
+              {/* Pool Breakdown Table */}
+              <div style={{
+                background: theme.surface,
+                borderRadius: 12,
+                border: `1px solid ${theme.border}`,
+                padding: '20px 24px'
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: theme.text }}>
+                  Realized Net Earnings & Capital Pools
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 10 }}>
+                    <span style={{ color: theme.textSecondary }}>Distributable Partner Pool (40%)</span>
+                    <strong style={{ color: theme.statusGreen }}>{fleetData.partnerDistributions.totalDistributionPool.toFixed(2)} EGP</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 10 }}>
+                    <span style={{ color: theme.textSecondary }}>Business Growth Fund (40%)</span>
+                    <strong style={{ color: theme.accent }}>{fleetData.partnerDistributions.growthFund.toFixed(2)} EGP</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, paddingBottom: 4 }}>
+                    <span style={{ color: theme.textSecondary }}>Emergency Operating Reserves (20%)</span>
+                    <strong style={{ color: theme.statusOrange }}>{fleetData.partnerDistributions.cashReserves.toFixed(2)} EGP</strong>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* ───────────────────────────────────────────────────────────── */}
-        {/* VIEW 4: PRICING & STORE CMS PARAMETERS */}
-        {/* ───────────────────────────────────────────────────────────── */}
-        {activeNav === 'settings' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            <form onSubmit={handleSaveFinancials} style={{
-              background: 'rgba(15, 23, 42, 0.75)',
-              borderRadius: 16,
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              padding: 24,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 24
-            }}>
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>
-                  Dynamic Pricing & Financial Parameters
-                </div>
-                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
-                  Editing these parameters immediately updates new client quotes. Historical and approved orders remain protected.
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Setup Fee (EGP)
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    value={pricingSettings.setup_fee}
-                    onChange={e => setPricingSettings({ ...pricingSettings, setup_fee: parseFloat(e.target.value) || 0 })}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
-                  />
+          {/* ───────────────────────────────────────────────────────── */}
+          {/* VIEW: SETTINGS (PRICING & CMS) */}
+          {/* ───────────────────────────────────────────────────────── */}
+          {activeNav === 'settings' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <form onSubmit={handleSaveFinancials} style={{
+                background: theme.surface,
+                borderRadius: 12,
+                border: `1px solid ${theme.border}`,
+                padding: 24,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 20
+              }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: theme.text }}>
+                  Dynamic Pricing Configuration
                 </div>
 
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Hourly Printing Rate (EGP/hr)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={pricingSettings.printing_hourly_rate}
-                    onChange={e => setPricingSettings({ ...pricingSettings, printing_hourly_rate: parseFloat(e.target.value) || 0 })}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
-                  />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Setup Fee (EGP)
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={pricingSettings.setup_fee}
+                      onChange={e => setPricingSettings({ ...pricingSettings, setup_fee: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Printing Hourly Rate (EGP/hr)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={pricingSettings.printing_hourly_rate}
+                      onChange={e => setPricingSettings({ ...pricingSettings, printing_hourly_rate: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Pickup Minimum (EGP)
+                    </label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={pricingSettings.pickup_minimum}
+                      onChange={e => setPricingSettings({ ...pricingSettings, pickup_minimum: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Shipping Minimum (EGP)
+                    </label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={pricingSettings.shipping_minimum}
+                      onChange={e => setPricingSettings({ ...pricingSettings, shipping_minimum: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Electricity (EGP/hr - Default 0)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={pricingSettings.electricity_hourly_rate}
+                      onChange={e => setPricingSettings({ ...pricingSettings, electricity_hourly_rate: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Wear Burden (EGP/hr)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={pricingSettings.maintenance_hourly_rate}
+                      onChange={e => setPricingSettings({ ...pricingSettings, maintenance_hourly_rate: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Campus Pickup Minimum (EGP)
-                  </label>
-                  <input
-                    type="number"
-                    step="5"
-                    value={pricingSettings.pickup_minimum}
-                    onChange={e => setPricingSettings({ ...pricingSettings, pickup_minimum: parseFloat(e.target.value) || 0 })}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Shipping Minimum (EGP)
-                  </label>
-                  <input
-                    type="number"
-                    step="5"
-                    value={pricingSettings.shipping_minimum}
-                    onChange={e => setPricingSettings({ ...pricingSettings, shipping_minimum: parseFloat(e.target.value) || 0 })}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Electricity Cost (Default 0 EGP/hr)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={pricingSettings.electricity_hourly_rate}
-                    onChange={e => setPricingSettings({ ...pricingSettings, electricity_hourly_rate: parseFloat(e.target.value) || 0 })}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Machine Wear Burden (EGP/hr)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={pricingSettings.maintenance_hourly_rate}
-                    onChange={e => setPricingSettings({ ...pricingSettings, maintenance_hourly_rate: parseFloat(e.target.value) || 0 })}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
-                  />
-                </div>
-              </div>
-
-              {/* Material Rates Table */}
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', marginBottom: 12 }}>
-                  Material Selling Rates & Purchase Costs
-                </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                {/* Materials Table */}
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: theme.text, marginBottom: 8 }}>Material Rates</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
-                      <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', color: '#94a3b8' }}>
-                        <th style={{ padding: '8px 12px' }}>Material</th>
-                        <th style={{ padding: '8px 12px' }}>Selling Rate (EGP/g)</th>
-                        <th style={{ padding: '8px 12px' }}>Raw Cost (EGP/g)</th>
+                      <tr style={{ borderBottom: `1px solid ${theme.border}`, color: theme.textSecondary }}>
+                        <th style={{ padding: '8px 10px' }}>Material</th>
+                        <th style={{ padding: '8px 10px' }}>Selling Rate (EGP/g)</th>
+                        <th style={{ padding: '8px 10px' }}>Cost (EGP/g)</th>
                       </tr>
                     </thead>
                     <tbody>
                       {Object.entries(materials).map(([key, data]) => (
-                        <tr key={key} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                          <td style={{ padding: '10px 12px', fontWeight: 600 }}>{data.name}</td>
-                          <td style={{ padding: '10px 12px' }}>
+                        <tr key={key} style={{ borderBottom: `1px solid ${theme.borderSubtle}` }}>
+                          <td style={{ padding: '8px 10px', fontWeight: 500, color: theme.text }}>{data.name}</td>
+                          <td style={{ padding: '8px 10px' }}>
                             <input
                               type="number"
                               step="0.05"
                               value={data.selling_rate}
-                              onChange={e => setMaterials({
-                                ...materials,
-                                [key]: { ...data, selling_rate: parseFloat(e.target.value) || 0 }
-                              })}
-                              style={{ width: 120, padding: '6px 10px', borderRadius: 6, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
+                              onChange={e => setMaterials({ ...materials, [key]: { ...data, selling_rate: parseFloat(e.target.value) || 0 } })}
+                              style={{ width: 100, padding: '4px 8px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}` }}
                             />
                           </td>
-                          <td style={{ padding: '10px 12px' }}>
+                          <td style={{ padding: '8px 10px' }}>
                             <input
                               type="number"
                               step="0.05"
                               value={data.cost}
-                              onChange={e => setMaterials({
-                                ...materials,
-                                [key]: { ...data, cost: parseFloat(e.target.value) || 0 }
-                              })}
-                              style={{ width: 120, padding: '6px 10px', borderRadius: 6, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
+                              onChange={e => setMaterials({ ...materials, [key]: { ...data, cost: parseFloat(e.target.value) || 0 } })}
+                              style={{ width: 100, padding: '4px 8px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}` }}
                             />
                           </td>
                         </tr>
@@ -1296,230 +1305,497 @@ export default function AdminDashboard({
                     </tbody>
                   </table>
                 </div>
-              </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 16, borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                <button
-                  type="submit"
-                  disabled={savingSettings}
-                  style={{
-                    padding: '10px 24px',
-                    borderRadius: 8,
-                    background: '#38bdf8',
-                    color: '#000',
-                    fontWeight: 700,
-                    fontSize: 13,
-                    border: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {savingSettings ? 'Saving Parameters...' : 'Save Parameters to Database'}
-                </button>
-              </div>
-            </form>
-
-            {/* Notification Tests */}
-            <div style={{
-              background: 'rgba(15, 23, 42, 0.75)',
-              borderRadius: 16,
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              padding: 24
-            }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#fff', marginBottom: 6 }}>
-                Workshop Dispatch Alerts
-              </div>
-              <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16 }}>
-                Verify automated pings to Telegram, Discord, and Email when new student orders arrive.
-              </div>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <button
-                  onClick={handleTestTelegram}
-                  disabled={isTestingTelegram}
-                  style={{ padding: '8px 16px', borderRadius: 8, background: '#0284c7', color: '#fff', fontWeight: 600, fontSize: 12, border: 'none', cursor: 'pointer' }}
-                >
-                  {isTestingTelegram ? 'Sending...' : 'Test Telegram Alert'}
-                </button>
-                <button
-                  onClick={handleTestDiscord}
-                  disabled={isTestingDiscord}
-                  style={{ padding: '8px 16px', borderRadius: 8, background: '#5865F2', color: '#fff', fontWeight: 600, fontSize: 12, border: 'none', cursor: 'pointer' }}
-                >
-                  {isTestingDiscord ? 'Sending...' : 'Test Discord Alert'}
-                </button>
-                <button
-                  onClick={handleTestEmail}
-                  disabled={isTestingEmail}
-                  style={{ padding: '8px 16px', borderRadius: 8, background: '#475569', color: '#fff', fontWeight: 600, fontSize: 12, border: 'none', cursor: 'pointer' }}
-                >
-                  {isTestingEmail ? 'Sending...' : 'Test Email Alert'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ───────────────────────────────────────────────────────────── */}
-        {/* VIEW 5: GALLERY CMS */}
-        {/* ───────────────────────────────────────────────────────────── */}
-        {activeNav === 'gallery' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            {/* Add Gallery Item Card */}
-            <div style={{
-              background: 'rgba(15, 23, 42, 0.75)',
-              borderRadius: 16,
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              padding: 24
-            }}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: '#fff' }}>Add New Gallery Product</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>Title *</label>
-                  <input
-                    value={newGalleryItem.title}
-                    onChange={e => setNewGalleryItem(p => ({ ...p, title: e.target.value }))}
-                    placeholder="e.g. Quadcopter Drone Arm / Enclosure"
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>Description</label>
-                  <textarea
-                    rows="2"
-                    value={newGalleryItem.description}
-                    onChange={e => setNewGalleryItem(p => ({ ...p, description: e.target.value }))}
-                    placeholder="Material specs, print resolution, and functional details..."
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
-                  />
-                </div>
-
-                <GalleryStudioUploader
-                  files={newGalleryFiles}
-                  onProcessedFilesChange={setNewGalleryFiles}
-                  onProcessingStateChange={setGalleryProcessing}
-                />
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 12 }}>
                   <button
-                    onClick={handleAddGalleryItem}
-                    disabled={galleryUploading || galleryProcessing}
+                    type="submit"
+                    disabled={savingSettings}
                     style={{
-                      padding: '10px 20px',
-                      borderRadius: 8,
-                      background: '#38bdf8',
-                      color: '#000',
-                      fontWeight: 700,
+                      padding: '8px 20px',
+                      borderRadius: 980,
+                      background: theme.buttonPrimaryBg,
+                      color: theme.buttonPrimaryText,
+                      fontWeight: 600,
                       fontSize: 13,
                       border: 'none',
                       cursor: 'pointer'
                     }}
                   >
-                    {galleryProcessing ? 'Processing Images...' : galleryUploading ? 'Uploading...' : 'Publish to Gallery'}
+                    {savingSettings ? 'Saving...' : 'Save Parameters'}
+                  </button>
+                </div>
+              </form>
+
+              {/* Notification Testing */}
+              <div style={{
+                background: theme.surface,
+                borderRadius: 12,
+                border: `1px solid ${theme.border}`,
+                padding: 20
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: theme.text, marginBottom: 4 }}>Alert Testing</div>
+                <div style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 12 }}>Verify instant dispatch notification triggers.</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={handleTestTelegram}
+                    disabled={isTestingTelegram}
+                    style={{ padding: '6px 14px', borderRadius: 980, background: theme.buttonSecondaryBg, color: theme.text, fontSize: 12, fontWeight: 500, border: `1px solid ${theme.border}`, cursor: 'pointer' }}
+                  >
+                    {isTestingTelegram ? 'Testing...' : 'Test Telegram Alert'}
+                  </button>
+                  <button
+                    onClick={handleTestDiscord}
+                    disabled={isTestingDiscord}
+                    style={{ padding: '6px 14px', borderRadius: 980, background: theme.buttonSecondaryBg, color: theme.text, fontSize: 12, fontWeight: 500, border: `1px solid ${theme.border}`, cursor: 'pointer' }}
+                  >
+                    {isTestingDiscord ? 'Testing...' : 'Test Discord Alert'}
+                  </button>
+                  <button
+                    onClick={handleTestEmail}
+                    disabled={isTestingEmail}
+                    style={{ padding: '6px 14px', borderRadius: 980, background: theme.buttonSecondaryBg, color: theme.text, fontSize: 12, fontWeight: 500, border: `1px solid ${theme.border}`, cursor: 'pointer' }}
+                  >
+                    {isTestingEmail ? 'Testing...' : 'Test Email Alert'}
                   </button>
                 </div>
               </div>
             </div>
+          )}
 
-            {/* Gallery Items Grid */}
-            <div style={{
-              background: 'rgba(15, 23, 42, 0.75)',
-              borderRadius: 16,
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              padding: 24
-            }}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: '#fff' }}>
-                Active Portfolio Items ({galleryItems.length})
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
-                {galleryItems.map(item => (
-                  <div key={item.id} style={{
-                    background: '#1e293b',
-                    borderRadius: 12,
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                    overflow: 'hidden',
-                    display: 'flex',
-                    flexDirection: 'column'
-                  }}>
-                    {item.image_urls && item.image_urls[0] && (
-                      <img
-                        src={item.image_urls[0]}
-                        alt={item.title}
-                        style={{ width: '100%', height: 160, objectFit: 'cover' }}
-                      />
-                    )}
-                    <div style={{ padding: 14, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                      <div>
-                        <div style={{ fontWeight: 700, color: '#fff', fontSize: 14 }}>{item.title}</div>
-                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{item.description}</div>
-                      </div>
-                      <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
-                        <button
-                          onClick={() => handleDeleteGalleryItem(item)}
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: 6,
-                            background: 'rgba(239, 68, 68, 0.1)',
-                            color: '#ef4444',
-                            border: '1px solid rgba(239, 68, 68, 0.2)',
-                            fontSize: 11,
-                            fontWeight: 600,
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Delete
-                        </button>
+          {/* ───────────────────────────────────────────────────────── */}
+          {/* VIEW: GALLERY PORTFOLIO */}
+          {/* ───────────────────────────────────────────────────────── */}
+          {activeNav === 'gallery' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{
+                background: theme.surface,
+                borderRadius: 12,
+                border: `1px solid ${theme.border}`,
+                padding: 24
+              }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: theme.text, marginBottom: 16 }}>Add Portfolio Product</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>Product Title</label>
+                    <input
+                      value={newGalleryItem.title}
+                      onChange={e => setNewGalleryItem(p => ({ ...p, title: e.target.value }))}
+                      placeholder="e.g. Precision Drone Arm Enclosure"
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>Description</label>
+                    <textarea
+                      rows="2"
+                      value={newGalleryItem.description}
+                      onChange={e => setNewGalleryItem(p => ({ ...p, description: e.target.value }))}
+                      placeholder="Functional specs and material details..."
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <GalleryStudioUploader
+                    files={newGalleryFiles}
+                    onProcessedFilesChange={setNewGalleryFiles}
+                    onProcessingStateChange={setGalleryProcessing}
+                  />
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                    <button
+                      onClick={handleAddGalleryItem}
+                      disabled={galleryUploading || galleryProcessing}
+                      style={{
+                        padding: '8px 20px',
+                        borderRadius: 980,
+                        background: theme.buttonPrimaryBg,
+                        color: theme.buttonPrimaryText,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {galleryProcessing ? 'Processing Images...' : galleryUploading ? 'Uploading...' : 'Publish Product'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Published Items Grid */}
+              <div style={{
+                background: theme.surface,
+                borderRadius: 12,
+                border: `1px solid ${theme.border}`,
+                padding: 24
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: theme.text, marginBottom: 16 }}>
+                  Published Items ({galleryItems.length})
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+                  {galleryItems.map(item => (
+                    <div key={item.id} style={{
+                      borderRadius: 10,
+                      border: `1px solid ${theme.border}`,
+                      overflow: 'hidden',
+                      background: theme.canvas
+                    }}>
+                      {item.image_urls && item.image_urls[0] && (
+                        <img src={item.image_urls[0]} alt={item.title} style={{ width: '100%', height: 140, objectFit: 'cover' }} />
+                      )}
+                      <div style={{ padding: 12 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: theme.text }}>{item.title}</div>
+                        <div style={{ fontSize: 11, color: theme.textSecondary, marginTop: 4 }}>{item.description}</div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+                          <button
+                            onClick={() => handleDeleteGalleryItem(item)}
+                            style={{
+                              padding: '3px 10px',
+                              borderRadius: 980,
+                              background: 'transparent',
+                              color: theme.statusRed,
+                              border: `1px solid rgba(255,59,48,0.25)`,
+                              fontSize: 11,
+                              fontWeight: 500,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          )}
+        </div>
+
+        {/* ───────────────────────────────────────────────────────────── */}
+        {/* 3. SLIDE-OUT APPLE INSPECTOR SHEET (EXACT MATCH TO SCREENSHOT 1 & 2) */}
+        {/* ───────────────────────────────────────────────────────────── */}
+        {selectedOrder && (
+          <aside style={{
+            width: 380,
+            background: theme.inspectorBg,
+            borderLeft: `1px solid ${theme.border}`,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            position: 'sticky',
+            top: 52,
+            height: 'calc(100vh - 52px)',
+            overflowY: 'auto',
+            zIndex: 60
+          }}>
+            <div style={{ padding: 24 }}>
+              {/* Close Button & Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    {selectedOrder.tracking_code || `#${String(selectedOrder.id).slice(0, 8)}`}
+                  </div>
+                  <h2 style={{ fontSize: 20, fontWeight: 700, margin: '4px 0 0', color: theme.text, letterSpacing: '-0.02em' }}>
+                    {selectedOrder.ordername || 'Custom 3D Print'}
+                  </h2>
+                  <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
+                    Client: {selectedOrder.name || 'Anonymous'} · {selectedOrder.phone}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedOrder(null)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: theme.textSecondary,
+                    cursor: 'pointer',
+                    fontSize: 20,
+                    lineHeight: 1
+                  }}
+                >
+                  &times;
+                </button>
+              </div>
+
+              {/* Apple Action Pills Row (like 'Edit Name' & 'Delete' in screenshot 1) */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+                <button
+                  onClick={() => handleRecalculateOrderPrice(selectedOrder)}
+                  style={{
+                    flex: 1,
+                    padding: '7px 12px',
+                    borderRadius: 980,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    border: `1px solid ${theme.border}`,
+                    background: theme.buttonSecondaryBg,
+                    color: theme.buttonSecondaryText,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Recalculate Price
+                </button>
+
+                <button
+                  onClick={() => handleDeleteOrder(selectedOrder.id)}
+                  style={{
+                    padding: '7px 16px',
+                    borderRadius: 980,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    border: `1px solid rgba(255, 59, 48, 0.2)`,
+                    background: 'rgba(255, 59, 48, 0.06)',
+                    color: theme.statusRed,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+
+              {/* Apple Segmented Underline Navigation (Overview, Specs, Payment) */}
+              <div style={{
+                display: 'flex',
+                borderBottom: `1px solid ${theme.border}`,
+                marginBottom: 20,
+                gap: 16
+              }}>
+                {[
+                  { id: 'overview', label: 'Overview' },
+                  { id: 'specs', label: 'Specifications' },
+                  { id: 'payment', label: 'Payment' }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setInspectorTab(tab.id)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: '8px 0',
+                      fontSize: 13,
+                      fontWeight: inspectorTab === tab.id ? 600 : 500,
+                      color: inspectorTab === tab.id ? theme.text : theme.textSecondary,
+                      borderBottom: inspectorTab === tab.id ? `2px solid ${theme.text}` : '2px solid transparent',
+                      cursor: 'pointer',
+                      marginBottom: -1
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab 1: Overview */}
+              {inspectorTab === 'overview' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                    <span style={{ color: theme.textSecondary }}>Production Status</span>
+                    <select
+                      value={selectedOrder.status}
+                      onChange={e => handleUpdateStatus(selectedOrder.id, e.target.value)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        background: theme.surface,
+                        border: `1px solid ${theme.border}`,
+                        color: theme.text,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="queued">Queued</option>
+                      <option value="approved">Approved</option>
+                      <option value="printing">Printing</option>
+                      <option value="done">Completed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                    <span style={{ color: theme.textSecondary }}>Assigned Device</span>
+                    <select
+                      value={getPrinterFromNotes(selectedOrder.notes) || 'Unassigned'}
+                      onChange={e => handleAssignPrinter(selectedOrder.id, e.target.value)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        background: theme.surface,
+                        border: `1px solid ${theme.border}`,
+                        color: theme.text,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="Unassigned">Unassigned</option>
+                      <option value="CC Abdalla">CC Abdalla (Abdalla)</option>
+                      <option value="CC Mazen">CC Mazen (Mazen)</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                    <span style={{ color: theme.textSecondary }}>Total Order Amount</span>
+                    <strong style={{ fontSize: 16, color: theme.text }}>
+                      {Number(selectedOrder.totalprice || 0).toFixed(2)} EGP
+                    </strong>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                    <span style={{ color: theme.textSecondary }}>Deposit Status</span>
+                    <span style={{ color: theme.statusGreen, fontWeight: 600 }}>
+                      {selectedOrder.deposit_required ? `${selectedOrder.deposit_required} EGP Required` : 'Standard 50%'}
+                    </span>
+                  </div>
+
+                  {selectedOrder.fileurl && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${theme.borderSubtle}` }}>
+                      <a
+                        href={selectedOrder.fileurl.split(',')[0]}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: 'block',
+                          textAlign: 'center',
+                          padding: '8px 14px',
+                          borderRadius: 8,
+                          background: theme.buttonSecondaryBg,
+                          color: theme.text,
+                          textDecoration: 'none',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          border: `1px solid ${theme.border}`
+                        }}
+                      >
+                        Download 3D STL Model File &rarr;
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab 2: Specifications */}
+              {inspectorTab === 'specs' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                    <span style={{ color: theme.textSecondary }}>Material</span>
+                    <strong style={{ color: theme.text }}>{selectedOrder.material || 'PLA'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                    <span style={{ color: theme.textSecondary }}>Filament Weight</span>
+                    <strong style={{ color: theme.text }}>{selectedOrder.weightgrams || 0} grams</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                    <span style={{ color: theme.textSecondary }}>Estimated Print Time</span>
+                    <strong style={{ color: theme.text }}>~{Math.max(0.2, (selectedOrder.weightgrams / 35)).toFixed(1)} hours</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                    <span style={{ color: theme.textSecondary }}>Color Choice</span>
+                    <strong style={{ color: theme.text }}>{selectedOrder.color || 'White'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: theme.textSecondary }}>Fulfillment Mode</span>
+                    <strong style={{ color: theme.text, textTransform: 'capitalize' }}>{selectedOrder.delivery_mode || 'Pickup'}</strong>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: Payment */}
+              {inspectorTab === 'payment' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                    <span style={{ color: theme.textSecondary }}>Total Customer Price</span>
+                    <strong style={{ color: theme.text }}>{Number(selectedOrder.totalprice || 0).toFixed(2)} EGP</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                    <span style={{ color: theme.textSecondary }}>50% Deposit Due</span>
+                    <strong style={{ color: theme.statusOrange }}>
+                      {Math.ceil(Number(selectedOrder.totalprice || 0) * 0.5)} EGP
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: theme.textSecondary }}>Remaining on Collection</span>
+                    <strong style={{ color: theme.text }}>
+                      {(Number(selectedOrder.totalprice || 0) - Math.ceil(Number(selectedOrder.totalprice || 0) * 0.5)).toFixed(2)} EGP
+                    </strong>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Sheet Actions */}
+            <div style={{
+              padding: '16px 24px',
+              borderTop: `1px solid ${theme.border}`,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 8
+            }}>
+              <button
+                onClick={() => setSelectedOrder(null)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 980,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  background: 'transparent',
+                  color: theme.textSecondary,
+                  border: `1px solid ${theme.border}`,
+                  cursor: 'pointer'
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </aside>
         )}
-      </main>
+      </div>
 
       {/* ───────────────────────────────────────────────────────────── */}
-      {/* QUICK ADD ORDER MODAL (REPLACES USB JOBS) */}
+      {/* 4. MODAL: APPLE QUICK ADD ORDER (LOG OFFLINE/WALK-IN ORDER) */}
       {/* ───────────────────────────────────────────────────────────── */}
       {isQuickAddOpen && (
         <div style={{
           position: 'fixed',
           inset: 0,
-          background: 'rgba(0, 0, 0, 0.75)',
-          backdropFilter: 'blur(8px)',
+          background: 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(20px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 100,
+          zIndex: 200,
           padding: 20
         }}>
           <form
             onSubmit={handleCreateQuickOrder}
             style={{
-              background: '#0f172a',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
+              background: theme.surface,
+              border: `1px solid ${theme.border}`,
               borderRadius: 16,
-              padding: 24,
-              maxWidth: 480,
+              padding: 28,
+              maxWidth: 460,
               width: '100%',
               display: 'flex',
               flexDirection: 'column',
-              gap: 16
+              gap: 16,
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>Log Workshop Print Job</div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: theme.text }}>New Print Order</div>
               <button
                 type="button"
                 onClick={() => setIsQuickAddOpen(false)}
-                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 18 }}
+                style={{ background: 'none', border: 'none', color: theme.textSecondary, cursor: 'pointer', fontSize: 20 }}
               >
                 &times;
               </button>
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>
-                Job / Part Name *
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                Part or Job Title *
               </label>
               <input
                 type="text"
@@ -1527,19 +1803,19 @@ export default function AdminDashboard({
                 placeholder="e.g. Robot Bracket / Mazen Personal"
                 value={quickOrder.orderName}
                 onChange={e => setQuickOrder({ ...quickOrder, orderName: e.target.value })}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
               />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>
-                  Assign to Hardware
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Assigned Hardware
                 </label>
                 <select
                   value={quickOrder.printer}
                   onChange={e => setQuickOrder({ ...quickOrder, printer: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                 >
                   <option value="CC Abdalla">CC Abdalla (Abdalla)</option>
                   <option value="CC Mazen">CC Mazen (Mazen)</option>
@@ -1547,13 +1823,13 @@ export default function AdminDashboard({
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
                   Material
                 </label>
                 <select
                   value={quickOrder.material}
                   onChange={e => setQuickOrder({ ...quickOrder, material: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                 >
                   <option value="pla">PLA</option>
                   <option value="pla_plus">PLA+ / Rapid PLA</option>
@@ -1566,20 +1842,20 @@ export default function AdminDashboard({
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>
-                  Weight (g)
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Weight (grams)
                 </label>
                 <input
                   type="number"
                   step="0.5"
                   value={quickOrder.weightGrams}
                   onChange={e => setQuickOrder({ ...quickOrder, weightGrams: parseFloat(e.target.value) || 0 })}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
                   Print Time (hrs)
                 </label>
                 <input
@@ -1587,14 +1863,14 @@ export default function AdminDashboard({
                   step="0.1"
                   value={quickOrder.printHours}
                   onChange={e => setQuickOrder({ ...quickOrder, printHours: parseFloat(e.target.value) || 0 })}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                 />
               </div>
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>
-                Custom Price (Leave empty for dynamic rate)
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                Custom Price (Leave empty for dynamic pricing)
               </label>
               <input
                 type="number"
@@ -1602,23 +1878,42 @@ export default function AdminDashboard({
                 placeholder="Auto-calculated"
                 value={quickOrder.customPrice}
                 onChange={e => setQuickOrder({ ...quickOrder, customPrice: e.target.value })}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: '#1e293b', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.1)' }}
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
               />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
               <button
                 type="button"
                 onClick={() => setIsQuickAddOpen(false)}
-                style={{ padding: '8px 16px', borderRadius: 8, background: 'transparent', color: '#94a3b8', border: '1px solid rgba(255, 255, 255, 0.1)', cursor: 'pointer' }}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 980,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  border: `1px solid ${theme.border}`,
+                  background: 'transparent',
+                  color: theme.textSecondary,
+                  cursor: 'pointer'
+                }}
               >
                 Cancel
               </button>
+
               <button
                 type="submit"
-                style={{ padding: '8px 20px', borderRadius: 8, background: '#38bdf8', color: '#000', fontWeight: 700, border: 'none', cursor: 'pointer' }}
+                style={{
+                  padding: '7px 18px',
+                  borderRadius: 980,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  border: 'none',
+                  background: theme.buttonPrimaryBg,
+                  color: theme.buttonPrimaryText,
+                  cursor: 'pointer'
+                }}
               >
-                Add Job to Queue
+                Add Order
               </button>
             </div>
           </form>
