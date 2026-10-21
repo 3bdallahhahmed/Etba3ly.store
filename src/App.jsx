@@ -1,3 +1,5 @@
+import AdminFinancialDashboard from "./components/AdminFinancialDashboard";
+import { calculateOrderQuote, DEFAULT_PRICING_SETTINGS, DEFAULT_MATERIAL_RATES, DEFAULT_SHIPPING_ZONES } from "./utils/pricingEngine";
 import React, { useState, useEffect, useRef, Suspense, useMemo, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -1004,947 +1006,24 @@ function FullGalleryView({ items, onItemClick, onGoHome }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ADMIN PROFIT & FINANCIALS TAB COMPONENT
+// ADMIN PROFIT & FINANCIALS TAB COMPONENT (DYNAMIC PRICING & PROFITABILITY SYSTEM)
 // ═══════════════════════════════════════════════════════════
-function AdminProfitTab({
-  orders,
-  config,
-  spoolCostKg,
-  setSpoolCostKg,
-  electricityTariffKwh,
-  setElectricityTariffKwh,
-  printerPowerWatts,
-  setPrinterPowerWatts,
-  cc1WearRatePerHour,
-  setCc1WearRatePerHour,
-  printSpeedGph,
-  setPrintSpeedGph,
-  materialCosts,
-  setMaterialCosts,
-  fleetLogs,
-  setFleetLogs,
-  externalPrinterStates,
-  PRINTERS,
-  onClearExternalJob,
-  onDeleteFleetLog,
-  onOpenExternalPrompt,
-  onOpenScanHistory,
-  addToast
-}) {
-  const defaultRate = parseFloat(config.price_per_gram) || 3;
-  const tariffKwh = parseFloat(electricityTariffKwh) || 0;
-  const watts = parseFloat(printerPowerWatts) || 180;
-  const wearRatePerHour = parseFloat(cc1WearRatePerHour) || 0;
-  const speedGph = parseFloat(printSpeedGph) || 35; // grams per hour for CC1 high-speed printing
-
-  // Hourly and gram burdens for CC1 and power
-  const electricityCostPerHour = (watts / 1000) * tariffKwh;
-  const cc1WearPerHour = wearRatePerHour;
-  const machineHourlyBurden = electricityCostPerHour + cc1WearPerHour;
-  const electricityCostPerGram = speedGph > 0 ? electricityCostPerHour / speedGph : 0;
-  const wearCostPerGram = speedGph > 0 ? cc1WearPerHour / speedGph : 0;
-  const machineBurdenPerGram = electricityCostPerGram + wearCostPerGram;
-
-  // Extract all configured materials strictly from website CMS
-  const configuredMaterials = useMemo(() => {
-    const fromConfig = (config.materials || "")
-      .split(',')
-      .map(m => m.trim().toUpperCase())
-      .filter(Boolean);
-    return fromConfig.length > 0 ? fromConfig : ["PLA", "PETG", "ABS", "CARBON FIBER", "TPU"];
-  }, [config.materials]);
-
-  const getMaterialSpoolCost = useCallback((materialName) => {
-    if (!materialName) return parseFloat(spoolCostKg) || 750;
-    const key = materialName.trim().toUpperCase();
-    if (materialCosts && materialCosts[key] !== undefined && materialCosts[key] !== "" && !isNaN(materialCosts[key])) {
-      return Number(materialCosts[key]);
-    }
-    // Intelligent defaults based on Egyptian market averages
-    if (key.includes("PLA+")) return 750;
-    if (key.includes("PLA")) return 650;
-    if (key.includes("PETG")) return 700;
-    if (key.includes("ABS")) return 750;
-    if (key.includes("CARBON") || key.includes("CF")) return 1350;
-    if (key.includes("TPU") || key.includes("FLEX")) return 950;
-    if (key.includes("RESIN")) return 1100;
-    return parseFloat(spoolCostKg) || 750;
-  }, [materialCosts, spoolCostKg]);
-
-  const handleUpdateMaterialCost = (matKey, value) => {
-    const num = parseFloat(value);
-    const safeNum = isNaN(num) || num < 0 ? 0 : num;
-    setMaterialCosts(prev => {
-      const updated = { ...prev, [matKey]: safeNum };
-      localStorage.setItem("jp_material_costs", JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  const handleResetMaterialDefaults = () => {
-    const defaults = {
-      "PLA": 650,
-      "PLA+": 750,
-      "PETG": 700,
-      "ABS": 750,
-      "CARBON FIBER": 1350,
-      "TPU": 950,
-      "RESIN": 1100
-    };
-    setMaterialCosts(defaults);
-    localStorage.setItem("jp_material_costs", JSON.stringify(defaults));
-    if (addToast) addToast("Material spool prices reset to standard rates", "info");
-  };
-
-  const financialSummary = useMemo(() => {
-    const doneOrders = orders.filter(o => (o.status || "").toLowerCase().trim() === "done");
-    const printingOrders = orders.filter(o => (o.status || "").toLowerCase().trim() === "printing");
-    const queuedOrders = orders.filter(o => (o.status || "").toLowerCase().trim() === "queued");
-
-    const getOrderRevenue = (o) => {
-      if (o.totalprice !== null && o.totalprice !== undefined && !isNaN(o.totalprice)) {
-        return Number(o.totalprice);
-      }
-      return (Number(o.weightgrams) || 0) * defaultRate;
-    };
-
-    const doneRevenue = doneOrders.reduce((sum, o) => sum + getOrderRevenue(o), 0);
-    const printingRevenue = printingOrders.reduce((sum, o) => sum + getOrderRevenue(o), 0);
-    const queuedRevenue = queuedOrders.reduce((sum, o) => sum + getOrderRevenue(o), 0);
-    const pipelineRevenue = printingRevenue + queuedRevenue;
-
-    const doneGrams = doneOrders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
-    const activeGrams = [...printingOrders, ...queuedOrders].reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
-    const totalGramsAll = orders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
-
-    const donePrintHours = speedGph > 0 ? doneGrams / speedGph : 0;
-    const activePrintHours = speedGph > 0 ? activeGrams / speedGph : 0;
-    const totalPrintHoursAll = speedGph > 0 ? totalGramsAll / speedGph : 0;
-
-    // Cash collection tracking across all customer orders (Admin Only)
-    let totalCashCollected = 0;
-    let totalCashPending = 0;
-    let paidOrdersCount = 0;
-    let partialOrdersCount = 0;
-    let unpaidOrdersCount = 0;
-
-    orders.forEach(o => {
-      const rev = getOrderRevenue(o);
-      const payInfo = getOrderPaymentInfo(o);
-      if (payInfo.status === "paid") {
-        totalCashCollected += rev;
-        paidOrdersCount += 1;
-      } else if (payInfo.status === "partial") {
-        const paid = Math.min(rev, payInfo.paidAmount);
-        totalCashCollected += paid;
-        totalCashPending += Math.max(0, rev - paid);
-        partialOrdersCount += 1;
-      } else {
-        totalCashPending += rev;
-        unpaidOrdersCount += 1;
-      }
-    });
-
-    let doneFilamentCost = 0;
-    let doneWearCost = 0;
-    let doneElectricityCost = 0;
-
-    const doneOrdersList = doneOrders.map(o => {
-      const rev = getOrderRevenue(o);
-      const w = Number(o.weightgrams) || 0;
-      const hours = speedGph > 0 ? w / speedGph : 0;
-      const matSpoolCost = getMaterialSpoolCost(o.material);
-      const filamentCost = w * (matSpoolCost / 1000);
-      const wearCost = hours * wearRatePerHour;
-      const elecCost = hours * electricityCostPerHour;
-      const totalCost = filamentCost + wearCost + elecCost;
-      const prof = rev - totalCost;
-      const margin = rev > 0 ? (prof / rev) * 100 : 0;
-      const payInfo = getOrderPaymentInfo(o);
-
-      doneFilamentCost += filamentCost;
-      doneWearCost += wearCost;
-      doneElectricityCost += elecCost;
-
-      return {
-        id: o.id,
-        ordername: o.ordername || "Untitled",
-        name: o.name || "Customer",
-        material: o.material || "PLA",
-        color: o.color || "Standard",
-        weight: w,
-        hours,
-        filamentCost,
-        wearCost,
-        elecCost,
-        revenue: rev,
-        cost: totalCost,
-        profit: prof,
-        margin,
-        paymentStatus: payInfo.status,
-        paidAmount: payInfo.paidAmount,
-        date: o.createdat
-      };
-    });
-
-    // Offline USB print logs telemetry
-    const allUsbGrams = (fleetLogs || []).reduce((sum, l) => sum + (Number(l.grams) || 0), 0);
-    const allUsbHours = (fleetLogs || []).reduce((sum, l) => sum + (Number(l.hours) || (speedGph > 0 ? (Number(l.grams) || 0) / speedGph : 0)), 0);
-    const allFleetGrams = doneGrams + allUsbGrams;
-    const allFleetPrintHours = donePrintHours + allUsbHours;
-    const allFleetWearCost = allFleetPrintHours * wearRatePerHour;
-
-    const doneTotalCost = doneFilamentCost + doneWearCost + doneElectricityCost;
-    const netProfit = doneRevenue - doneTotalCost;
-    const profitMargin = doneRevenue > 0 ? (netProfit / doneRevenue) * 100 : 0;
-    const avgProfitPerOrder = doneOrders.length > 0 ? netProfit / doneOrders.length : 0;
-
-    // Per-Printer Hardware Fleet Telemetry
-    const printerFleetStats = {
-      perPrinter: {},
-      unassignedDoneCount: 0,
-      unassignedGrams: 0,
-      unassignedHours: 0,
-      unassignedWear: 0
-    };
-
-    (PRINTERS || ["CC Abdalla", "CC Mazen"]).forEach(printer => {
-      const printerDoneOrders = orders.filter(o => 
-        (o.status || "").toLowerCase().trim() === "done" && 
-        getPrinterFromNotes(o.notes) === printer
-      );
-      const printerActiveOrder = orders.find(o => 
-        (o.status || "").toLowerCase().trim() === "printing" && 
-        getPrinterFromNotes(o.notes) === printer
-      );
-      const printerUsbLogs = (fleetLogs || []).filter(l => l.printer === printer);
-
-      const orderGrams = printerDoneOrders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
-      const orderHours = speedGph > 0 ? orderGrams / speedGph : 0;
-
-      const usbGrams = printerUsbLogs.reduce((sum, l) => sum + (Number(l.grams) || 0), 0);
-      const usbHours = printerUsbLogs.reduce((sum, l) => sum + (Number(l.hours) || (speedGph > 0 ? (Number(l.grams) || 0) / speedGph : 0)), 0);
-
-      const totalGrams = orderGrams + usbGrams;
-      const totalHours = orderHours + usbHours;
-      const wearExpense = totalHours * wearRatePerHour;
-      const elecExpense = totalHours * electricityCostPerHour;
-
-      const externalState = externalPrinterStates && externalPrinterStates[printer];
-      const isUsbWorking = externalState && externalState.status === "working";
-
-      printerFleetStats.perPrinter[printer] = {
-        name: printer,
-        orderGrams,
-        orderHours,
-        usbGrams,
-        usbHours,
-        totalGrams,
-        totalHours,
-        wearExpense,
-        elecExpense,
-        totalJobs: printerDoneOrders.length + printerUsbLogs.length,
-        doneOrdersCount: printerDoneOrders.length,
-        usbJobsCount: printerUsbLogs.length,
-        activeOrder: printerActiveOrder,
-        isUsbWorking,
-        usbJobName: isUsbWorking ? externalState.jobName : null,
-        status: printerActiveOrder ? "printing" : isUsbWorking ? "usb" : "idle"
-      };
-    });
-
-    const unassignedDoneOrders = orders.filter(o => 
-      (o.status || "").toLowerCase().trim() === "done" && 
-      !getPrinterFromNotes(o.notes)
-    );
-    printerFleetStats.unassignedDoneCount = unassignedDoneOrders.length;
-    printerFleetStats.unassignedGrams = unassignedDoneOrders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
-    printerFleetStats.unassignedHours = speedGph > 0 ? printerFleetStats.unassignedGrams / speedGph : 0;
-    printerFleetStats.unassignedWear = printerFleetStats.unassignedHours * wearRatePerHour;
-
-    // Materials breakdown table
-    const materialMap = {};
-    configuredMaterials.forEach(mat => {
-      materialMap[mat] = {
-        name: mat,
-        spoolCost: getMaterialSpoolCost(mat),
-        totalOrders: 0,
-        doneOrders: 0,
-        grams: 0,
-        hours: 0,
-        filamentCost: 0,
-        wearAndPowerCost: 0,
-        totalCost: 0,
-        revenue: 0,
-        profit: 0,
-        margin: 0
-      };
-    });
-
-    orders.forEach(o => {
-      const mat = (o.material || "PLA").toUpperCase().trim();
-      if (!materialMap[mat]) {
-        materialMap[mat] = {
-          name: mat,
-          spoolCost: getMaterialSpoolCost(mat),
-          totalOrders: 0,
-          doneOrders: 0,
-          grams: 0,
-          hours: 0,
-          filamentCost: 0,
-          wearAndPowerCost: 0,
-          totalCost: 0,
-          revenue: 0,
-          profit: 0,
-          margin: 0
-        };
-      }
-      materialMap[mat].totalOrders += 1;
-      const rev = getOrderRevenue(o);
-      const w = Number(o.weightgrams) || 0;
-      const hours = speedGph > 0 ? w / speedGph : 0;
-      const fCost = w * (getMaterialSpoolCost(mat) / 1000);
-      const wpCost = hours * machineHourlyBurden;
-
-      materialMap[mat].grams += w;
-      materialMap[mat].hours += hours;
-
-      if ((o.status || "").toLowerCase().trim() === "done") {
-        materialMap[mat].doneOrders += 1;
-        materialMap[mat].revenue += rev;
-        materialMap[mat].filamentCost += fCost;
-        materialMap[mat].wearAndPowerCost += wpCost;
-        materialMap[mat].totalCost += (fCost + wpCost);
-      }
-    });
-
-    const materialStats = Object.values(materialMap).map(m => {
-      const profit = m.revenue - m.totalCost;
-      const margin = m.revenue > 0 ? (profit / m.revenue) * 100 : 0;
-      return { ...m, profit, margin };
-    });
-
-    return {
-      doneOrdersCount: doneOrders.length,
-      activeOrdersCount: printingOrders.length + queuedOrders.length,
-      doneRevenue,
-      pipelineRevenue,
-      doneGrams,
-      activeGrams,
-      totalGramsAll,
-      donePrintHours,
-      activePrintHours,
-      totalPrintHoursAll,
-      allUsbGrams,
-      allUsbHours,
-      allFleetGrams,
-      allFleetPrintHours,
-      allFleetWearCost,
-      printerFleetStats,
-      doneFilamentCost,
-      doneWearCost,
-      doneElectricityCost,
-      doneTotalCost,
-      netProfit,
-      profitMargin,
-      avgProfitPerOrder,
-      materialStats,
-      doneOrdersList,
-      totalCashCollected,
-      totalCashPending,
-      paidOrdersCount,
-      partialOrdersCount,
-      unpaidOrdersCount
-    };
-  }, [orders, defaultRate, speedGph, wearRatePerHour, electricityCostPerHour, machineHourlyBurden, configuredMaterials, getMaterialSpoolCost, fleetLogs, PRINTERS, externalPrinterStates]);
-
-  return (
-    <div className="animate-in" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {/* Financial KPI Cards */}
-      <div className="admin-stats-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-        <div className="card" title="Net profit realized from all completed orders (Revenue minus Raw Filament Cost, CC1 Machine Wear per hour, and Electricity)">
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Realized Net Profit
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "var(--accent)", margin: "6px 0" }}>
-            {financialSummary.netProfit.toFixed(2)} EGP
-          </div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--status-done)", display: "flex", alignItems: "center", gap: 6 }}>
-            <span>Margin: {financialSummary.profitMargin.toFixed(1)}%</span>
-            <span style={{ color: "var(--text-tertiary)" }}>&bull; Avg {financialSummary.avgProfitPerOrder.toFixed(1)} EGP/order</span>
-          </div>
-        </div>
-
-        <div className="card" title="Total cash received from completed orders, plus pending value in the active print pipeline">
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Revenue Collected
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "var(--text-primary)", margin: "6px 0" }}>
-            {financialSummary.doneRevenue.toFixed(2)} EGP
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            + {financialSummary.pipelineRevenue.toFixed(2)} EGP active in pipeline
-          </div>
-        </div>
-
-        <div className="card" title="Internal cash payment collections and outstanding unpaid balances across all orders (Admin only, never visible to customers)">
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Cash Collections (Admin Only)
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "var(--status-done)", margin: "6px 0" }}>
-            {financialSummary.totalCashCollected.toFixed(2)} EGP
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 2 }}>
-            <div>
-              {financialSummary.totalCashPending > 0 ? (
-                <span style={{ color: "#ff453a", fontWeight: 700 }}>{financialSummary.totalCashPending.toFixed(2)} EGP unpaid</span>
-              ) : (
-                <span style={{ color: "var(--status-done)", fontWeight: 700 }}>All orders settled</span>
-              )}
-            </div>
-            <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-              {financialSummary.paidOrdersCount} Paid &bull; {financialSummary.partialOrdersCount} Partial &bull; {financialSummary.unpaidOrdersCount} Unpaid
-            </span>
-          </div>
-        </div>
-
-        <div className="card" title="Direct manufacturing costs itemized into raw filament material, hourly CC1 hardware wear, and power consumption">
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Itemized Production Costs
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "#f87171", margin: "6px 0" }}>
-            {financialSummary.doneTotalCost.toFixed(2)} EGP
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
-            <span>Filament: <strong>{financialSummary.doneFilamentCost.toFixed(1)} EGP</strong></span>
-            <span>CC1 Machine Wear: <strong>{financialSummary.doneWearCost.toFixed(1)} EGP</strong> ({financialSummary.donePrintHours.toFixed(1)}h)</span>
-            <span>Electricity: <strong>{financialSummary.doneElectricityCost.toFixed(1)} EGP</strong></span>
-          </div>
-        </div>
-
-        <div className="card" title="Total active machine hours and filament weight extruded on your Centauri Carbon CC1 3D printer fleet">
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Fleet Hours & Extrusion
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "var(--status-printing)", margin: "6px 0" }}>
-            {financialSummary.allFleetPrintHours.toFixed(1)} hrs
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            ~{(financialSummary.allFleetGrams / 1000).toFixed(2)} kg total ({financialSummary.doneOrdersCount} orders + {financialSummary.allUsbHours > 0 ? `${(fleetLogs || []).length} USB` : '0 USB'})
-          </div>
-        </div>
-      </div>
-
-      {/* Centauri Fleet Telemetry & Machine Wear Odometers */}
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <h3 style={{ margin: "0 0 4px", display: "flex", alignItems: "center", gap: 10 }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 22, height: 22, color: "var(--accent)" }}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-              Centauri Fleet Hardware Odometers & Machine Wear
-            </h3>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
-              Tracks exact operating print hours, extruded filament weight, and accumulated hardware depreciation for each machine across website orders and offline USB jobs.
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            {onOpenScanHistory && (
-              <button
-                type="button"
-                className="btn btn-sm btn-accent"
-                style={{ padding: "6px 14px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}
-                onClick={onOpenScanHistory}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                Scan Print History
-              </button>
-            )}
-            <span style={{ background: "rgba(255,128,0,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--accent)" }}>
-              Fleet Total: {financialSummary.allFleetPrintHours.toFixed(1)} hrs
-            </span>
-            <span style={{ background: "rgba(0,122,255,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--status-printing)" }}>
-              Fleet Extruded: {(financialSummary.allFleetGrams / 1000).toFixed(2)} kg
-            </span>
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
-          {(PRINTERS || ["CC Abdalla", "CC Mazen"]).map(printer => {
-            const pStats = (financialSummary.printerFleetStats && financialSummary.printerFleetStats.perPrinter && financialSummary.printerFleetStats.perPrinter[printer]) || {
-              orderGrams: 0, orderHours: 0, usbGrams: 0, usbHours: 0, totalGrams: 0, totalHours: 0, wearExpense: 0, elecExpense: 0, totalJobs: 0, doneOrdersCount: 0, usbJobsCount: 0, status: "idle"
-            };
-            const isWorking = pStats.status !== "idle";
-            const isUsb = pStats.status === "usb";
-
-            return (
-              <div
-                key={printer}
-                style={{
-                  padding: "18px 20px",
-                  borderRadius: "var(--radius-sm)",
-                  background: isWorking ? (isUsb ? "rgba(255,128,0,0.04)" : "rgba(0,122,255,0.04)") : "rgba(255,255,255,0.02)",
-                  border: isWorking ? (isUsb ? "1px solid rgba(255,128,0,0.3)" : "1px solid rgba(0,122,255,0.3)") : "1px solid var(--border-glass-strong)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: "50%",
-                        background: isWorking ? (isUsb ? "var(--accent)" : "var(--status-printing)") : "var(--status-done)",
-                        boxShadow: isWorking ? `0 0 10px ${isUsb ? "rgba(255,128,0,0.6)" : "rgba(0,122,255,0.6)"}` : "none"
-                      }}
-                    />
-                    <span style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>{printer}</span>
-                  </div>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      padding: "3px 10px",
-                      borderRadius: "var(--radius-full)",
-                      background: isWorking ? (isUsb ? "rgba(255,128,0,0.15)" : "rgba(0,122,255,0.15)") : "rgba(16,185,129,0.12)",
-                      color: isWorking ? (isUsb ? "var(--accent)" : "var(--status-printing)") : "var(--status-done)"
-                    }}
-                  >
-                    {isWorking ? (isUsb ? "Working (USB Job)" : "Working (Website Order)") : "Ready / Idle"}
-                  </span>
-                </div>
-
-                {isWorking && (
-                  <div style={{ fontSize: 12, padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)" }}>
-                    <span style={{ color: "var(--text-secondary)" }}>Active Task: </span>
-                    <strong style={{ color: "var(--text-primary)" }}>
-                      {pStats.activeOrder ? (pStats.activeOrder.ordername || "Website Print") : pStats.usbJobName}
-                    </strong>
-                  </div>
-                )}
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 4 }}>
-                  <div style={{ padding: "10px 12px", background: "rgba(0,0,0,0.15)", borderRadius: "var(--radius-sm)" }}>
-                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Operating Hours</div>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: "var(--text-primary)", margin: "4px 0 2px" }}>
-                      {pStats.totalHours.toFixed(1)} hrs
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                      {pStats.orderHours.toFixed(1)}h web &bull; {pStats.usbHours.toFixed(1)}h usb
-                    </div>
-                  </div>
-
-                  <div style={{ padding: "10px 12px", background: "rgba(0,0,0,0.15)", borderRadius: "var(--radius-sm)" }}>
-                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Filament Extruded</div>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: "var(--accent)", margin: "4px 0 2px" }}>
-                      {pStats.totalGrams.toFixed(0)} g
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                      ~{(pStats.totalGrams / 1000).toFixed(2)} kg total ({pStats.totalJobs} jobs)
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "var(--text-secondary)", paddingTop: 4 }}>
-                  <span>Machine Wear Burden:</span>
-                  <strong style={{ color: "#f87171" }}>{pStats.wearExpense.toFixed(2)} EGP</strong>
-                </div>
-
-                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                  {isUsb ? (
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-glass"
-                      style={{ flex: 1, padding: "6px 12px", fontSize: 12 }}
-                      onClick={() => onClearExternalJob && onClearExternalJob(printer)}
-                    >
-                      Clear USB Job
-                    </button>
-                  ) : !pStats.activeOrder ? (
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-glass"
-                      style={{ flex: 1, padding: "6px 12px", fontSize: 12 }}
-                      onClick={() => onOpenExternalPrompt && onOpenExternalPrompt(printer)}
-                    >
-                      + Log USB Print
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {financialSummary.printerFleetStats && financialSummary.printerFleetStats.unassignedDoneCount > 0 && (
-          <div style={{ marginTop: 14, padding: "10px 14px", background: "rgba(255,255,255,0.02)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)", fontSize: 12, color: "var(--text-secondary)" }}>
-            Note: <strong>{financialSummary.printerFleetStats.unassignedDoneCount}</strong> completed website orders ({financialSummary.printerFleetStats.unassignedGrams.toFixed(0)}g &bull; {financialSummary.printerFleetStats.unassignedHours.toFixed(1)}h) were completed before individual printer tagging was assigned and are included in the fleet wear burden ({financialSummary.printerFleetStats.unassignedWear.toFixed(2)} EGP).
-          </div>
-        )}
-      </div>
-
-      {/* Recent Direct USB & Offline Print Ledger */}
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <h3 style={{ margin: "0 0 4px" }}>Recent Direct USB & Offline Print Ledger ({fleetLogs ? fleetLogs.length : 0})</h3>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
-              Record of prints executed directly on machines without website orders. These factor directly into CC1 machine wear and filament telemetry.
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {(PRINTERS || ["CC Abdalla", "CC Mazen"]).map(printer => (
-              <button
-                key={printer}
-                type="button"
-                className="btn btn-sm btn-glass"
-                style={{ fontSize: 11, padding: "4px 10px" }}
-                onClick={() => onOpenExternalPrompt && onOpenExternalPrompt(printer)}
-              >
-                + Log Print on {printer}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {(!fleetLogs || fleetLogs.length === 0) ? (
-          <p style={{ margin: 0, color: "var(--text-tertiary)", fontSize: 13 }}>
-            No offline USB prints logged yet. Use "+ Log USB Print" when printing from a flash drive to track nozzle wear and operating hours accurately.
-          </p>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border-glass-strong)", color: "var(--text-tertiary)", textAlign: "left" }}>
-                  <th style={{ padding: "10px 12px" }}>Date & Time</th>
-                  <th style={{ padding: "10px 12px" }}>Printer</th>
-                  <th style={{ padding: "10px 12px" }}>Job / Part Description</th>
-                  <th style={{ padding: "10px 12px" }}>Weight</th>
-                  <th style={{ padding: "10px 12px" }}>Operating Duration</th>
-                  <th style={{ padding: "10px 12px" }}>CC1 Wear Burden</th>
-                  <th style={{ padding: "10px 12px", textAlign: "right" }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fleetLogs.map(log => {
-                  const hours = Number(log.hours) || (speedGph > 0 ? (Number(log.grams) || 0) / speedGph : 0);
-                  const wear = hours * wearRatePerHour;
-                  const dateStr = log.timestamp ? new Date(log.timestamp).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
-                  return (
-                    <tr key={log.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
-                      <td style={{ padding: "12px", color: "var(--text-tertiary)", fontSize: 12 }}>{dateStr}</td>
-                      <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{log.printer}</td>
-                      <td style={{ padding: "12px", color: "var(--accent)", fontWeight: 600 }}>{log.jobName || "Direct USB Job"}</td>
-                      <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{log.grams ? `${Number(log.grams).toFixed(0)} g` : "-"}</td>
-                      <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{hours.toFixed(1)} h</td>
-                      <td style={{ padding: "12px", color: "#f87171" }}>{wear.toFixed(2)} EGP</td>
-                      <td style={{ padding: "12px", textAlign: "right" }}>
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          style={{ padding: "3px 8px", fontSize: 11, background: "rgba(255,59,48,0.15)", color: "#FF3B30", border: "1px solid rgba(255,59,48,0.3)", borderRadius: "var(--radius-full)", cursor: "pointer" }}
-                          onClick={() => onDeleteFleetLog && onDeleteFleetLog(log.id)}
-                          title="Delete this USB log entry"
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Centauri Carbon 1 (CC1) Wear & Electricity Calibration */}
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <h3 style={{ margin: "0 0 4px" }}>Centauri Carbon 1 (CC1) Wear & Electricity Calibration</h3>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
-              Separates machine wear according to active printing hours from electricity. Electricity can be set to 0 for free/campus power or calibrated per kWh.
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ background: "rgba(255,128,0,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--accent)" }}>
-              Hourly Burden: {machineHourlyBurden.toFixed(2)} EGP/hr
-            </span>
-            <span style={{ background: "rgba(0,122,255,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--status-printing)" }}>
-              Weight Burden: {machineBurdenPerGram.toFixed(3)} EGP/g
-            </span>
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <label style={{ fontSize: 12, margin: 0 }}>Electricity Tariff (EGP / kWh)</label>
-              <button
-                type="button"
-                className="btn btn-sm btn-glass"
-                style={{ padding: "2px 8px", fontSize: 10 }}
-                title="Click to set electricity cost to 0 EGP if electricity is free or campus-supplied"
-                onClick={() => {
-                  setElectricityTariffKwh(0);
-                  localStorage.setItem("jp_elec_kwh", "0");
-                }}
-              >
-                Set Free (0 EGP)
-              </button>
-            </div>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              title="Electricity rate per kilowatt-hour. Enter 0 for free power or typical Egyptian residential/commercial tariff (e.g. 2.50 EGP/kWh)."
-              value={electricityTariffKwh}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value) || 0;
-                setElectricityTariffKwh(val);
-                localStorage.setItem("jp_elec_kwh", String(val));
-              }}
-              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
-              placeholder="e.g. 2.50 or 0"
-            />
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-              Rate: {electricityCostPerHour.toFixed(2)} EGP / hr ({electricityCostPerGram.toFixed(3)} EGP/g)
-            </div>
-          </div>
-
-          <div>
-            <label style={{ fontSize: 12 }}>CC1 Power Consumption (Watts)</label>
-            <input
-              type="number"
-              step="10"
-              min="0"
-              title="Continuous average wattage draw for the Elegoo Centauri Carbon (typically ~180W while printing with heated bed)."
-              value={printerPowerWatts}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value) || 0;
-                setPrinterPowerWatts(val);
-                localStorage.setItem("jp_printer_watts", String(val));
-              }}
-              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
-              placeholder="e.g. 180"
-            />
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-              Elegoo Centauri Carbon continuous average draw
-            </div>
-          </div>
-
-          <div>
-            <label style={{ fontSize: 12 }}>CC1 Wear & Maintenance (EGP / Print Hour)</label>
-            <input
-              type="number"
-              step="0.5"
-              min="0"
-              title="Hourly hardware wear allowance covering hardened nozzle wear, PEI sheet replacements, CoreXY belts, linear rails lubrication, and machine depreciation."
-              value={cc1WearRatePerHour}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value) || 0;
-                setCc1WearRatePerHour(val);
-                localStorage.setItem("jp_cc1_wear_rate", String(val));
-              }}
-              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
-              placeholder="e.g. 6.00"
-            />
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-              Nozzle, PEI bed, belts, linear rails & depreciation ({wearCostPerGram.toFixed(3)} EGP/g)
-            </div>
-          </div>
-
-          <div>
-            <label style={{ fontSize: 12 }}>CC1 Print Throughput (Grams / Hour)</label>
-            <input
-              type="number"
-              step="5"
-              min="5"
-              title="Average grams of filament extruded per active printing hour on high-speed CoreXY CC1 (typically 30-40g/hr)."
-              value={printSpeedGph}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value) || 35;
-                setPrintSpeedGph(val);
-                localStorage.setItem("jp_print_speed_gph", String(val));
-              }}
-              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
-              placeholder="e.g. 35"
-            />
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-              High-speed CoreXY average extrusion speed (~35g/hr)
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Per-Material Filament Spool Pricing */}
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <h3 style={{ margin: "0 0 4px" }}>Per-Material Filament Spool Costs</h3>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
-              Every filament costs differently (e.g. PETG vs PLA+ vs Carbon Fiber). Configured from your website materials list.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn-sm btn-glass"
-            style={{ fontSize: 12 }}
-            onClick={handleResetMaterialDefaults}
-          >
-            Reset Market Standard Rates
-          </button>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
-          {configuredMaterials.map(mat => {
-            const currentCost = getMaterialSpoolCost(mat);
-            const costPerG = currentCost / 1000;
-            return (
-              <div
-                key={mat}
-                style={{
-                  padding: "14px 16px",
-                  borderRadius: "var(--radius-sm)",
-                  background: "rgba(255,255,255,0.02)",
-                  border: "1px solid var(--border-glass-strong)"
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: "var(--accent)" }}>{mat}</span>
-                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-tertiary)" }}>
-                    {costPerG.toFixed(3)} EGP / g
-                  </span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    type="number"
-                    step="25"
-                    min="0"
-                    title={`Cost to purchase a 1kg spool of ${mat}. Raw filament cost is ${costPerG.toFixed(3)} EGP per gram.`}
-                    value={materialCosts[mat] !== undefined ? materialCosts[mat] : currentCost}
-                    onChange={(e) => handleUpdateMaterialCost(mat, e.target.value)}
-                    style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}
-                    placeholder="Spool cost (EGP)"
-                  />
-                  <span style={{ fontSize: 12, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>EGP / kg</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Material Profit Breakdown */}
-      <div className="card">
-        <h3 style={{ marginBottom: 16 }}>Material Profit Breakdown</h3>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border-glass-strong)", color: "var(--text-tertiary)", textAlign: "left" }}>
-                <th style={{ padding: "10px 12px" }}>Material</th>
-                <th style={{ padding: "10px 12px" }}>Spool Cost</th>
-                <th style={{ padding: "10px 12px" }}>Done / Total</th>
-                <th style={{ padding: "10px 12px" }}>Weight</th>
-                <th style={{ padding: "10px 12px" }}>Est. Hours</th>
-                <th style={{ padding: "10px 12px" }}>Filament Cost</th>
-                <th style={{ padding: "10px 12px" }}>Wear & Power</th>
-                <th style={{ padding: "10px 12px" }}>Revenue</th>
-                <th style={{ padding: "10px 12px" }}>Net Profit</th>
-                <th style={{ padding: "10px 12px" }}>Margin</th>
-              </tr>
-            </thead>
-            <tbody>
-              {financialSummary.materialStats.map(m => (
-                <tr key={m.name} style={{ borderBottom: "1px solid var(--border-light)" }}>
-                  <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{m.name}</td>
-                  <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{m.spoolCost.toFixed(0)} EGP/kg</td>
-                  <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{m.doneOrders} / {m.totalOrders}</td>
-                  <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{m.grams.toFixed(0)} g</td>
-                  <td style={{ padding: "12px", color: "var(--text-tertiary)" }}>{m.hours.toFixed(1)} h</td>
-                  <td style={{ padding: "12px", color: "#f87171" }}>{m.filamentCost.toFixed(2)} EGP</td>
-                  <td style={{ padding: "12px", color: "#f87171" }}>{m.wearAndPowerCost.toFixed(2)} EGP</td>
-                  <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{m.revenue.toFixed(2)} EGP</td>
-                  <td style={{ padding: "12px", fontWeight: 800, color: "var(--accent)" }}>{m.profit.toFixed(2)} EGP</td>
-                  <td style={{ padding: "12px" }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: m.margin >= 50 ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)", color: m.margin >= 50 ? "var(--status-done)" : "var(--status-queued)" }}>
-                      {m.margin.toFixed(0)}%
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Completed Orders Profit Ledger */}
-      <div className="card">
-        <h3 style={{ marginBottom: 16 }}>Completed Orders Ledger ({financialSummary.doneOrdersList.length})</h3>
-        {financialSummary.doneOrdersList.length === 0 ? (
-          <p style={{ margin: 0, color: "var(--text-tertiary)", fontSize: 13 }}>
-            No orders marked as "Done" yet. Complete orders in the Order Queue to generate real profit records.
-          </p>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border-glass-strong)", color: "var(--text-tertiary)", textAlign: "left" }}>
-                  <th style={{ padding: "10px 12px" }}>Order</th>
-                  <th style={{ padding: "10px 12px" }}>Client</th>
-                  <th style={{ padding: "10px 12px" }}>Specs</th>
-                  <th style={{ padding: "10px 12px" }}>Weight & Time</th>
-                  <th style={{ padding: "10px 12px" }}>Filament Cost</th>
-                  <th style={{ padding: "10px 12px" }}>CC1 Wear</th>
-                  <th style={{ padding: "10px 12px" }}>Electricity</th>
-                  <th style={{ padding: "10px 12px" }}>Total Cost</th>
-                  <th style={{ padding: "10px 12px" }}>Revenue</th>
-                  <th style={{ padding: "10px 12px" }}>Payment</th>
-                  <th style={{ padding: "10px 12px" }}>Net Profit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {financialSummary.doneOrdersList.map(o => (
-                  <tr key={o.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
-                    <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{o.ordername}</td>
-                    <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{o.name}</td>
-                    <td style={{ padding: "12px", color: "var(--text-tertiary)" }}>{o.material} ({o.color})</td>
-                    <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{o.weight} g &bull; {o.hours.toFixed(1)}h</td>
-                    <td style={{ padding: "12px", color: "#f87171" }}>{o.filamentCost.toFixed(2)} EGP</td>
-                    <td style={{ padding: "12px", color: "#f87171" }}>{o.wearCost.toFixed(2)} EGP</td>
-                    <td style={{ padding: "12px", color: "#f87171" }}>{o.elecCost.toFixed(2)} EGP</td>
-                    <td style={{ padding: "12px", color: "#f87171", fontWeight: 700 }}>{o.cost.toFixed(2)} EGP</td>
-                    <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{o.revenue.toFixed(2)} EGP</td>
-                    <td style={{ padding: "12px" }}>
-                      <span style={{
-                        fontSize: 11,
-                        fontWeight: 800,
-                        padding: "3px 8px",
-                        borderRadius: "var(--radius-full)",
-                        background: o.paymentStatus === "paid" ? "rgba(52, 199, 89, 0.15)" : o.paymentStatus === "partial" ? "rgba(255, 149, 0, 0.15)" : "rgba(255, 59, 48, 0.15)",
-                        color: o.paymentStatus === "paid" ? "var(--status-done)" : o.paymentStatus === "partial" ? "var(--accent)" : "#ff453a",
-                        border: `1px solid ${o.paymentStatus === "paid" ? "rgba(52, 199, 89, 0.4)" : o.paymentStatus === "partial" ? "rgba(255, 149, 0, 0.4)" : "rgba(255, 59, 48, 0.4)"}`,
-                        textTransform: "uppercase"
-                      }}>
-                        {o.paymentStatus === "paid" ? "Paid" : o.paymentStatus === "partial" ? `Partial (${o.paidAmount.toFixed(0)})` : "Unpaid"}
-                      </span>
-                    </td>
-                    <td style={{ padding: "12px", fontWeight: 800, color: "var(--status-done)" }}>+{o.profit.toFixed(2)} EGP</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+function AdminProfitTab({ orders, supabase, addToast }) {
+  return <AdminFinancialDashboard orders={orders} supabase={supabase} addToast={addToast} />;
 }
 
 export default function App() {
+  // Capture ElectraGo referral code from URL (?ref=electrago)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get("ref");
+      if (ref) {
+        localStorage.setItem("etba3ly_referral", ref.toLowerCase().trim());
+      }
+    } catch {}
+  }, []);
   const [config, setConfig] = useState(() => {
     try {
       const cached = localStorage.getItem("etba3ly_cached_config");
@@ -2806,8 +1885,18 @@ export default function App() {
 
       const trackingCode = generateTrackingCode();
       const weightGrams = clientMetrics ? (clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0) : 0;
-      const rate = parseFloat(config.price_per_gram) || 3;
-      const calculatedTotal = clientMetrics && clientMetrics.totalPrice ? clientMetrics.totalPrice : (weightGrams * rate);
+      const printHours = clientMetrics && clientMetrics.printingTimeSeconds ? (clientMetrics.printingTimeSeconds / 3600) : (weightGrams > 0 ? (weightGrams / 35) : 0.2);
+      const deliveryMode = newOrder.deliveryMode || "pickup";
+      const referralCode = typeof window !== "undefined" ? (localStorage.getItem("etba3ly_referral") || null) : null;
+
+      const quote = calculateOrderQuote({
+        items: [{ weightGrams, printHours, materialKey: (newOrder.material || "PLA").toLowerCase() }],
+        deliveryMode,
+        referralCode
+      });
+      const calculatedTotal = quote.customerTotal;
+      const depositRequired = quote.depositRequired;
+      const remainingBalance = quote.remainingBalance;
       const cleanNotes = (newOrder.notes || "").trim();
 
       const defMat = config.materials ? config.materials.split(',')[0].trim() : "PLA";
@@ -2829,9 +1918,21 @@ export default function App() {
         status: "queued",
         priority: queuedOrdersCount,
         weightgrams: weightGrams,
-        pricepergram: rate,
+        pricepergram: Math.round((quote.materialCharge / (weightGrams || 1)) * 100) / 100,
         totalprice: calculatedTotal,
-        tracking_code: trackingCode
+        tracking_code: trackingCode,
+        delivery_mode: deliveryMode,
+        deposit_required: depositRequired,
+        deposit_paid: 0,
+        remaining_balance: remainingBalance,
+        referral_code: referralCode,
+        referral_commission_amount: quote.profitability.referralCommission,
+        pricing_snapshot: quote.snapshot,
+        financial_breakdown: {
+          directCosts: quote.costs.totalDirectCosts,
+          referralCommission: quote.profitability.referralCommission,
+          orderContribution: quote.profitability.orderContribution
+        }
       };
 
       const { error: insertErr } = await supabase.from("orders").insert([payload]);
@@ -5807,13 +4908,53 @@ export default function App() {
                       </>
                     ) : (
                       <>
-                        <div style={{ margin: "6px 0", borderTop: "1px solid var(--border-glass)" }}></div>
-                        <div className="review-item">
-                          <span className="review-item-label">Base Rate</span>
-                          <span className="review-item-value">{config.price_per_gram} EGP/g</span>
-                        </div>
-                        <div className="review-item" style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid var(--border-glass)" }}>
-                          <span className="review-item-label" style={{ fontSize: 15, fontWeight: 700 }}>Est. Total</span>
+                        {/* Dynamic Itemized Manufacturing Quote */}
+                        <div style={{ margin: "8px 0", borderTop: "1px solid var(--border-glass)" }}></div>
+                        {(() => {
+                          const w = clientMetrics ? (clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0) : 0;
+                          const h = clientMetrics && clientMetrics.printingTimeSeconds ? (clientMetrics.printingTimeSeconds / 3600) : (w > 0 ? (w / 35) : 0.2);
+                          const q = calculateOrderQuote({
+                            items: [{ weightGrams: w, printHours: h, materialKey: newOrder.material || 'pla' }],
+                            deliveryMode: newOrder.deliveryMode || 'pickup'
+                          });
+                          return (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
+                              <div className="review-item">
+                                <span className="review-item-label">Material Charge</span>
+                                <span className="review-item-value">{q.materialCharge.toFixed(2)} EGP</span>
+                              </div>
+                              <div className="review-item">
+                                <span className="review-item-label">Setup Fee (Single Order)</span>
+                                <span className="review-item-value">{q.setupFee.toFixed(2)} EGP</span>
+                              </div>
+                              <div className="review-item">
+                                <span className="review-item-label">Print Time Charge</span>
+                                <span className="review-item-value">{q.timeCharge.toFixed(2)} EGP</span>
+                              </div>
+                              {q.minimumApplied && (
+                                <div className="review-item" style={{ color: "var(--accent)" }}>
+                                  <span className="review-item-label">Minimum Order Applied</span>
+                                  <span className="review-item-value">{q.minimum} EGP</span>
+                                </div>
+                              )}
+                              <div className="review-item" style={{ fontWeight: 600 }}>
+                                <span className="review-item-label">Manufacturing Subtotal</span>
+                                <span className="review-item-value">{q.manufacturingSubtotal.toFixed(2)} EGP</span>
+                              </div>
+                              <div style={{ margin: "4px 0", borderTop: "1px solid var(--border-glass)" }}></div>
+                              <div className="review-item" style={{ fontSize: 13 }}>
+                                <span className="review-item-label">50% Deposit Required</span>
+                                <span className="review-item-value" style={{ color: "var(--status-done)", fontWeight: 700 }}>{q.depositRequired.toFixed(2)} EGP</span>
+                              </div>
+                              <div className="review-item" style={{ fontSize: 13 }}>
+                                <span className="review-item-label">Remaining Balance</span>
+                                <span className="review-item-value" style={{ color: "var(--text-secondary)" }}>{q.remainingBalance.toFixed(2)} EGP</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                        <div className="review-item" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border-glass)" }}>
+                          <span className="review-item-label" style={{ fontSize: 15, fontWeight: 700 }}>Final Customer Price</span>
                           <span style={{ fontSize: 15, fontWeight: 800, color: "var(--accent)" }}>
                             Calculated upon slicing ({config.price_per_gram} EGP/g)
                           </span>

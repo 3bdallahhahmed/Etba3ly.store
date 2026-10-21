@@ -1,3 +1,4 @@
+import { calculateOrderQuote } from "../utils/pricingEngine";
 // src/slicer/slicerEngine.js
 // High-Precision Geometric Slicing & Physics-Based Kinematic Engine for Elegoo 3D Printers
 
@@ -359,7 +360,12 @@ export function estimatePrintMetrics(geometry, settings = {}) {
   // Exact Filament Weight (g) matching Elegoo Slicer
   const rawWeightGrams = extrudedPlasticCm3 * density;
   const weightGrams = Math.max(0.1, Math.round(rawWeightGrams * 100) / 100);
-  const totalPrice = Math.round(weightGrams * pricePerGram * 100) / 100;
+  const printHoursExact = (metrics.volumeCm3 * 1000) > 0 ? Math.max(0.2, (rawWeightGrams / 35)) : 0.2;
+  const quote = calculateOrderQuote({
+    items: [{ weightGrams, printHours: printHoursExact, materialKey: settings.material || 'pla' }],
+    deliveryMode: settings.deliveryMode || 'pickup'
+  });
+  const totalPrice = quote.customerTotal;
 
   // Accurate Kinematic Print Time (OrcaSlicer / Elegoo Slicer CoreXY Physics)
   const firstLayerHeight = Math.min(0.24, layerHeight * 1.5);
