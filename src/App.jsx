@@ -1578,37 +1578,29 @@ export default function App() {
   }
 
   async function handleDeleteGalleryItem(item) {
-    setConfirmModal({
-      message: `Delete "${item.title}" from gallery?`,
-      onConfirm: async () => {
-        try {
-          // Delete media files from Supabase Storage permanently
-          if (item.media_urls) {
-            const urls = item.media_urls.split(',').filter(Boolean);
-            for (const url of urls) {
-              // Extract the actual storage path from the public URL
-              const parts = url.split('/storage/v1/object/public/gallery-media/');
-              const storagePath = parts.length > 1 ? decodeURIComponent(parts[1]) : url.split('/').pop();
-              const { error: storageErr } = await supabase.storage.from('gallery-media').remove([storagePath]);
-              if (storageErr) console.error('Storage delete error:', storagePath, storageErr);
-            }
-          }
-          // Delete the database record
-          const { error: dbErr } = await supabase.from("gallery_items").delete().eq("id", item.id);
-          if (dbErr) {
-            console.error('DB delete error:', dbErr);
-            addToast("Failed to delete: " + dbErr.message, "error");
-          } else {
-            addToast("Gallery item deleted permanently.", "success");
-          }
-          fetchGallery();
-        } catch (err) {
-          console.error('Delete gallery item error:', err);
-          addToast("Delete failed: " + err.message, "error");
+    if (!window.confirm(`Permanently delete "${item.title || 'item'}" from gallery?`)) return;
+    try {
+      if (item.media_urls) {
+        const urls = item.media_urls.split(',').filter(Boolean);
+        for (const url of urls) {
+          const parts = url.split('/storage/v1/object/public/gallery-media/');
+          const storagePath = parts.length > 1 ? decodeURIComponent(parts[1]) : url.split('/').pop();
+          const { error: storageErr } = await supabase.storage.from('gallery-media').remove([storagePath]);
+          if (storageErr) console.error('Storage delete error:', storagePath, storageErr);
         }
-        setConfirmModal(null);
       }
-    });
+      const { error: dbErr } = await supabase.from("gallery_items").delete().eq("id", item.id);
+      if (dbErr) {
+        console.error('DB delete error:', dbErr);
+        addToast("Failed to delete: " + dbErr.message, "error");
+      } else {
+        addToast("Gallery item deleted permanently.", "success");
+      }
+      fetchGallery();
+    } catch (err) {
+      console.error('Delete gallery item error:', err);
+      addToast("Delete failed: " + err.message, "error");
+    }
   }
 
   async function handleSaveGalleryItem() {
@@ -1936,7 +1928,29 @@ export default function App() {
         }
       };
 
-      const { error: insertErr } = await supabase.from("orders").insert([payload]);
+      let { error: insertErr } = await supabase.from("orders").insert([payload]);
+      if (insertErr && insertErr.message && insertErr.message.includes("schema cache")) {
+        console.warn("Supabase schema missing extended pricing columns. Using fallback base payload:", insertErr.message);
+        const fallbackPayload = {
+          name: payload.name,
+          phone: payload.phone,
+          email: payload.email,
+          ordername: payload.ordername,
+          material: payload.material,
+          color: payload.color,
+          notes: `${payload.notes || ""}\n[Mode: ${payload.delivery_mode || "pickup"} | Deposit: ${payload.deposit_required || 0} EGP | Remaining: ${payload.remaining_balance || 0} EGP]`.trim(),
+          fileurl: payload.fileurl,
+          filesize: payload.filesize,
+          status: payload.status,
+          priority: payload.priority,
+          weightgrams: payload.weightgrams,
+          pricepergram: payload.pricepergram,
+          totalprice: payload.totalprice,
+          tracking_code: payload.tracking_code
+        };
+        const retryRes = await supabase.from("orders").insert([fallbackPayload]);
+        insertErr = retryRes.error;
+      }
       if (insertErr) throw new Error(insertErr.message);
 
       // Dispatch automated order alerts across all configured channels (Email, Telegram, Discord, WhatsApp)

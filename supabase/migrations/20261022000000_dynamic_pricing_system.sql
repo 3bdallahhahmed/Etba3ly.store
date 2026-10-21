@@ -69,6 +69,7 @@ on conflict (zone_name) do update set
     estimated_cost = excluded.estimated_cost;
 
 -- 4. Orders Table Snapshot Columns
+alter table public.orders add column if not exists delivery_mode text default 'pickup';
 alter table public.orders add column if not exists pricing_snapshot jsonb;
 alter table public.orders add column if not exists referral_code text;
 alter table public.orders add column if not exists referral_commission_amount numeric(10,2) default 0.00;

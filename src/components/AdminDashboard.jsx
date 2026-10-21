@@ -230,6 +230,10 @@ export default function AdminDashboard({
 
   const [savingSettings, setSavingSettings] = useState(false);
 
+  // Edit Order Details Modal
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingOrderData, setEditingOrderData] = useState(null);
+
   // Quick Add Order Modal
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [quickOrder, setQuickOrder] = useState({
@@ -289,6 +293,7 @@ export default function AdminDashboard({
   // ─────────────────────────────────────────────────────────────
   const handleUpdateStatus = async (orderId, newStatus) => {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+    setSelectedOrder(prev => (prev && prev.id === orderId ? { ...prev, status: newStatus } : prev));
     try {
       if (supabase) {
         const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
@@ -308,6 +313,7 @@ export default function AdminDashboard({
     const updatedNotes = setPrinterInNotes(targetOrder.notes, printerName);
 
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, notes: updatedNotes } : o));
+    setSelectedOrder(prev => (prev && prev.id === orderId ? { ...prev, notes: updatedNotes } : prev));
     try {
       if (supabase) {
         const { error } = await supabase.from('orders').update({ notes: updatedNotes }).eq('id', orderId);
@@ -335,13 +341,15 @@ export default function AdminDashboard({
     const newDeposit = quote.depositRequired;
     const newRemaining = quote.remainingBalance;
 
-    setOrders(prev => prev.map(o => o.id === order.id ? {
-      ...o,
+    const priceUpdates = {
       totalprice: newPrice,
       deposit_required: newDeposit,
       remaining_balance: newRemaining,
       price_locked: true
-    } : o));
+    };
+
+    setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...priceUpdates } : o));
+    setSelectedOrder(prev => (prev && prev.id === order.id ? { ...prev, ...priceUpdates } : prev));
 
     try {
       if (supabase) {
@@ -354,6 +362,71 @@ export default function AdminDashboard({
       addToast(`Price updated: ${newPrice.toFixed(2)} EGP`, 'success');
     } catch (err) {
       console.error('Failed to recalculate order price:', err);
+    }
+  };
+
+  const handleOpenEditModal = (order) => {
+    setEditingOrderData({
+      id: order.id,
+      name: order.name || '',
+      phone: order.phone || '',
+      ordername: order.ordername || '',
+      material: (order.material || 'PLA').toUpperCase(),
+      weightgrams: order.weightgrams || 0,
+      printhours: order.printhours || (Number(order.weightgrams) ? (Number(order.weightgrams) / 35).toFixed(1) : 1),
+      totalprice: order.totalprice || 0,
+      delivery_mode: order.delivery_mode || 'pickup',
+      printer: getPrinterFromNotes(order.notes) || 'CC Abdalla'
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveOrderEdit = async (e) => {
+    if (e) e.preventDefault();
+    if (!editingOrderData) return;
+    const { id, name, phone, ordername, material, weightgrams, printhours, totalprice, delivery_mode, printer } = editingOrderData;
+
+    const currentOrder = orders.find(o => o.id === id);
+    const updatedNotes = setPrinterInNotes(currentOrder?.notes || '', printer);
+
+    const updatePayload = {
+      name,
+      phone,
+      ordername,
+      material,
+      weightgrams: Number(weightgrams) || 0,
+      printhours: Number(printhours) || 0,
+      totalprice: Number(totalprice) || 0,
+      delivery_mode,
+      notes: updatedNotes
+    };
+
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, ...updatePayload } : o));
+    setSelectedOrder(prev => (prev && prev.id === id ? { ...prev, ...updatePayload } : prev));
+    setIsEditModalOpen(false);
+
+    try {
+      if (supabase) {
+        let updateRes = await supabase.from('orders').update(updatePayload).eq('id', id);
+        if (updateRes.error && updateRes.error.message && updateRes.error.message.includes('schema cache')) {
+          const safePayload = {
+            name,
+            phone,
+            ordername,
+            material,
+            weightgrams: Number(weightgrams) || 0,
+            totalprice: Number(totalprice) || 0,
+            notes: `${updatedNotes} [Time: ${printhours}h | Mode: ${delivery_mode}]`.trim()
+          };
+          updateRes = await supabase.from('orders').update(safePayload).eq('id', id);
+        }
+        if (updateRes.error) throw updateRes.error;
+      }
+      addToast('Order details updated', 'success');
+    } catch (err) {
+      console.error('Error updating order:', err);
+      addToast('Failed to save order details', 'error');
+      fetchOrders();
     }
   };
 
@@ -434,10 +507,27 @@ export default function AdminDashboard({
 
     try {
       if (supabase) {
-        const { data, error } = await supabase.from('orders').insert([payload]).select().single();
-        if (error) throw error;
-        setOrders(prev => [data, ...prev]);
-        setSelectedOrder(data);
+        let insertRes = await supabase.from('orders').insert([payload]).select().single();
+        if (insertRes.error && insertRes.error.message && insertRes.error.message.includes('schema cache')) {
+          const basePayload = {
+            name: payload.name,
+            phone: payload.phone,
+            email: payload.email,
+            ordername: payload.ordername,
+            material: payload.material,
+            color: payload.color,
+            notes: `${payload.notes || ''} [Delivery: ${delivery} | Deposit: ${calculatedQuote.depositRequired} EGP]`.trim(),
+            status: payload.status,
+            weightgrams: payload.weightgrams,
+            totalprice: payload.totalprice,
+            tracking_code: payload.tracking_code,
+            createdat: payload.createdat
+          };
+          insertRes = await supabase.from('orders').insert([basePayload]).select().single();
+        }
+        if (insertRes.error) throw insertRes.error;
+        setOrders(prev => [insertRes.data, ...prev]);
+        setSelectedOrder(insertRes.data);
       } else {
         const mock = { id: Date.now(), ...payload };
         setOrders(prev => [mock, ...prev]);
@@ -805,6 +895,26 @@ export default function AdminDashboard({
                   <option value="CC Abdalla">CC Abdalla (Abdalla)</option>
                   <option value="CC Mazen">CC Mazen (Mazen)</option>
                 </select>
+
+                <button
+                  onClick={exportCSV}
+                  title="Export orders to CSV"
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    border: `1px solid ${theme.border}`,
+                    background: theme.surface,
+                    color: theme.text,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  Export CSV
+                </button>
               </div>
             )}
           </div>
@@ -1540,6 +1650,22 @@ export default function AdminDashboard({
               {/* Apple Action Pills Row (like 'Edit Name' & 'Delete' in screenshot 1) */}
               <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
                 <button
+                  onClick={() => handleOpenEditModal(selectedOrder)}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: 980,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    border: `1px solid ${theme.border}`,
+                    background: theme.buttonSecondaryBg,
+                    color: theme.buttonSecondaryText,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Edit Details
+                </button>
+
+                <button
                   onClick={() => handleRecalculateOrderPrice(selectedOrder)}
                   style={{
                     flex: 1,
@@ -1770,6 +1896,214 @@ export default function AdminDashboard({
           </aside>
         )}
       </div>
+
+      {/* ───────────────────────────────────────────────────────────── */}
+      {/* MODAL: EDIT ORDER DETAILS */}
+      {/* ───────────────────────────────────────────────────────────── */}
+      {isEditModalOpen && editingOrderData && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(20px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 210,
+          padding: 20
+        }}>
+          <form
+            onSubmit={handleSaveOrderEdit}
+            style={{
+              background: theme.surface,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 16,
+              padding: 28,
+              maxWidth: 460,
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16,
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: theme.text }}>Edit Order Details</div>
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                style={{ background: 'none', border: 'none', color: theme.textSecondary, cursor: 'pointer', fontSize: 20 }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                Job / Item Title
+              </label>
+              <input
+                type="text"
+                required
+                value={editingOrderData.ordername}
+                onChange={e => setEditingOrderData({ ...editingOrderData, ordername: e.target.value })}
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Client Name
+                </label>
+                <input
+                  type="text"
+                  value={editingOrderData.name}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, name: e.target.value })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Phone
+                </label>
+                <input
+                  type="text"
+                  value={editingOrderData.phone}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, phone: e.target.value })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Assigned Hardware
+                </label>
+                <select
+                  value={editingOrderData.printer}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, printer: e.target.value })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                >
+                  <option value="CC Abdalla">CC Abdalla (Abdalla)</option>
+                  <option value="CC Mazen">CC Mazen (Mazen)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Material
+                </label>
+                <select
+                  value={editingOrderData.material.toLowerCase()}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, material: e.target.value.toUpperCase() })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                >
+                  <option value="pla">PLA</option>
+                  <option value="pla_plus">PLA+ / Rapid PLA</option>
+                  <option value="petg">PETG</option>
+                  <option value="tpu">TPU</option>
+                  <option value="carbon_fiber">Carbon Fiber</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Weight (grams)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={editingOrderData.weightgrams}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, weightgrams: parseFloat(e.target.value) || 0 })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Print Time (hrs)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={editingOrderData.printhours}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, printhours: parseFloat(e.target.value) || 0 })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Total Price (EGP)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  value={editingOrderData.totalprice}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, totalprice: parseFloat(e.target.value) || 0 })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Fulfillment
+                </label>
+                <select
+                  value={editingOrderData.delivery_mode}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, delivery_mode: e.target.value })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                >
+                  <option value="pickup">Campus Pickup (E-JUST)</option>
+                  <option value="shipping">Nationwide Shipping</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 980,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  border: `1px solid ${theme.border}`,
+                  background: 'transparent',
+                  color: theme.textSecondary,
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                style={{
+                  padding: '7px 18px',
+                  borderRadius: 980,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  border: 'none',
+                  background: theme.buttonPrimaryBg,
+                  color: theme.buttonPrimaryText,
+                  cursor: 'pointer'
+                }}
+              >
+                Save Changes
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* ───────────────────────────────────────────────────────────── */}
       {/* 4. MODAL: APPLE QUICK ADD ORDER (LOG OFFLINE/WALK-IN ORDER) */}
