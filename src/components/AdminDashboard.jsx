@@ -83,6 +83,15 @@ const Icons = {
 };
 
 // ─────────────────────────────────────────────────────────────
+function getAssetPath(file) {
+  const clean = (file || "").replace(/^\/+/, "");
+  if (typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/3d-ejust")) {
+    return `/3D-EJUST/${clean}`;
+  }
+  const base = import.meta.env.BASE_URL || "/";
+  return `${base.replace(/\/+$/, "")}/${clean}`;
+}
+
 // Printer Helper Functions
 // ─────────────────────────────────────────────────────────────
 function getPrinterFromNotes(notes) {
@@ -589,13 +598,23 @@ export default function AdminDashboard({
         zIndex: 100
       }}>
         {/* Brand */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Icons.Apple />
-          <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em', color: theme.text }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <img
+            src={getAssetPath(isAppleDark ? "logo-dark.svg" : "logo-light.svg")}
+            alt="Etba3ly"
+            style={{ height: 26, width: 'auto', display: 'block' }}
+          />
+          <span style={{
+            fontSize: 10,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+            padding: '2px 8px',
+            borderRadius: 980,
+            background: isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+            color: theme.textSecondary
+          }}>
             Business
-          </span>
-          <span style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, marginLeft: 4 }}>
-            · Etba3ly OS
           </span>
         </div>
 
