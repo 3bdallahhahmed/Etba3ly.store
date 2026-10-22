@@ -1036,6 +1036,13 @@ export default function App() {
   const [orders, setOrders] = useState([]);
   const [queuedOrdersCount, setQueuedOrdersCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [materialRates, setMaterialRates] = useState(() => {
+    try {
+      const cached = localStorage.getItem('etba3ly_material_rates');
+      if (cached) return { ...DEFAULT_MATERIAL_RATES, ...JSON.parse(cached) };
+    } catch {}
+    return { ...DEFAULT_MATERIAL_RATES };
+  });
   const [darkMode, setDarkMode] = useState(() => {
     try {
       return localStorage.getItem("theme") !== "light";
@@ -1516,6 +1523,16 @@ export default function App() {
         };
 
         setConfig(finalConfig);
+        if (data.why_text) {
+          const match = data.why_text.match(/<!--RATES_CATALOG:(.*?)-->/s);
+          if (match) {
+            try {
+              const parsed = JSON.parse(match[1]);
+              setMaterialRates(prev => ({ ...prev, ...parsed }));
+              localStorage.setItem('etba3ly_material_rates', JSON.stringify(parsed));
+            } catch (e) {}
+          }
+        }
         try { localStorage.setItem("etba3ly_cached_config", JSON.stringify(finalConfig)); } catch (e) {}
       } else {
         setConfig(prev => ({
@@ -1885,7 +1902,8 @@ export default function App() {
       const quote = calculateOrderQuote({
         items: [{ weightGrams, printHours, materialKey: (newOrder.material || "PLA").toLowerCase() }],
         deliveryMode,
-        referralCode
+        referralCode,
+        customMaterials: materialRates
       });
       const calculatedTotal = quote.customerTotal;
       const depositRequired = quote.depositRequired;
@@ -2764,6 +2782,8 @@ export default function App() {
         isTestingDiscord={isTestingDiscord}
         handleTestEmail={handleTestEmail}
         isTestingEmail={isTestingEmail}
+        materials={materialRates}
+        setMaterials={setMaterialRates}
       />
     );
   }
@@ -2928,7 +2948,17 @@ export default function App() {
                     <div style={{ width: "100%" }}>
                       <label>Material</label>
                       <select value={newOrder.material} onChange={e => setNewOrder(p => ({ ...p, material: e.target.value }))}>
-                        {config.materials.split(',').map(m => <option key={m} value={m.trim()}>{m.trim()}</option>)}
+                        {config.materials ? config.materials.split(',').map(m => {
+                          const raw = m.trim();
+                          const isRestocking = raw.toLowerCase().includes('[restocking]');
+                          const cleanName = raw.replace(/\[restocking\]/gi, '').trim();
+                          if (!cleanName) return null;
+                          return (
+                            <option key={cleanName} value={cleanName} disabled={isRestocking}>
+                              {cleanName}{isRestocking ? ' (Restocking soon)' : ''}
+                            </option>
+                          );
+                        }) : <option value="PLA">PLA</option>}
                       </select>
                     </div>
                   </div>
@@ -3335,7 +3365,8 @@ export default function App() {
                           const h = clientMetrics && clientMetrics.printingTimeSeconds ? (clientMetrics.printingTimeSeconds / 3600) : (w > 0 ? (w / 35) : 0.2);
                           const q = calculateOrderQuote({
                             items: [{ weightGrams: w, printHours: h, materialKey: newOrder.material || 'pla' }],
-                            deliveryMode: newOrder.deliveryMode || 'pickup'
+                            deliveryMode: newOrder.deliveryMode || 'pickup',
+                            customMaterials: materialRates
                           });
                           return (
                             <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>

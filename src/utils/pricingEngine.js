@@ -80,8 +80,15 @@ export function calculateOrderQuote({
     const qty = Math.max(1, parseInt(item.quantity, 10) || 1);
     const w = (Number(item.weightGrams) || 0) * qty;
     const h = (Number(item.printHours) || 0) * qty;
-    const mKey = normalizeMaterialKey(item.materialKey || item.material);
-    const mData = mats[mKey] || DEFAULT_MATERIAL_RATES.pla;
+    const rawMat = String(item.materialKey || item.material || "").toLowerCase().trim();
+    const cleanRawMat = rawMat.replace(/\[restocking\]/gi, '').trim();
+    const mKey = normalizeMaterialKey(cleanRawMat);
+    const directByName = Object.values(mats).find(m => m && m.name && m.name.toLowerCase().trim() === cleanRawMat);
+    const mData = mats[cleanRawMat] ||
+                  mats[cleanRawMat.replace(/\s+/g, '_')] ||
+                  directByName ||
+                  mats[mKey] ||
+                  DEFAULT_MATERIAL_RATES.pla;
 
     totalWeightG += w;
     totalPrintHours += h; // Occupancy hours for jobs

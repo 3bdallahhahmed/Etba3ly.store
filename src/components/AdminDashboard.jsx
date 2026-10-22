@@ -164,7 +164,9 @@ export default function AdminDashboard({
   handleTestDiscord = () => {},
   isTestingDiscord = false,
   handleTestEmail = () => {},
-  isTestingEmail = false
+  isTestingEmail = false,
+  materials: propMaterials,
+  setMaterials: propSetMaterials
 }) {
   // Theme state: Apple Business Light vs Apple Pro Dark
   const [isAppleDark, setIsAppleDark] = useState(() => {
@@ -251,13 +253,19 @@ export default function AdminDashboard({
     return { ...DEFAULT_PRICING_SETTINGS };
   });
 
-  const [materials, setMaterials] = useState(() => {
+  const [internalMaterials, setInternalMaterials] = useState(() => {
     try {
       const cached = localStorage.getItem('etba3ly_material_rates');
       if (cached) return { ...DEFAULT_MATERIAL_RATES, ...JSON.parse(cached) };
     } catch {}
     return { ...DEFAULT_MATERIAL_RATES };
   });
+
+  const materials = propMaterials || internalMaterials;
+  const setMaterials = propSetMaterials || setInternalMaterials;
+
+  const [isAddFilamentOpen, setIsAddFilamentOpen] = useState(false);
+  const [newFilament, setNewFilament] = useState({ name: '', selling_rate: 2.0, cost: 0.75 });
 
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -486,6 +494,56 @@ export default function AdminDashboard({
     }
   };
 
+  const handleAddFilament = (e) => {
+    if (e) e.preventDefault();
+    const nameTrimmed = (newFilament.name || '').trim();
+    if (!nameTrimmed) {
+      addToast('Please enter a filament name', 'error');
+      return;
+    }
+    const key = nameTrimmed.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    if (materials[key]) {
+      addToast('A filament with this key or name already exists', 'error');
+      return;
+    }
+    const updated = {
+      ...materials,
+      [key]: {
+        name: nameTrimmed,
+        selling_rate: Number(newFilament.selling_rate) || 2.0,
+        cost: Number(newFilament.cost) || 0.75,
+        in_stock: true
+      }
+    };
+    setMaterials(updated);
+    setNewFilament({ name: '', selling_rate: 2.0, cost: 0.75 });
+    setIsAddFilamentOpen(false);
+    addToast(`Added ${nameTrimmed}. Click Save to publish live.`, 'success');
+  };
+
+  const handleDeleteFilament = (key, matName) => {
+    if (!window.confirm(`Permanently delete filament "${matName}" from workshop and ordering website?`)) return;
+    const updated = { ...materials };
+    delete updated[key];
+    setMaterials(updated);
+    addToast(`Deleted ${matName}. Click Save to publish live.`, 'info');
+  };
+
+  const handleToggleFilamentStock = (key) => {
+    const current = materials[key];
+    if (!current) return;
+    const nextStock = current.in_stock === false ? true : false;
+    const updated = {
+      ...materials,
+      [key]: {
+        ...current,
+        in_stock: nextStock
+      }
+    };
+    setMaterials(updated);
+    addToast(`${current.name} marked as ${nextStock ? 'In Stock' : 'Restocking Soon'}. Click Save to publish.`, 'info');
+  };
+
   const handleSaveFinancials = async (e) => {
     if (e) e.preventDefault();
     setSavingSettings(true);
@@ -493,17 +551,30 @@ export default function AdminDashboard({
       localStorage.setItem('etba3ly_pricing_settings', JSON.stringify(pricingSettings));
       localStorage.setItem('etba3ly_material_rates', JSON.stringify(materials));
 
+      const materialsString = Object.values(materials)
+        .map(m => m.in_stock === false ? `${m.name} [restocking]` : m.name)
+        .join(', ');
+
+      const cleanWhy = (config.why_text || '').replace(/\n?<!--RATES_CATALOG:.*?-->/s, '').trim();
+      const updatedWhy = `${cleanWhy}\n<!--RATES_CATALOG:${JSON.stringify(materials)}-->`;
+
       if (supabase) {
-        await supabase.from('pricing_settings').upsert({
-          id: 'default',
-          ...pricingSettings,
-          updated_at: new Date().toISOString()
-        });
+        await supabase.from('site_config').update({
+          materials: materialsString,
+          why_text: updatedWhy
+        }).eq('id', 1);
       }
-      addToast('Parameters saved successfully', 'success');
+
+      setConfig(prev => ({
+        ...prev,
+        materials: materialsString,
+        why_text: updatedWhy
+      }));
+
+      addToast('Parameters & filaments saved live to website', 'success');
     } catch (err) {
       console.error('Error saving pricing:', err);
-      addToast('Saved locally', 'info');
+      addToast('Saved locally: ' + (err.message || err), 'info');
     } finally {
       setSavingSettings(false);
     }
@@ -1023,7 +1094,7 @@ export default function AdminDashboard({
                               {order.material || 'PLA'} · {weight}g
                             </div>
                             <div style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>
-                              ~{Math.max(0.2, (weight / 35)).toFixed(1)} hrs
+                              ~{getOrderPrintHours(order).toFixed(1)} hrs
                             </div>
                           </td>
 
@@ -1428,40 +1499,180 @@ export default function AdminDashboard({
                 </div>
 
                 {/* Materials Table */}
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: theme.text, marginBottom: 8 }}>Material Rates</div>
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>Workshop Filaments & Rates</div>
+                      <div style={{ fontSize: 11, color: theme.textSecondary }}>Configure pricing, purchase costs, and live availability for customers.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddFilamentOpen(!isAddFilamentOpen)}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: 980,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: theme.buttonSecondaryBg,
+                        color: theme.buttonSecondaryText,
+                        border: `1px solid ${theme.border}`,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {isAddFilamentOpen ? 'Cancel' : '+ Add Filament'}
+                    </button>
+                  </div>
+
+                  {isAddFilamentOpen && (
+                    <div style={{
+                      background: theme.canvas,
+                      border: `1px solid ${theme.border}`,
+                      borderRadius: 8,
+                      padding: 12,
+                      marginBottom: 12,
+                      display: 'flex',
+                      gap: 10,
+                      flexWrap: 'wrap',
+                      alignItems: 'flex-end'
+                    }}>
+                      <div style={{ flex: 1, minWidth: 120 }}>
+                        <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                          Filament Name
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. ASA, Silk Gold"
+                          value={newFilament.name}
+                          onChange={e => setNewFilament({ ...newFilament, name: e.target.value })}
+                          style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                        />
+                      </div>
+
+                      <div style={{ width: 110 }}>
+                        <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                          Selling (EGP/g)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.05"
+                          value={newFilament.selling_rate}
+                          onChange={e => setNewFilament({ ...newFilament, selling_rate: parseFloat(e.target.value) || 0 })}
+                          style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                        />
+                      </div>
+
+                      <div style={{ width: 110 }}>
+                        <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                          Cost (EGP/g)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.05"
+                          value={newFilament.cost}
+                          onChange={e => setNewFilament({ ...newFilament, cost: parseFloat(e.target.value) || 0 })}
+                          style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleAddFilament}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          background: theme.buttonPrimaryBg,
+                          color: theme.buttonPrimaryText,
+                          border: 'none',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  )}
+
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ borderBottom: `1px solid ${theme.border}`, color: theme.textSecondary }}>
-                        <th style={{ padding: '8px 10px' }}>Material</th>
-                        <th style={{ padding: '8px 10px' }}>Selling Rate (EGP/g)</th>
-                        <th style={{ padding: '8px 10px' }}>Cost (EGP/g)</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Filament Name</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Selling Rate (EGP/g)</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Cost (EGP/g)</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Availability</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {Object.entries(materials).map(([key, data]) => (
-                        <tr key={key} style={{ borderBottom: `1px solid ${theme.borderSubtle}` }}>
-                          <td style={{ padding: '8px 10px', fontWeight: 500, color: theme.text }}>{data.name}</td>
-                          <td style={{ padding: '8px 10px' }}>
-                            <input
-                              type="number"
-                              step="0.05"
-                              value={data.selling_rate}
-                              onChange={e => setMaterials({ ...materials, [key]: { ...data, selling_rate: parseFloat(e.target.value) || 0 } })}
-                              style={{ width: 100, padding: '4px 8px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}` }}
-                            />
-                          </td>
-                          <td style={{ padding: '8px 10px' }}>
-                            <input
-                              type="number"
-                              step="0.05"
-                              value={data.cost}
-                              onChange={e => setMaterials({ ...materials, [key]: { ...data, cost: parseFloat(e.target.value) || 0 } })}
-                              style={{ width: 100, padding: '4px 8px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}` }}
-                            />
-                          </td>
-                        </tr>
-                      ))}
+                      {Object.entries(materials).map(([key, data]) => {
+                        const isInStock = data.in_stock !== false;
+                        return (
+                          <tr key={key} style={{ borderBottom: `1px solid ${theme.borderSubtle}` }}>
+                            <td style={{ padding: '8px 10px' }}>
+                              <input
+                                type="text"
+                                value={data.name || key}
+                                onChange={e => setMaterials({ ...materials, [key]: { ...data, name: e.target.value } })}
+                                style={{ width: 140, padding: '4px 8px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                              />
+                            </td>
+                            <td style={{ padding: '8px 10px' }}>
+                              <input
+                                type="number"
+                                step="0.05"
+                                value={data.selling_rate}
+                                onChange={e => setMaterials({ ...materials, [key]: { ...data, selling_rate: parseFloat(e.target.value) || 0 } })}
+                                style={{ width: 90, padding: '4px 8px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                              />
+                            </td>
+                            <td style={{ padding: '8px 10px' }}>
+                              <input
+                                type="number"
+                                step="0.05"
+                                value={data.cost}
+                                onChange={e => setMaterials({ ...materials, [key]: { ...data, cost: parseFloat(e.target.value) || 0 } })}
+                                style={{ width: 90, padding: '4px 8px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                              />
+                            </td>
+                            <td style={{ padding: '8px 10px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleFilamentStock(key)}
+                                style={{
+                                  padding: '3px 8px',
+                                  borderRadius: 980,
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  border: isInStock ? '1px solid rgba(52, 199, 89, 0.3)' : '1px solid rgba(255, 149, 0, 0.3)',
+                                  background: isInStock ? 'rgba(52, 199, 89, 0.1)' : 'rgba(255, 149, 0, 0.1)',
+                                  color: isInStock ? theme.statusGreen : theme.statusOrange
+                                }}
+                              >
+                                {isInStock ? 'In Stock' : 'Restocking Soon'}
+                              </button>
+                            </td>
+                            <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteFilament(key, data.name || key)}
+                                style={{
+                                  padding: '3px 8px',
+                                  borderRadius: 980,
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  cursor: 'pointer',
+                                  border: '1px solid rgba(255, 59, 48, 0.2)',
+                                  background: 'rgba(255, 59, 48, 0.08)',
+                                  color: theme.statusRed
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1864,7 +2075,7 @@ export default function AdminDashboard({
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
                     <span style={{ color: theme.textSecondary }}>Estimated Print Time</span>
-                    <strong style={{ color: theme.text }}>~{Math.max(0.2, (selectedOrder.weightgrams / 35)).toFixed(1)} hours</strong>
+                    <strong style={{ color: theme.text }}>~{getOrderPrintHours(selectedOrder).toFixed(1)} hours</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
                     <span style={{ color: theme.textSecondary }}>Color Choice</span>
@@ -2028,15 +2239,13 @@ export default function AdminDashboard({
                   Material
                 </label>
                 <select
-                  value={editingOrderData.material.toLowerCase()}
-                  onChange={e => setEditingOrderData({ ...editingOrderData, material: e.target.value.toUpperCase() })}
+                  value={editingOrderData.material}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, material: e.target.value })}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                 >
-                  <option value="pla">PLA</option>
-                  <option value="pla_plus">PLA+ / Rapid PLA</option>
-                  <option value="petg">PETG</option>
-                  <option value="tpu">TPU</option>
-                  <option value="carbon_fiber">Carbon Fiber</option>
+                  {Object.entries(materials).map(([k, d]) => (
+                    <option key={k} value={d.name || k}>{d.name || k}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -2215,11 +2424,9 @@ export default function AdminDashboard({
                   onChange={e => setQuickOrder({ ...quickOrder, material: e.target.value })}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                 >
-                  <option value="pla">PLA</option>
-                  <option value="pla_plus">PLA+ / Rapid PLA</option>
-                  <option value="petg">PETG</option>
-                  <option value="tpu">TPU</option>
-                  <option value="carbon_fiber">Carbon Fiber</option>
+                  {Object.entries(materials).map(([k, d]) => (
+                    <option key={k} value={k}>{d.name || k}</option>
+                  ))}
                 </select>
               </div>
             </div>
