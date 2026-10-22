@@ -87,8 +87,10 @@ const Icons = {
 // ─────────────────────────────────────────────────────────────
 function getAssetPath(file) {
   const clean = (file || "").replace(/^\/+/, "");
-  if (typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/3d-ejust")) {
-    return `/3D-EJUST/${clean}`;
+  if (typeof window !== "undefined") {
+    const p = window.location.pathname.toLowerCase();
+    if (p.startsWith("/3d-ejust")) return `/3D-EJUST/${clean}`;
+    if (p.startsWith("/etba3ly.store")) return `/Etba3ly.store/${clean}`;
   }
   const base = import.meta.env.BASE_URL || "/";
   return `${base.replace(/\/+$/, "")}/${clean}`;

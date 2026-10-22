@@ -24,8 +24,10 @@ import { upscaleImageFile } from "./utils/imageUpscaler.js";
 
 function getAssetPath(file) {
   const clean = (file || "").replace(/^\/+/, "");
-  if (typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/3d-ejust")) {
-    return `/3D-EJUST/${clean}`;
+  if (typeof window !== "undefined") {
+    const p = window.location.pathname.toLowerCase();
+    if (p.startsWith("/3d-ejust")) return `/3D-EJUST/${clean}`;
+    if (p.startsWith("/etba3ly.store")) return `/Etba3ly.store/${clean}`;
   }
   const base = import.meta.env.BASE_URL || "/";
   return `${base.replace(/\/+$/, "")}/${clean}`;
@@ -60,9 +62,11 @@ function parseCurrentRoute() {
     path = path.slice(base.length).replace(/^\/+/, "");
   }
 
-  // Handle GitHub Pages project subpath (/3D-EJUST/)
+  // Handle GitHub Pages project subpath (/3D-EJUST/ or /Etba3ly.store/)
   if (path.toLowerCase().startsWith("3d-ejust")) {
     path = path.slice("3d-ejust".length).replace(/^\/+/, "");
+  } else if (path.toLowerCase().startsWith("etba3ly.store")) {
+    path = path.slice("etba3ly.store".length).replace(/^\/+/, "");
   }
 
   const rawHash = (window.location.hash || "").replace(/^#\/?/, "");
@@ -1082,8 +1086,9 @@ export default function App() {
     if (!clean || clean === "home") clean = "home";
     if (clean === "gallery") clean = "full-gallery";
 
-    const isGhPagesSubpath = typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/3d-ejust");
-    const prefix = isGhPagesSubpath ? "/3D-EJUST" : "";
+    const isGhOld = typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/3d-ejust");
+    const isGhNew = typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/etba3ly.store");
+    const prefix = isGhOld ? "/3D-EJUST" : (isGhNew ? "/Etba3ly.store" : "");
     const targetPath = clean === "home" ? `${prefix}/home` : `${prefix}/${clean}`;
     try {
       if (window.location.pathname !== targetPath) {
