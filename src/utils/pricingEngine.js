@@ -26,11 +26,12 @@ export const DEFAULT_PRICING_SETTINGS = {
 };
 
 export const DEFAULT_MATERIAL_RATES = {
-  pla: { name: "PLA", selling_rate: 1.80, cost: 0.65 },
-  pla_plus: { name: "PLA+ / Rapid PLA", selling_rate: 2.00, cost: 0.75 },
-  petg: { name: "PETG", selling_rate: 2.10, cost: 0.70 },
-  tpu: { name: "TPU", selling_rate: 2.70, cost: 0.95 },
-  carbon_fiber: { name: "Carbon Fiber Filled", selling_rate: 3.50, cost: 1.35 }
+  pla: { name: "PLA", selling_rate: 1.80, cost: 0.65, in_stock: true },
+  pla_plus: { name: "PLA+", selling_rate: 2.00, cost: 0.75, in_stock: true },
+  petg: { name: "PETG", selling_rate: 2.10, cost: 0.70, in_stock: true },
+  abs: { name: "ABS", selling_rate: 2.20, cost: 0.75, in_stock: true },
+  tpu: { name: "TPU", selling_rate: 2.70, cost: 0.95, in_stock: true },
+  carbon_fiber: { name: "Carbon Fiber", selling_rate: 3.50, cost: 1.35, in_stock: true }
 };
 
 export const DEFAULT_SHIPPING_ZONES = {
@@ -49,9 +50,112 @@ export function normalizeMaterialKey(rawName) {
   if (s.includes("carbon") || s.includes("cf")) return "carbon_fiber";
   if (s.includes("tpu")) return "tpu";
   if (s.includes("petg")) return "petg";
+  if (s.includes("abs")) return "abs";
   if (s.includes("+") || s.includes("rapid") || s.includes("plus")) return "pla_plus";
-  if (s.includes("pla")) return "pla";
-  return "pla";
+  if (s === "pla" || s.startsWith("pla ") || s.endsWith(" pla")) {
+    if (!s.includes("silk") && !s.includes("wood") && !s.includes("glow") && !s.includes("matte") && !s.includes("metal")) {
+      return "pla";
+    }
+  }
+  return s.replace(/[^a-z0-9]/g, '_') || "pla";
+}
+
+/**
+ * Parses filaments and rates catalog from database config.
+ * Supports HTML comment stash (<!--RATES_CATALOG:...-->), raw JSON, or comma-separated names.
+ */
+export function parseFilamentCatalog(rawMaterials, rawWhyText = '') {
+  // 1. Try why_text comment stash
+  if (rawWhyText) {
+    const match = rawWhyText.match(/<!--RATES_CATALOG:(.*?)-->/s);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+          const normalized = {};
+          Object.entries(parsed).forEach(([k, v]) => {
+            normalized[k] = {
+              name: v.name || k,
+              selling_rate: Number(v.selling_rate) || 2.0,
+              cost: Number(v.cost) || 0.75,
+              in_stock: v.in_stock !== false
+            };
+          });
+          return normalized;
+        }
+      } catch (e) {}
+    }
+  }
+
+  // 2. Try rawMaterials as JSON
+  if (rawMaterials && (rawMaterials.startsWith('{') || rawMaterials.startsWith('['))) {
+    try {
+      const parsed = JSON.parse(rawMaterials);
+      if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        return parsed;
+      }
+    } catch (e) {}
+  }
+
+  // 3. Parse comma-separated string like "PLA+, PETG, ABS, Carbon Fiber, TPU"
+  if (rawMaterials && typeof rawMaterials === 'string') {
+    const names = rawMaterials.split(',').map(s => s.trim()).filter(Boolean);
+    if (names.length > 0) {
+      const result = {};
+      names.forEach(rawName => {
+        const isRestocking = rawName.toLowerCase().includes('[restocking]');
+        const rateMatch = rawName.match(/\[rate:([\d.]+)\]/i);
+        const costMatch = rawName.match(/\[cost:([\d.]+)\]/i);
+        const cleanName = rawName
+          .replace(/\[restocking\]/gi, '')
+          .replace(/\[rate:[\d.]+\]/gi, '')
+          .replace(/\[cost:[\d.]+\]/gi, '')
+          .trim();
+        if (!cleanName) return;
+        const normKey = normalizeMaterialKey(cleanName);
+        const isStandard = ['pla', 'pla_plus', 'petg', 'abs', 'tpu', 'carbon_fiber'].includes(normKey);
+        const key = isStandard ? normKey : cleanName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const def = DEFAULT_MATERIAL_RATES[key] || DEFAULT_MATERIAL_RATES[normKey] || DEFAULT_MATERIAL_RATES.pla;
+        result[key] = {
+          name: cleanName,
+          selling_rate: rateMatch ? parseFloat(rateMatch[1]) : (def.selling_rate || 2.0),
+          cost: costMatch ? parseFloat(costMatch[1]) : (def.cost || 0.75),
+          in_stock: !isRestocking
+        };
+      });
+
+      // Ensure standard PLA is present if not explicitly included
+      if (!result.pla && !names.some(n => n.toLowerCase() === 'pla')) {
+        result.pla = { ...DEFAULT_MATERIAL_RATES.pla };
+      }
+      return result;
+    }
+  }
+
+  return { ...DEFAULT_MATERIAL_RATES };
+}
+
+/**
+ * Serializes materials catalog into site_config.materials comma-separated string
+ */
+export function serializeFilamentCatalog(materials) {
+  if (!materials || typeof materials !== 'object') return 'PLA, PLA+, PETG, ABS, TPU, Carbon Fiber';
+  return Object.values(materials)
+    .filter(m => m && m.name)
+    .map(m => {
+      const parts = [m.name];
+      if (m.selling_rate !== undefined && m.selling_rate !== null) {
+        parts.push(`[rate:${Number(m.selling_rate).toFixed(2)}]`);
+      }
+      if (m.cost !== undefined && m.cost !== null) {
+        parts.push(`[cost:${Number(m.cost).toFixed(2)}]`);
+      }
+      if (m.in_stock === false) {
+        parts.push(`[restocking]`);
+      }
+      return parts.join(' ');
+    })
+    .join(', ');
 }
 
 /**
@@ -84,10 +188,11 @@ export function calculateOrderQuote({
     const cleanRawMat = rawMat.replace(/\[restocking\]/gi, '').trim();
     const mKey = normalizeMaterialKey(cleanRawMat);
     const directByName = Object.values(mats).find(m => m && m.name && m.name.toLowerCase().trim() === cleanRawMat);
-    const mData = mats[cleanRawMat] ||
+    const mData = directByName ||
+                  mats[cleanRawMat] ||
                   mats[cleanRawMat.replace(/\s+/g, '_')] ||
-                  directByName ||
                   mats[mKey] ||
+                  DEFAULT_MATERIAL_RATES[mKey] ||
                   DEFAULT_MATERIAL_RATES.pla;
 
     totalWeightG += w;

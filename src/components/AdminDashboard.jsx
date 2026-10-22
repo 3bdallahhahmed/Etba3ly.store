@@ -5,7 +5,9 @@ import {
   DEFAULT_SHIPPING_ZONES,
   calculateOrderQuote,
   calculatePartnerDistributions,
-  normalizeMaterialKey
+  normalizeMaterialKey,
+  serializeFilamentCatalog,
+  parseFilamentCatalog
 } from '../utils/pricingEngine';
 import GalleryStudioUploader from '../utils/GalleryStudioUploader';
 
@@ -281,7 +283,7 @@ export default function AdminDashboard({
     orderName: '',
     weightGrams: 30,
     printHours: 1.5,
-    material: 'pla',
+    material: 'PLA',
     printer: 'CC Abdalla',
     customPrice: '',
     deliveryMode: 'pickup'
@@ -289,27 +291,36 @@ export default function AdminDashboard({
 
   // Sync Remote Settings
   useEffect(() => {
-    if (!supabase) return;
     let isMounted = true;
     async function loadRemote() {
       try {
-        const { data: sData } = await supabase.from('pricing_settings').select('*').limit(1).maybeSingle();
-        if (isMounted && sData) {
-          setPricingSettings(prev => ({ ...prev, ...sData }));
-          localStorage.setItem('etba3ly_pricing_settings', JSON.stringify(sData));
+        if (supabase) {
+          const { data: sData } = await supabase.from('pricing_settings').select('*').limit(1).maybeSingle();
+          if (isMounted && sData) {
+            setPricingSettings(prev => ({ ...prev, ...sData }));
+            localStorage.setItem('etba3ly_pricing_settings', JSON.stringify(sData));
+          }
+          const { data: mData } = await supabase.from('material_rates').select('*');
+          if (isMounted && mData && mData.length > 0) {
+            const mapped = {};
+            mData.forEach(m => {
+              mapped[m.material_key] = {
+                name: m.display_name,
+                selling_rate: Number(m.selling_rate_per_gram),
+                cost: Number(m.cost_per_gram),
+                in_stock: m.is_active !== false
+              };
+            });
+            setMaterials(prev => ({ ...prev, ...mapped }));
+            localStorage.setItem('etba3ly_material_rates', JSON.stringify(mapped));
+            return;
+          }
         }
-        const { data: mData } = await supabase.from('material_rates').select('*');
-        if (isMounted && mData && mData.length > 0) {
-          const mapped = {};
-          mData.forEach(m => {
-            mapped[m.material_key] = {
-              name: m.display_name,
-              selling_rate: Number(m.selling_rate_per_gram),
-              cost: Number(m.cost_per_gram)
-            };
-          });
-          setMaterials(prev => ({ ...prev, ...mapped }));
-          localStorage.setItem('etba3ly_material_rates', JSON.stringify(mapped));
+        if (config && (config.materials || config.why_text)) {
+          const mapped = parseFilamentCatalog(config.materials, config.why_text);
+          if (isMounted && mapped && Object.keys(mapped).length > 0) {
+            setMaterials(prev => ({ ...prev, ...mapped }));
+          }
         }
       } catch (e) {
         console.warn('Could not sync remote pricing settings:', e);
@@ -317,7 +328,7 @@ export default function AdminDashboard({
     }
     loadRemote();
     return () => { isMounted = false; };
-  }, [supabase]);
+  }, [supabase, config?.materials, config?.why_text]);
 
   // Keep selected order synced when orders list updates
   useEffect(() => {
@@ -551,18 +562,24 @@ export default function AdminDashboard({
       localStorage.setItem('etba3ly_pricing_settings', JSON.stringify(pricingSettings));
       localStorage.setItem('etba3ly_material_rates', JSON.stringify(materials));
 
-      const materialsString = Object.values(materials)
-        .map(m => m.in_stock === false ? `${m.name} [restocking]` : m.name)
-        .join(', ');
-
+      const materialsString = serializeFilamentCatalog(materials);
       const cleanWhy = (config.why_text || '').replace(/\n?<!--RATES_CATALOG:.*?-->/s, '').trim();
       const updatedWhy = `${cleanWhy}\n<!--RATES_CATALOG:${JSON.stringify(materials)}-->`;
 
+      let cloudSuccess = false;
+      let cloudErrorMsg = null;
+
       if (supabase) {
-        await supabase.from('site_config').update({
+        const { data, error } = await supabase.from('site_config').update({
           materials: materialsString,
           why_text: updatedWhy
-        }).eq('id', 1);
+        }).eq('id', 1).select();
+
+        if (error) {
+          cloudErrorMsg = error.message;
+        } else if (data && data.length > 0) {
+          cloudSuccess = true;
+        }
       }
 
       setConfig(prev => ({
@@ -570,8 +587,15 @@ export default function AdminDashboard({
         materials: materialsString,
         why_text: updatedWhy
       }));
+      setMaterials(materials);
 
-      addToast('Parameters & filaments saved live to website', 'success');
+      if (cloudSuccess) {
+        addToast('Filaments & pricing synced live to ordering website', 'success');
+      } else if (cloudErrorMsg) {
+        addToast(`Saved locally. Cloud sync warning: ${cloudErrorMsg}`, 'info');
+      } else {
+        addToast('Parameters saved locally. Log into Admin account to sync cloud database.', 'info');
+      }
     } catch (err) {
       console.error('Error saving pricing:', err);
       addToast('Saved locally: ' + (err.message || err), 'info');
@@ -584,11 +608,11 @@ export default function AdminDashboard({
     e.preventDefault();
     const w = Number(quickOrder.weightGrams) || 0;
     const h = Number(quickOrder.printHours) || 0.5;
-    const mat = quickOrder.material || 'pla';
+    const cleanMatName = Object.values(materials).find(m => m.name.toLowerCase() === String(quickOrder.material || '').toLowerCase())?.name || quickOrder.material || 'PLA';
     const delivery = quickOrder.deliveryMode || 'pickup';
 
     const calculatedQuote = calculateOrderQuote({
-      items: [{ weightGrams: w, printHours: h, materialKey: mat }],
+      items: [{ weightGrams: w, printHours: h, materialKey: cleanMatName }],
       deliveryMode: delivery,
       customSettings: pricingSettings,
       customMaterials: materials
@@ -605,7 +629,7 @@ export default function AdminDashboard({
       phone: quickOrder.phone || '01000000000',
       email: 'direct@etba3ly.store',
       ordername: quickOrder.orderName || 'Workshop Print Job',
-      material: mat.toUpperCase(),
+      material: cleanMatName,
       color: 'Standard',
       notes: enrichedNotes,
       status: 'queued',
@@ -681,7 +705,8 @@ export default function AdminDashboard({
       const rev = Number(o.totalprice) || 0;
 
       const matKey = normalizeMaterialKey(o.material);
-      const matCostRate = materials[matKey]?.cost || 0.65;
+      const directMat = Object.values(materials).find(m => m && m.name && m.name.toLowerCase() === String(o.material || '').toLowerCase().trim());
+      const matCostRate = directMat?.cost || materials[matKey]?.cost || 0.65;
       const materialCost = w * matCostRate;
       const machineWearCost = h * (Number(pricingSettings.maintenance_hourly_rate) || 5);
       const depreciationCost = h * (Number(pricingSettings.depreciation_hourly_rate) || 4.5);
@@ -2246,6 +2271,9 @@ export default function AdminDashboard({
                   {Object.entries(materials).map(([k, d]) => (
                     <option key={k} value={d.name || k}>{d.name || k}</option>
                   ))}
+                  {editingOrderData.material && !Object.values(materials).some(m => m.name.toLowerCase() === String(editingOrderData.material).toLowerCase()) && (
+                    <option value={editingOrderData.material}>{editingOrderData.material}</option>
+                  )}
                 </select>
               </div>
             </div>
@@ -2425,7 +2453,7 @@ export default function AdminDashboard({
                   style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                 >
                   {Object.entries(materials).map(([k, d]) => (
-                    <option key={k} value={k}>{d.name || k}</option>
+                    <option key={k} value={d.name || k}>{d.name || k}</option>
                   ))}
                 </select>
               </div>

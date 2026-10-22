@@ -1,6 +1,14 @@
 import AdminDashboard from "./components/AdminDashboard";
 import AdminFinancialDashboard from "./components/AdminFinancialDashboard";
-import { calculateOrderQuote, DEFAULT_PRICING_SETTINGS, DEFAULT_MATERIAL_RATES, DEFAULT_SHIPPING_ZONES } from "./utils/pricingEngine";
+import {
+  calculateOrderQuote,
+  DEFAULT_PRICING_SETTINGS,
+  DEFAULT_MATERIAL_RATES,
+  DEFAULT_SHIPPING_ZONES,
+  parseFilamentCatalog,
+  serializeFilamentCatalog,
+  normalizeMaterialKey
+} from "./utils/pricingEngine";
 import React, { useState, useEffect, useRef, Suspense, useMemo, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -945,7 +953,7 @@ const DEFAULT_CONFIG = {
   why_text: "We're students who love making things. Our setup is tuned for speed and precision, so you get your parts fast without breaking the bank. PLA, PETG, TPU — we've got what you need.",
   price_per_gram: 3,
   price_review_threshold: 300,
-  materials: "PLA, PETG, ABS, Carbon Fiber, TPU",
+  materials: "PLA, PLA+, PETG, ABS, TPU, Carbon Fiber",
   colors: "White, Black, Silver, Red, Orange, Blue, Gray",
   whatsapp_number: "",
   whatsapp_api_key: "",
@@ -1430,8 +1438,14 @@ export default function App() {
 
   // Synchronize newOrder material and color strictly with active CMS configuration
   useEffect(() => {
-    if (config.materials) {
-      const activeMats = config.materials.split(',').map(m => m.trim()).filter(Boolean);
+    const available = Object.values(materialRates).filter(m => m && m.in_stock !== false);
+    if (available.length > 0) {
+      const currentValid = available.some(m => m.name.toLowerCase() === (newOrder.material || "").toLowerCase());
+      if (!currentValid) {
+        setNewOrder(prev => ({ ...prev, material: available[0].name }));
+      }
+    } else if (config.materials) {
+      const activeMats = config.materials.split(',').map(m => m.replace(/\[restocking\]/gi, '').trim()).filter(Boolean);
       if (activeMats.length > 0 && (!newOrder.material || !activeMats.includes(newOrder.material))) {
         setNewOrder(prev => ({ ...prev, material: activeMats[0] }));
       }
@@ -1442,7 +1456,7 @@ export default function App() {
         setNewOrder(prev => ({ ...prev, color: activeCols[0] }));
       }
     }
-  }, [config.materials, config.colors, newOrder.material, newOrder.color]);
+  }, [materialRates, config.materials, config.colors, newOrder.material, newOrder.color]);
 
   // Scroll reveal — re-run when hash/admin changes so newly-rendered sections get observed
   useEffect(() => {
@@ -1523,15 +1537,10 @@ export default function App() {
         };
 
         setConfig(finalConfig);
-        if (data.why_text) {
-          const match = data.why_text.match(/<!--RATES_CATALOG:(.*?)-->/s);
-          if (match) {
-            try {
-              const parsed = JSON.parse(match[1]);
-              setMaterialRates(prev => ({ ...prev, ...parsed }));
-              localStorage.setItem('etba3ly_material_rates', JSON.stringify(parsed));
-            } catch (e) {}
-          }
+        if (data.materials || data.why_text) {
+          const activeRates = parseFilamentCatalog(data.materials, data.why_text);
+          setMaterialRates(prev => ({ ...prev, ...activeRates }));
+          try { localStorage.setItem('etba3ly_material_rates', JSON.stringify(activeRates)); } catch (e) {}
         }
         try { localStorage.setItem("etba3ly_cached_config", JSON.stringify(finalConfig)); } catch (e) {}
       } else {
@@ -1910,7 +1919,8 @@ export default function App() {
       const remainingBalance = quote.remainingBalance;
       const cleanNotes = (newOrder.notes || "").trim();
 
-      const defMat = config.materials ? config.materials.split(',')[0].trim() : "PLA";
+      const firstAvailable = Object.values(materialRates).find(m => m && m.in_stock !== false);
+      const defMat = firstAvailable ? firstAvailable.name : (config.materials ? config.materials.split(',')[0].trim() : "PLA");
       const defCol = config.colors ? config.colors.split(',')[0].trim() : "White";
       const finalMaterial = (newOrder.material || defMat).trim();
       const finalColor = (newOrder.color || defCol).trim();
@@ -2948,17 +2958,32 @@ export default function App() {
                     <div style={{ width: "100%" }}>
                       <label>Material</label>
                       <select value={newOrder.material} onChange={e => setNewOrder(p => ({ ...p, material: e.target.value }))}>
-                        {config.materials ? config.materials.split(',').map(m => {
-                          const raw = m.trim();
-                          const isRestocking = raw.toLowerCase().includes('[restocking]');
-                          const cleanName = raw.replace(/\[restocking\]/gi, '').trim();
-                          if (!cleanName) return null;
-                          return (
-                            <option key={cleanName} value={cleanName} disabled={isRestocking}>
-                              {cleanName}{isRestocking ? ' (Restocking soon)' : ''}
-                            </option>
-                          );
-                        }) : <option value="PLA">PLA</option>}
+                        {materialRates && Object.keys(materialRates).length > 0 ? (
+                          Object.entries(materialRates).map(([k, m]) => {
+                            const isRestocking = m.in_stock === false;
+                            return (
+                              <option key={k} value={m.name} disabled={isRestocking}>
+                                {m.name}{isRestocking ? ' (Restocking soon)' : ''}
+                              </option>
+                            );
+                          })
+                        ) : config.materials ? (
+                          config.materials.split(',').map(m => {
+                            const raw = m.trim();
+                            const isRestocking = raw.toLowerCase().includes('[restocking]');
+                            const cleanName = raw
+                              .replace(/\[restocking\]/gi, '')
+                              .replace(/\[rate:[\d.]+\]/gi, '')
+                              .replace(/\[cost:[\d.]+\]/gi, '')
+                              .trim();
+                            if (!cleanName) return null;
+                            return (
+                              <option key={cleanName} value={cleanName} disabled={isRestocking}>
+                                {cleanName}{isRestocking ? ' (Restocking soon)' : ''}
+                              </option>
+                            );
+                          })
+                        ) : <option value="PLA">PLA</option>}
                       </select>
                     </div>
                   </div>
