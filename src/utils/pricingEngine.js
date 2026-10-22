@@ -42,6 +42,26 @@ export const DEFAULT_SHIPPING_ZONES = {
 };
 
 /**
+ * Resolves CSS color hex from filament color names.
+ */
+export function getColorHex(colorName = "") {
+  const c = String(colorName || "").toLowerCase().trim();
+  if (c.startsWith("#")) return c;
+  if (c.includes("white") || c.includes("marble")) return "#f8fafc";
+  if (c.includes("black") || c.includes("carbon") || c.includes("obsidian")) return "#1e232a";
+  if (c.includes("orange") || c.includes("mclaren")) return "#ff8000";
+  if (c.includes("silver") || c.includes("grey") || c.includes("gray") || c.includes("titanium")) return "#94a3b8";
+  if (c.includes("red") || c.includes("crimson")) return "#ef4444";
+  if (c.includes("blue") || c.includes("sky") || c.includes("cobalt")) return "#3b82f6";
+  if (c.includes("green") || c.includes("emerald")) return "#10b981";
+  if (c.includes("yellow") || c.includes("gold")) return "#eab308";
+  if (c.includes("purple") || c.includes("violet")) return "#8b5cf6";
+  if (c.includes("pink")) return "#ec4899";
+  if (c.includes("brown") || c.includes("wood")) return "#78350f";
+  return "#64748b";
+}
+
+/**
  * Normalizes material keys from raw names (e.g. "Elegoo Rapid PLA+", "petg", "PLA")
  */
 export function normalizeMaterialKey(rawName) {

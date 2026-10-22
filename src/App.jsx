@@ -1441,27 +1441,38 @@ export default function App() {
     loadSavedOrders();
   }, []);
 
-  // Synchronize newOrder material and color strictly with active CMS configuration
+  // Synchronize newOrder initial material and color with active CMS configuration
   useEffect(() => {
     const available = Object.values(materialRates).filter(m => m && m.in_stock !== false);
-    if (available.length > 0) {
-      const currentValid = available.some(m => m.name.toLowerCase() === (newOrder.material || "").toLowerCase());
-      if (!currentValid) {
-        setNewOrder(prev => ({ ...prev, material: available[0].name }));
+    setNewOrder(prev => {
+      let updatedMaterial = prev.material;
+      let updatedColor = prev.color;
+
+      if (available.length > 0) {
+        const isCurrentValid = prev.material && available.some(m => m.name.toLowerCase() === prev.material.toLowerCase());
+        if (!isCurrentValid) {
+          updatedMaterial = available[0].name;
+        }
+      } else if (config.materials) {
+        const activeMats = config.materials.split(',').map(m => m.replace(/\[restocking\]/gi, '').trim()).filter(Boolean);
+        if (activeMats.length > 0 && (!prev.material || !activeMats.some(m => m.toLowerCase() === prev.material.toLowerCase()))) {
+          updatedMaterial = activeMats[0];
+        }
       }
-    } else if (config.materials) {
-      const activeMats = config.materials.split(',').map(m => m.replace(/\[restocking\]/gi, '').trim()).filter(Boolean);
-      if (activeMats.length > 0 && (!newOrder.material || !activeMats.includes(newOrder.material))) {
-        setNewOrder(prev => ({ ...prev, material: activeMats[0] }));
+
+      if (config.colors) {
+        const activeCols = config.colors.split(',').map(c => c.trim()).filter(Boolean);
+        if (activeCols.length > 0 && (!prev.color || !activeCols.some(c => c.toLowerCase() === prev.color.toLowerCase()))) {
+          updatedColor = activeCols[0];
+        }
       }
-    }
-    if (config.colors) {
-      const activeCols = config.colors.split(',').map(c => c.trim()).filter(Boolean);
-      if (activeCols.length > 0 && (!newOrder.color || !activeCols.includes(newOrder.color))) {
-        setNewOrder(prev => ({ ...prev, color: activeCols[0] }));
+
+      if (updatedMaterial !== prev.material || updatedColor !== prev.color) {
+        return { ...prev, material: updatedMaterial, color: updatedColor };
       }
-    }
-  }, [materialRates, config.materials, config.colors, newOrder.material, newOrder.color]);
+      return prev;
+    });
+  }, [materialRates, config.materials, config.colors]);
 
   // Scroll reveal — re-run when hash/admin changes so newly-rendered sections get observed
   useEffect(() => {
@@ -3000,11 +3011,11 @@ export default function App() {
                       <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 800 }}>{newOrder.color || "Select Color"}</span>
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {config.colors.split(',').map(c => {
+                      {(config.colors || "White, Black, Silver, Red").split(',').map(c => {
                         const colorName = c.trim();
                         if (!colorName) return null;
                         const hex = getColorHex(colorName);
-                        const isSelected = (newOrder.color || "").toLowerCase() === colorName.toLowerCase();
+                        const isSelected = (newOrder.color || "").toLowerCase().trim() === colorName.toLowerCase().trim();
                         return (
                           <button
                             key={colorName}

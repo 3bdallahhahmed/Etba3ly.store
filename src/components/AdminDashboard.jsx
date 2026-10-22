@@ -7,7 +7,8 @@ import {
   calculatePartnerDistributions,
   normalizeMaterialKey,
   serializeFilamentCatalog,
-  parseFilamentCatalog
+  parseFilamentCatalog,
+  getColorHex
 } from '../utils/pricingEngine';
 import GalleryStudioUploader from '../utils/GalleryStudioUploader';
 
@@ -270,6 +271,16 @@ export default function AdminDashboard({
 
   const [isAddFilamentOpen, setIsAddFilamentOpen] = useState(false);
   const [newFilament, setNewFilament] = useState({ name: '', selling_rate: 2.0, cost: 0.75 });
+
+  const [colorsList, setColorsList] = useState(() => (config?.colors || 'White, Black, Silver, Red, Orange, Marble White, Sky Blue, Green').split(',').map(c => c.trim()).filter(Boolean));
+  const [newColorInput, setNewColorInput] = useState('');
+  const [isAddColorOpen, setIsAddColorOpen] = useState(false);
+
+  useEffect(() => {
+    if (config && config.colors) {
+      setColorsList(config.colors.split(',').map(c => c.trim()).filter(Boolean));
+    }
+  }, [config?.colors]);
 
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -557,6 +568,34 @@ export default function AdminDashboard({
     addToast(`${current.name} marked as ${nextStock ? 'In Stock' : 'Restocking Soon'}. Click Save to publish.`, 'info');
   };
 
+  const handleAddColor = (e) => {
+    if (e) e.preventDefault();
+    const trimmed = (newColorInput || '').trim();
+    if (!trimmed) {
+      addToast('Please enter a color name', 'error');
+      return;
+    }
+    if (colorsList.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
+      addToast('A color with this name already exists', 'error');
+      return;
+    }
+    const updated = [...colorsList, trimmed];
+    setColorsList(updated);
+    setNewColorInput('');
+    setIsAddColorOpen(false);
+    addToast(`Added ${trimmed}. Click Save Parameters to publish live.`, 'success');
+  };
+
+  const handleDeleteColor = (colorToDelete) => {
+    if (colorsList.length <= 1) {
+      addToast('Must keep at least one active color', 'error');
+      return;
+    }
+    const updated = colorsList.filter(c => c !== colorToDelete);
+    setColorsList(updated);
+    addToast(`Removed ${colorToDelete}. Click Save Parameters to publish live.`, 'info');
+  };
+
   const handleSaveFinancials = async (e) => {
     if (e) e.preventDefault();
     setSavingSettings(true);
@@ -565,6 +604,7 @@ export default function AdminDashboard({
       localStorage.setItem('etba3ly_material_rates', JSON.stringify(materials));
 
       const materialsString = serializeFilamentCatalog(materials);
+      const colorsString = colorsList.join(', ');
       const cleanWhy = (config.why_text || '').replace(/\n?<!--RATES_CATALOG:.*?-->/s, '').trim();
       const updatedWhy = `${cleanWhy}\n<!--RATES_CATALOG:${JSON.stringify(materials)}-->`;
 
@@ -574,6 +614,7 @@ export default function AdminDashboard({
       if (supabase) {
         const { data, error } = await supabase.from('site_config').update({
           materials: materialsString,
+          colors: colorsString,
           why_text: updatedWhy
         }).eq('id', 1).select();
 
@@ -587,12 +628,13 @@ export default function AdminDashboard({
       setConfig(prev => ({
         ...prev,
         materials: materialsString,
+        colors: colorsString,
         why_text: updatedWhy
       }));
       setMaterials(materials);
 
       if (cloudSuccess) {
-        addToast('Filaments & pricing synced live to ordering website', 'success');
+        addToast('Filaments, colors & pricing synced live to ordering website', 'success');
       } else if (cloudErrorMsg) {
         addToast(`Saved locally. Cloud sync warning: ${cloudErrorMsg}`, 'info');
       } else {
@@ -1704,7 +1746,119 @@ export default function AdminDashboard({
                   </table>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 12 }}>
+                {/* Filament Colors Catalog */}
+                <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${theme.borderSubtle}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>Filament Colors Catalog</div>
+                      <div style={{ fontSize: 11, color: theme.textSecondary }}>Color swatches displayed to customers during ordering.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddColorOpen(!isAddColorOpen)}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: 980,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: theme.buttonSecondaryBg,
+                        color: theme.buttonSecondaryText,
+                        border: `1px solid ${theme.border}`,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {isAddColorOpen ? 'Cancel' : '+ Add Color'}
+                    </button>
+                  </div>
+
+                  {isAddColorOpen && (
+                    <div style={{
+                      background: theme.canvas,
+                      border: `1px solid ${theme.border}`,
+                      borderRadius: 8,
+                      padding: 12,
+                      marginBottom: 12,
+                      display: 'flex',
+                      gap: 10,
+                      alignItems: 'center'
+                    }}>
+                      <input
+                        type="text"
+                        placeholder="Color name (e.g. Sky Blue, Emerald Green, Silk Gold, Black)"
+                        value={newColorInput}
+                        onChange={e => setNewColorInput(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddColor())}
+                        style={{ flex: 1, padding: '7px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddColor}
+                        style={{
+                          padding: '7px 16px',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          background: theme.buttonPrimaryBg,
+                          color: theme.buttonPrimaryText,
+                          border: 'none',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {colorsList.map(c => {
+                      const hex = getColorHex(c);
+                      return (
+                        <div
+                          key={c}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '6px 12px',
+                            borderRadius: 980,
+                            background: theme.canvas,
+                            border: `1px solid ${theme.border}`,
+                            fontSize: 12,
+                            color: theme.text
+                          }}
+                        >
+                          <span style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: '50%',
+                            background: hex,
+                            border: '1px solid rgba(255,255,255,0.3)',
+                            display: 'inline-block'
+                          }} />
+                          <span style={{ fontWeight: 500 }}>{c}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteColor(c)}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: theme.textTertiary,
+                              cursor: 'pointer',
+                              fontSize: 14,
+                              padding: '0 2px',
+                              lineHeight: 1
+                            }}
+                            title={`Remove ${c}`}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 16 }}>
                   <button
                     type="submit"
                     disabled={savingSettings}
