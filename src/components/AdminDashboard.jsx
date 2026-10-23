@@ -1105,30 +1105,29 @@ export default function AdminDashboard({
             alignItems: 'center',
             marginBottom: 20,
             flexWrap: 'wrap',
-            gap: 12
+            gap: 16
           }}>
-            <div>
-              <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0, color: theme.text }}>
-                {activeNav === 'orders' && 'Orders'}
-                {activeNav === 'fleet' && 'Devices'}
-                {activeNav === 'partners' && 'Finance & Partner Allocations'}
-                {activeNav === 'settings' && 'Workshop Settings'}
-                {activeNav === 'gallery' && 'Showcase Portfolio'}
-              </h1>
-              <span style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2, display: 'inline-block' }}>
-                {activeNav === 'orders' && `${filteredOrders.length} orders configured`}
-                {activeNav === 'fleet' && '2 CoreXY Elegoo Centauri Carbon devices active'}
-                {activeNav === 'partners' && 'Realized distributions for Mazen and Abdalla'}
-                {activeNav === 'settings' && 'Dynamic pricing rates and CMS settings'}
-                {activeNav === 'gallery' && `${galleryItems.length} published products`}
-              </span>
-            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+              <div>
+                <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0, color: theme.text }}>
+                  {activeNav === 'orders' && 'Orders'}
+                  {activeNav === 'fleet' && 'Devices'}
+                  {activeNav === 'partners' && 'Finance & Partner Allocations'}
+                  {activeNav === 'settings' && 'Workshop Settings'}
+                  {activeNav === 'gallery' && 'Showcase Portfolio'}
+                </h1>
+                <span style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2, display: 'inline-block' }}>
+                  {activeNav === 'orders' && `${filteredOrders.length} orders configured`}
+                  {activeNav === 'fleet' && '2 CoreXY Elegoo Centauri Carbon devices active'}
+                  {activeNav === 'partners' && 'Realized distributions for Mazen and Abdalla'}
+                  {activeNav === 'settings' && 'Dynamic pricing rates and CMS settings'}
+                  {activeNav === 'gallery' && `${galleryItems.length} published products`}
+                </span>
+              </div>
 
-            {/* Orders specific filters */}
-            {activeNav === 'orders' && (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                {/* 4 Small Apple Metric Boxes */}
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* 4 Small Apple Metric Boxes */}
+              {activeNav === 'orders' && (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   {[
                     { id: 'total', label: 'Total', count: orderCounts.total, filter: 'all' },
                     { id: 'queued', label: 'Queued', count: orderCounts.queued, filter: 'queued', dot: '#2997ff' },
@@ -1198,7 +1197,12 @@ export default function AdminDashboard({
                     );
                   })}
                 </div>
+              )}
+            </div>
 
+            {/* Orders specific filters - EXACT SAME ORIGINAL PLACE & SIZES */}
+            {activeNav === 'orders' && (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
                 {/* Search */}
                 <div style={{
                   position: 'relative',
@@ -1222,7 +1226,7 @@ export default function AdminDashboard({
                       fontSize: 13,
                       paddingLeft: 8,
                       outline: 'none',
-                      width: 170
+                      width: 180
                     }}
                   />
                 </div>
