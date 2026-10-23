@@ -3,8 +3,8 @@ import React, { useState } from "react";
 export const SERVICE_TIERS = {
   economy: {
     id: "economy",
-    title: "اقتصادي",
-    subtitle: "طباعة سريعة، تكلفة أقل",
+    title: "Economy",
+    subtitle: "Fast turnaround, lower cost",
     badgeLabel: "Draft 0.28mm",
     layerHeight: 0.28,
     infill: 15,
@@ -14,8 +14,8 @@ export const SERVICE_TIERS = {
   },
   standard: {
     id: "standard",
-    title: "قياسي",
-    subtitle: "توازن بين الجودة والسعر",
+    title: "Standard",
+    subtitle: "Balanced quality & speed",
     badgeLabel: "Standard 0.20mm",
     layerHeight: 0.20,
     infill: 20,
@@ -25,8 +25,8 @@ export const SERVICE_TIERS = {
   },
   professional: {
     id: "professional",
-    title: "احترافي",
-    subtitle: "تشطيب عالي الجودة",
+    title: "Professional",
+    subtitle: "High precision surface finish",
     badgeLabel: "Fine 0.12mm",
     layerHeight: 0.12,
     infill: 25,
@@ -65,8 +65,8 @@ export default function ServiceTierSelector({
     <div
       className="service-tier-wrapper"
       style={{
-        direction: "rtl",
-        textAlign: "right",
+        direction: "ltr",
+        textAlign: "left",
         marginBottom: 24,
         background: "rgba(22, 26, 35, 0.7)",
         backdropFilter: "blur(24px)",
@@ -88,7 +88,7 @@ export default function ServiceTierSelector({
             letterSpacing: "-0.01em"
           }}
         >
-          باقة الخدمة
+          Service Tier
         </h3>
         <p
           style={{
@@ -98,7 +98,7 @@ export default function ServiceTierSelector({
             lineHeight: 1.5
           }}
         >
-          اختيار سريع يضبط الدقة والملء والتشطيب معًا.
+          Quick preset adjusting resolution, infill density, and surface finish.
         </p>
       </div>
 
@@ -129,7 +129,7 @@ export default function ServiceTierSelector({
                 userSelect: "none"
               }}
             >
-              {/* Right side: Icon badge and Text */}
+              {/* Left side: Icon badge and Text */}
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 {/* Icon Badge */}
                 <div
@@ -147,7 +147,6 @@ export default function ServiceTierSelector({
                     transition: "all 0.2s ease"
                   }}
                 >
-                  {/* Lightning SVG Icon */}
                   <svg
                     viewBox="0 0 24 24"
                     width="22"
@@ -172,7 +171,7 @@ export default function ServiceTierSelector({
                       lineHeight: 1.3
                     }}
                   >
-                    اقتصادي
+                    Economy
                   </div>
                   <div
                     style={{
@@ -181,12 +180,12 @@ export default function ServiceTierSelector({
                       marginTop: 2
                     }}
                   >
-                    طباعة سريعة، تكلفة أقل
+                    Fast turnaround, lower cost
                   </div>
                 </div>
               </div>
 
-              {/* Left side: Radio indicator */}
+              {/* Right side: Radio indicator */}
               <div
                 style={{
                   width: 22,
@@ -245,7 +244,7 @@ export default function ServiceTierSelector({
                 userSelect: "none"
               }}
             >
-              {/* Right side: Icon badge and Text */}
+              {/* Left side: Icon badge and Text */}
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 {/* Icon Badge */}
                 <div
@@ -263,7 +262,6 @@ export default function ServiceTierSelector({
                     transition: "all 0.2s ease"
                   }}
                 >
-                  {/* Star SVG Icon */}
                   <svg
                     viewBox="0 0 24 24"
                     width="22"
@@ -288,7 +286,7 @@ export default function ServiceTierSelector({
                       lineHeight: 1.3
                     }}
                   >
-                    قياسي
+                    Standard
                   </div>
                   <div
                     style={{
@@ -297,12 +295,12 @@ export default function ServiceTierSelector({
                       marginTop: 2
                     }}
                   >
-                    توازن بين الجودة والسعر
+                    Balanced quality & speed
                   </div>
                 </div>
               </div>
 
-              {/* Left side: Radio indicator */}
+              {/* Right side: Radio indicator */}
               <div
                 style={{
                   width: 22,
@@ -361,7 +359,7 @@ export default function ServiceTierSelector({
                 userSelect: "none"
               }}
             >
-              {/* Right side: Icon badge and Text */}
+              {/* Left side: Icon badge and Text */}
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 {/* Icon Badge */}
                 <div
@@ -379,7 +377,6 @@ export default function ServiceTierSelector({
                     transition: "all 0.2s ease"
                   }}
                 >
-                  {/* Trophy SVG Icon */}
                   <svg
                     viewBox="0 0 24 24"
                     width="22"
@@ -408,7 +405,7 @@ export default function ServiceTierSelector({
                       lineHeight: 1.3
                     }}
                   >
-                    احترافي
+                    Professional
                   </div>
                   <div
                     style={{
@@ -417,12 +414,12 @@ export default function ServiceTierSelector({
                       marginTop: 2
                     }}
                   >
-                    تشطيب عالي الجودة
+                    High precision surface finish
                   </div>
                 </div>
               </div>
 
-              {/* Left side: Radio indicator */}
+              {/* Right side: Radio indicator */}
               <div
                 style={{
                   width: 22,
@@ -476,7 +473,6 @@ export default function ServiceTierSelector({
             transition: "color 0.2s ease"
           }}
         >
-          {/* Sliders SVG Icon */}
           <svg
             viewBox="0 0 24 24"
             width="17"
@@ -497,7 +493,7 @@ export default function ServiceTierSelector({
             <line x1="9" y1="8" x2="15" y2="8" />
             <line x1="17" y1="16" x2="23" y2="16" />
           </svg>
-          <span>خيارات متقدمة</span>
+          <span>Advanced Options</span>
           <svg
             viewBox="0 0 24 24"
             width="14"
@@ -535,7 +531,7 @@ export default function ServiceTierSelector({
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <label style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary, #F0F0F5)", margin: 0 }}>
-                كثافة الملء الداخلي (Infill)
+                Internal Infill Density
               </label>
               <span style={{ fontSize: 13, fontWeight: 800, color: "var(--accent, #FF8000)" }}>
                 {orderInfill}%
@@ -576,18 +572,18 @@ export default function ServiceTierSelector({
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <label style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary, #F0F0F5)", margin: 0 }}>
-                ارتفاع الطبقة (Layer Height)
+                Layer Height
               </label>
               <span style={{ fontSize: 13, fontWeight: 800, color: "var(--accent, #FF8000)" }}>
-                {orderLayerHeight.toFixed(2)} مم
+                {orderLayerHeight.toFixed(2)} mm
               </span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
               {[
-                { val: 0.12, label: "0.12 مم - فائق النعومة" },
-                { val: 0.16, label: "0.16 مم - دقة عالية" },
-                { val: 0.20, label: "0.20 مم - قياسي متوازن" },
-                { val: 0.28, label: "0.28 مم - مسودة سريعة" }
+                { val: 0.12, label: "0.12 mm — Ultra Fine" },
+                { val: 0.16, label: "0.16 mm — Fine Finish" },
+                { val: 0.20, label: "0.20 mm — Standard" },
+                { val: 0.28, label: "0.28 mm — Fast Draft" }
               ].map((opt) => {
                 const isOptActive = Math.abs(orderLayerHeight - opt.val) < 0.01;
                 return (
@@ -622,7 +618,7 @@ export default function ServiceTierSelector({
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, paddingTop: 4, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
             <div>
               <label style={{ fontSize: 12, color: "var(--text-tertiary, #64748b)", display: "block", marginBottom: 4 }}>
-                قطر الفوهة (Nozzle)
+                Nozzle Diameter
               </label>
               <select
                 value={orderNozzle}
@@ -641,14 +637,14 @@ export default function ServiceTierSelector({
                   border: "1px solid rgba(255,255,255,0.12)"
                 }}
               >
-                <option value={0.40}>0.40 مم (الافتراضي)</option>
-                <option value={0.20}>0.20 مم (دقة فائقة)</option>
+                <option value={0.40}>0.40 mm (Standard)</option>
+                <option value={0.20}>0.20 mm (High Precision)</option>
               </select>
             </div>
 
             <div>
               <label style={{ fontSize: 12, color: "var(--text-tertiary, #64748b)", display: "block", marginBottom: 4 }}>
-                الدعامات (Supports)
+                Supports
               </label>
               <button
                 type="button"
@@ -668,7 +664,7 @@ export default function ServiceTierSelector({
                   transition: "all 0.15s ease"
                 }}
               >
-                {enableSupports ? "تلقائي عند الحاجة" : "معطلة"}
+                {enableSupports ? "Auto (When needed)" : "Disabled"}
               </button>
             </div>
           </div>

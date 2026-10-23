@@ -39,7 +39,7 @@ export default function ReviewInvoiceCard({
   const rate = Number(mData.selling_rate) || 2.0;
   const cleanMatLabel = (materialName || "PLA").replace(/\[.*?\]/g, "").trim();
 
-  // Itemized breakdowns matching image 2
+  // Itemized breakdowns matching user invoice format
   const supportWeight = hasMetrics && enableSupports
     ? Math.max(0.15, Math.round(weight * 0.045 * 100) / 100)
     : 0;
@@ -78,8 +78,8 @@ export default function ReviewInvoiceCard({
     <div
       className="review-invoice-card"
       style={{
-        direction: "rtl",
-        textAlign: "right",
+        direction: "ltr",
+        textAlign: "left",
         background: "rgba(20, 24, 34, 0.88)",
         backdropFilter: "blur(28px)",
         WebkitBackdropFilter: "blur(28px)",
@@ -92,7 +92,7 @@ export default function ReviewInvoiceCard({
         overflow: "hidden"
       }}
     >
-      {/* Top Header: Calculator Icon + تفاصيل التسعير */}
+      {/* Top Header: Calculator Icon + Pricing Breakdown */}
       <div
         style={{
           display: "flex",
@@ -142,11 +142,11 @@ export default function ReviewInvoiceCard({
             letterSpacing: "-0.01em"
           }}
         >
-          تفاصيل التسعير
+          Pricing Breakdown
         </h3>
       </div>
 
-      {/* Top Metrics Row: 3 Cards (الوزن | وقت الطباعة | الطبقات) */}
+      {/* Top Metrics Row: 3 Cards (Weight | Print Time | Layers) */}
       <div
         style={{
           display: "grid",
@@ -155,7 +155,7 @@ export default function ReviewInvoiceCard({
           marginBottom: 24
         }}
       >
-        {/* 1. Weight Card (Right in RTL) */}
+        {/* 1. Weight Card */}
         <div
           className="review-invoice-metric-box"
           style={{
@@ -203,11 +203,11 @@ export default function ReviewInvoiceCard({
               fontWeight: 600
             }}
           >
-            الوزن
+            Weight
           </div>
         </div>
 
-        {/* 2. Print Time Card (Center in RTL) */}
+        {/* 2. Print Time Card */}
         <div
           className="review-invoice-metric-box"
           style={{
@@ -254,11 +254,11 @@ export default function ReviewInvoiceCard({
               fontWeight: 600
             }}
           >
-            وقت الطباعة
+            Print Time
           </div>
         </div>
 
-        {/* 3. Layers Card (Left in RTL) */}
+        {/* 3. Layers Card */}
         <div
           className="review-invoice-metric-box"
           style={{
@@ -306,7 +306,7 @@ export default function ReviewInvoiceCard({
               fontWeight: 600
             }}
           >
-            الطبقات
+            Layers
           </div>
         </div>
       </div>
@@ -324,10 +324,10 @@ export default function ReviewInvoiceCard({
           }}
         >
           <span style={{ fontWeight: 600 }}>
-            تكلفة المادة (بلاستيك {cleanMatLabel})
+            Material Cost ({cleanMatLabel} Plastic)
           </span>
-          <span style={{ fontWeight: 700, color: "#ffffff", direction: "ltr" }}>
-            {hasMetrics ? `${materialCost.toFixed(2)} ج.م` : `${rate.toFixed(2)} ج.م/جم`}
+          <span style={{ fontWeight: 700, color: "#ffffff" }}>
+            {hasMetrics ? `${materialCost.toFixed(2)} EGP` : `${rate.toFixed(2)} EGP/g`}
           </span>
         </div>
 
@@ -341,9 +341,9 @@ export default function ReviewInvoiceCard({
             color: "#e2e8f0"
           }}
         >
-          <span style={{ fontWeight: 600 }}>تكلفة الطباعة</span>
-          <span style={{ fontWeight: 700, color: "#ffffff", direction: "ltr" }}>
-            {hasMetrics ? `${timeCost.toFixed(2)} ج.م` : "--"}
+          <span style={{ fontWeight: 600 }}>Machine Print Time</span>
+          <span style={{ fontWeight: 700, color: "#ffffff" }}>
+            {hasMetrics ? `${timeCost.toFixed(2)} EGP` : "--"}
           </span>
         </div>
 
@@ -362,11 +362,11 @@ export default function ReviewInvoiceCard({
         >
           <span style={{ fontWeight: 500 }}>
             {hasMetrics && enableSupports
-              ? `خامة الدعامات التقديرية (${supportWeight.toFixed(2)} جم)`
-              : "خامة الدعامات التقديرية"}
+              ? `Estimated Supports Material (${supportWeight.toFixed(2)}g)`
+              : "Estimated Supports Material"}
           </span>
-          <span style={{ fontWeight: 700, color: "#cbd5e1", direction: "ltr" }}>
-            {hasMetrics && enableSupports ? `${supportCost.toFixed(2)} ج.م` : "0.00 ج.م"}
+          <span style={{ fontWeight: 700, color: "#cbd5e1" }}>
+            {hasMetrics && enableSupports ? `${supportCost.toFixed(2)} EGP` : "0.00 EGP"}
           </span>
         </div>
 
@@ -380,9 +380,9 @@ export default function ReviewInvoiceCard({
             color: "#cbd5e1"
           }}
         >
-          <span style={{ fontWeight: 500 }}>إزالة الدعامات وتنظيفها</span>
-          <span style={{ fontWeight: 700, color: "#cbd5e1", direction: "ltr" }}>
-            {hasMetrics && enableSupports ? `${supportRemovalCost.toFixed(2)} ج.م` : "0.00 ج.م"}
+          <span style={{ fontWeight: 500 }}>Support Removal & Cleaning</span>
+          <span style={{ fontWeight: 700, color: "#cbd5e1" }}>
+            {hasMetrics && enableSupports ? `${supportRemovalCost.toFixed(2)} EGP` : "0.00 EGP"}
           </span>
         </div>
 
@@ -405,7 +405,7 @@ export default function ReviewInvoiceCard({
               color: "#ffffff"
             }}
           >
-            الإجمالي
+            Estimated Total
           </span>
           {isReviewRequired ? (
             <span
@@ -413,10 +413,10 @@ export default function ReviewInvoiceCard({
                 fontSize: 15,
                 fontWeight: 800,
                 color: "var(--accent, #FF8000)",
-                textAlign: "left"
+                textAlign: "right"
               }}
             >
-              مراجعة مطلوبة لتأكيد السعر النهائي
+              Engineer Review Required for Final Price
             </span>
           ) : (
             <span
@@ -424,11 +424,10 @@ export default function ReviewInvoiceCard({
                 fontSize: 26,
                 fontWeight: 900,
                 color: "var(--accent, #FF8000)",
-                direction: "ltr",
                 textShadow: "0 0 16px rgba(255, 128, 0, 0.35)"
               }}
             >
-              {hasMetrics ? `${finalTotal} ج.م` : `يُحدد بعد مراجعة الملف`}
+              {hasMetrics ? `${finalTotal} EGP` : `Calculated upon slicing`}
             </span>
           )}
         </div>
@@ -449,15 +448,15 @@ export default function ReviewInvoiceCard({
             }}
           >
             <div>
-              <span style={{ color: "var(--text-secondary, #94a3b8)" }}>العربون (50%): </span>
-              <strong style={{ color: "var(--status-done, #34C759)", direction: "ltr", display: "inline-block" }}>
-                {depositRequired} ج.م
+              <span style={{ color: "var(--text-secondary, #94a3b8)" }}>50% Deposit: </span>
+              <strong style={{ color: "var(--status-done, #34C759)", display: "inline-block" }}>
+                {depositRequired} EGP
               </strong>
             </div>
             <div>
-              <span style={{ color: "var(--text-secondary, #94a3b8)" }}>المتبقي عند الاستلام: </span>
-              <strong style={{ color: "#ffffff", direction: "ltr", display: "inline-block" }}>
-                {remainingBalance} ج.م
+              <span style={{ color: "var(--text-secondary, #94a3b8)" }}>Remaining upon Pickup: </span>
+              <strong style={{ color: "#ffffff", display: "inline-block" }}>
+                {remainingBalance} EGP
               </strong>
             </div>
           </div>
@@ -474,10 +473,10 @@ export default function ReviewInvoiceCard({
         >
           {isReviewRequired ? (
             <span style={{ color: "var(--accent, #FF8000)" }}>
-              نظرًا لحجم أو هندسة النموذج، سيقوم مهندس الورشة بمراجعة الملف يدويًا لتأكيد التكلفة الدقيقة وضمان أفضل دقة طباعة.
+              Due to part volume and geometry, our workshop team will review the 3D model for optimal machine orientation and confirm exact pricing before printing.
             </span>
           ) : (
-            "السعر تقديري وقد يتغيّر بعد مراجعة الملف."
+            "Preliminary estimate based on 3D geometry. Final price confirmed upon workshop review."
           )}
         </div>
       </div>

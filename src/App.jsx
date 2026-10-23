@@ -1524,6 +1524,10 @@ export default function App() {
           ? Number(data.price_review_threshold)
           : (storedThreshold ? parseFloat(storedThreshold) : 300);
 
+        const cleanWhy = (data.why_text || DEFAULT_CONFIG.why_text)
+          .replace(/\s*<!--RATES_CATALOG:.*?-->/s, '')
+          .trim();
+
         const isLegacy =
           !data.hero_title ||
           data.hero_title.includes("F1") ||
@@ -1542,13 +1546,14 @@ export default function App() {
           hero_title: DEFAULT_CONFIG.hero_title,
           hero_subtitle: DEFAULT_CONFIG.hero_subtitle,
           why_title: DEFAULT_CONFIG.why_title,
-          why_text: DEFAULT_CONFIG.why_text,
+          why_text: cleanWhy || DEFAULT_CONFIG.why_text,
           materials: DEFAULT_CONFIG.materials,
           colors: DEFAULT_CONFIG.colors,
           price_per_gram: data.price_per_gram || DEFAULT_CONFIG.price_per_gram,
           price_review_threshold: effectiveThreshold,
         } : {
           ...data,
+          why_text: cleanWhy || DEFAULT_CONFIG.why_text,
           telegram_bot_token: data.telegram_bot_token || storedTelegramToken,
           telegram_chat_id: data.telegram_chat_id || storedTelegramChatId,
           discord_webhook_url: data.discord_webhook_url || storedDiscordWebhook,
@@ -3067,7 +3072,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Service Tier Selection (باقة الخدمة) */}
+                  {/* Service Tier Selection */}
                   <ServiceTierSelector
                     selectedTier={selectedTier}
                     onSelectTier={(tierKey) => setSelectedTier(tierKey)}
@@ -3244,14 +3249,14 @@ export default function App() {
 
                       {clientMetrics && clientMetrics.metrics && (
                         <div style={{ marginTop: 8, marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "var(--text-secondary)", padding: "8px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)", flexWrap: "wrap", gap: 8 }}>
-                          <span>الأبعاد (Dimensions): <strong>{clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm</strong></span>
+                          <span>Dimensions: <strong>{clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm</strong></span>
                           {clientMetrics.filamentLengthMeters && (
-                            <span>طول الفتيل: <strong>{clientMetrics.filamentLengthMeters}m</strong></span>
+                            <span>Filament Length: <strong>{clientMetrics.filamentLengthMeters}m</strong></span>
                           )}
                         </div>
                       )}
 
-                      {/* Live Review Invoice Card matching Image 2 */}
+                      {/* Live Review Invoice Card */}
                       <ReviewInvoiceCard
                         clientMetrics={clientMetrics}
                         materialKey={newOrder.material || "pla"}
@@ -3309,9 +3314,9 @@ export default function App() {
                       <span className="review-item-value">{newOrder.orderName || "Untitled"}</span>
                     </div>
                     <div className="review-item">
-                      <span className="review-item-label">Service Tier (باقة الخدمة)</span>
+                      <span className="review-item-label">Service Tier</span>
                       <span className="review-item-value" style={{ fontWeight: 800, color: "var(--accent)" }}>
-                        {selectedTier === "economy" ? "اقتصادي (Draft 0.28mm)" : selectedTier === "professional" ? "احترافي (Fine 0.12mm)" : "قياسي (Standard 0.20mm)"}
+                        {selectedTier === "economy" ? "Economy (Draft 0.28mm)" : selectedTier === "professional" ? "Professional (Fine 0.12mm)" : "Standard (Standard 0.20mm)"}
                       </span>
                     </div>
                     <div className="review-item">
@@ -3337,7 +3342,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* تفاصيل التسعير (Invoice Breakdown matching Image 2) */}
+                  {/* Pricing Breakdown Card */}
                   <div style={{ marginBottom: 24 }}>
                     <ReviewInvoiceCard
                       clientMetrics={clientMetrics}
@@ -3395,7 +3400,7 @@ export default function App() {
                         <div className="review-item">
                           <span className="review-item-label">Service Tier</span>
                           <span className="review-item-value" style={{ fontWeight: 700, color: "var(--accent)" }}>
-                            {lastSubmittedQuote.tier === "economy" ? "اقتصادي (Draft 0.28mm)" : lastSubmittedQuote.tier === "professional" ? "احترافي (Fine 0.12mm)" : "قياسي (Standard 0.20mm)"}
+                            {lastSubmittedQuote.tier === "economy" ? "Economy (Draft 0.28mm)" : lastSubmittedQuote.tier === "professional" ? "Professional (Fine 0.12mm)" : "Standard (Standard 0.20mm)"}
                           </span>
                         </div>
                       )}
@@ -3597,7 +3602,7 @@ export default function App() {
                 border: 0
               }}
             >
-              Etba3ly Store | اطبعلي — 3D Printing Service Egypt
+              Etba3ly Store — On-Demand 3D Printing Service Egypt
             </span>
             <h1 style={{ whiteSpace: "pre-line" }}>{config.hero_title}</h1>
             <p style={{ whiteSpace: "pre-line" }}>{config.hero_subtitle}</p>
@@ -3615,7 +3620,7 @@ export default function App() {
           {/* ── WHY US ── */}
           <section id="why" className="section-container reveal">
             <h2>{config.why_title}</h2>
-            <p>{config.why_text}</p>
+            <p>{(config.why_text || "").replace(/\s*<!--RATES_CATALOG:.*?-->/s, "").trim()}</p>
             <div className="feature-cards">
               {[
                 { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--accent)"}}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>, title: "Fast Turnaround", desc: "Most orders done in 24–48hrs" },
@@ -3766,9 +3771,9 @@ export default function App() {
         <div className="footer-grid">
           <div>
             <div className="footer-brand">
-              <img src={getAssetPath("logo-dark.svg")} alt={`${brandName} Store - اطبعلي للطباعة ثلاثية الأبعاد`} className="footer-logo-img footer-logo" />
+              <img src={getAssetPath("logo-dark.svg")} alt={`${brandName} Store - On-Demand 3D Printing Service Egypt`} className="footer-logo-img footer-logo" />
             </div>
-            <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 14, margin: "0 0 6px 0", fontWeight: 600 }}>Etba3ly Store | متجر اطبعلي للطباعة ثلاثية الأبعاد</p>
+            <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 14, margin: "0 0 6px 0", fontWeight: 600 }}>Etba3ly Store | On-Demand 3D Printing Service Egypt</p>
             <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: 0 }}>Student-powered 3D printing. Fast, affordable, on campus across Egypt.</p>
           </div>
           <div className="footer-col">
@@ -3800,7 +3805,7 @@ export default function App() {
             )}
           </div>
         </div>
-        <div className="footer-bottom">&copy; {new Date().getFullYear()} {brandName} Store (اطبعلي). All rights reserved. | On-Demand 3D Printing Service Egypt</div>
+        <div className="footer-bottom">&copy; {new Date().getFullYear()} {brandName} Store. All rights reserved. | On-Demand 3D Printing Service Egypt</div>
       </footer>
 
       {/* Privacy Policy Modal */}

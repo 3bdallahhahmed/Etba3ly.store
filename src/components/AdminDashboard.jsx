@@ -325,6 +325,59 @@ export default function AdminDashboard({
 
   const [savingSettings, setSavingSettings] = useState(false);
 
+  // Website Content CMS State
+  const [cmsData, setCmsData] = useState({
+    hero_title: config?.hero_title || "Your Idea.\nMade Real.",
+    hero_subtitle: config?.hero_subtitle || "Upload your 3D design, pick your material, and we'll print it for you - fast, affordable, and right here on campus.",
+    why_title: config?.why_title || "Why Print With Us?",
+    why_text: (config?.why_text || "").replace(/\s*<!--RATES_CATALOG:.*?-->/s, '').trim() || "We're students who love making things. Our setup is tuned for speed and precision, so you get your parts fast without breaking the bank. PLA, PETG, ABS, Carbon Fiber, TPU -- we've got what you need.",
+    price_per_gram: config?.price_per_gram || 3,
+    whatsapp_number: config?.whatsapp_number || ""
+  });
+  const [savingCMS, setSavingCMS] = useState(false);
+
+  useEffect(() => {
+    if (config) {
+      setCmsData({
+        hero_title: config.hero_title || "Your Idea.\nMade Real.",
+        hero_subtitle: config.hero_subtitle || "Upload your 3D design, pick your material, and we'll print it for you - fast, affordable, and right here on campus.",
+        why_title: config.why_title || "Why Print With Us?",
+        why_text: (config.why_text || "").replace(/\s*<!--RATES_CATALOG:.*?-->/s, '').trim(),
+        price_per_gram: config.price_per_gram || 3,
+        whatsapp_number: config.whatsapp_number || ""
+      });
+    }
+  }, [config?.hero_title, config?.hero_subtitle, config?.why_title, config?.why_text, config?.price_per_gram, config?.whatsapp_number]);
+
+  async function handleSaveCMS(e) {
+    if (e) e.preventDefault();
+    setSavingCMS(true);
+    try {
+      const cleanWhyText = (cmsData.why_text || "").replace(/\s*<!--RATES_CATALOG:.*?-->/s, "").trim();
+      const updatePayload = {
+        hero_title: cmsData.hero_title,
+        hero_subtitle: cmsData.hero_subtitle,
+        why_title: cmsData.why_title,
+        why_text: cleanWhyText,
+        price_per_gram: parseFloat(cmsData.price_per_gram) || 3,
+        whatsapp_number: (cmsData.whatsapp_number || "").trim()
+      };
+
+      if (supabase) {
+        const { error } = await supabase.from('site_config').update(updatePayload).eq('id', 1);
+        if (error) throw error;
+      }
+
+      setConfig(prev => ({ ...prev, ...updatePayload }));
+      addToast('Website content updated and live!', 'success');
+    } catch (err) {
+      console.error(err);
+      addToast('Failed to save website content: ' + (err.message || err), 'error');
+    } finally {
+      setSavingCMS(false);
+    }
+  }
+
   // Edit Order Details Modal
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingOrderData, setEditingOrderData] = useState(null);
@@ -712,8 +765,7 @@ export default function AdminDashboard({
 
       const materialsString = serializeFilamentCatalog(materials);
       const colorsString = colorsList.join(', ');
-      const cleanWhy = (config.why_text || '').replace(/\n?<!--RATES_CATALOG:.*?-->/s, '').trim();
-      const updatedWhy = `${cleanWhy}\n<!--RATES_CATALOG:${JSON.stringify(materials)}-->`;
+      const cleanWhy = (config.why_text || '').replace(/\s*<!--RATES_CATALOG:.*?-->/s, '').trim();
 
       let cloudSuccess = false;
       let cloudErrorMsg = null;
@@ -722,7 +774,7 @@ export default function AdminDashboard({
         const { data, error } = await supabase.from('site_config').update({
           materials: materialsString,
           colors: colorsString,
-          why_text: updatedWhy
+          why_text: cleanWhy
         }).eq('id', 1).select();
 
         if (error) {
@@ -736,7 +788,7 @@ export default function AdminDashboard({
         ...prev,
         materials: materialsString,
         colors: colorsString,
-        why_text: updatedWhy
+        why_text: cleanWhy
       }));
       setMaterials(materials);
 
@@ -1699,6 +1751,127 @@ export default function AdminDashboard({
           {/* ───────────────────────────────────────────────────────── */}
           {activeNav === 'settings' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Website Content & Homepage Copy (CMS) */}
+              <form onSubmit={handleSaveCMS} style={{
+                background: theme.surface,
+                borderRadius: 12,
+                border: `1px solid ${theme.border}`,
+                padding: 24,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: theme.text }}>
+                      Website Content & Homepage Copy (CMS)
+                    </div>
+                    <div style={{ fontSize: 12, color: theme.textSecondary }}>
+                      Edit headers, hero copy, and the "Why Print With Us?" section live on the website.
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={savingCMS}
+                    style={{
+                      padding: '8px 18px',
+                      borderRadius: 980,
+                      background: theme.buttonPrimaryBg,
+                      color: theme.buttonPrimaryText,
+                      fontWeight: 600,
+                      fontSize: 12,
+                      border: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {savingCMS ? 'Saving...' : 'Save Website Content'}
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Why Us Section Title
+                    </label>
+                    <input
+                      type="text"
+                      value={cmsData.why_title}
+                      onChange={e => setCmsData({ ...cmsData, why_title: e.target.value })}
+                      placeholder="e.g. Why Print With Us?"
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      WhatsApp Contact Number
+                    </label>
+                    <input
+                      type="text"
+                      value={cmsData.whatsapp_number}
+                      onChange={e => setCmsData({ ...cmsData, whatsapp_number: e.target.value })}
+                      placeholder="e.g. 01012345678"
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Student Rate (EGP/gram)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={cmsData.price_per_gram}
+                      onChange={e => setCmsData({ ...cmsData, price_per_gram: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                    "Why Print With Us?" Paragraph Text
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={cmsData.why_text}
+                    onChange={e => setCmsData({ ...cmsData, why_text: e.target.value })}
+                    placeholder="Describe your student workshop, speed, precision, and available materials..."
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13, lineHeight: 1.5, fontFamily: 'inherit' }}
+                  />
+                  <div style={{ fontSize: 11, color: theme.textTertiary, marginTop: 4 }}>
+                    Clean copy only — raw comments are automatically stripped.
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Hero Headline
+                    </label>
+                    <input
+                      type="text"
+                      value={cmsData.hero_title}
+                      onChange={e => setCmsData({ ...cmsData, hero_title: e.target.value })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Hero Subtitle Description
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={cmsData.hero_subtitle}
+                      onChange={e => setCmsData({ ...cmsData, hero_subtitle: e.target.value })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12, lineHeight: 1.4, fontFamily: 'inherit' }}
+                    />
+                  </div>
+                </div>
+              </form>
+
               <form onSubmit={handleSaveFinancials} style={{
                 background: theme.surface,
                 borderRadius: 12,
