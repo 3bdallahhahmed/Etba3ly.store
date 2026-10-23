@@ -2,10 +2,11 @@
   "name": "3d-print-manager",
   "private": true,
   "version": "0.0.0",
-  "homepage": "https://3bdallahhahmed.github.io/3D-EJUST/",
+  "homepage": "https://3bdallahhahmed.github.io/Etba3ly.store/",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "argon": "node scripts/ask-argon.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -32,6 +33,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "gh-pages": "^6.3.0",
     "globals": "^17.6.0",
+    "puppeteer-core": "^25.15.0",
     "vite": "^8.0.12"
   }
 }

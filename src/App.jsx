@@ -1,20 +1,31 @@
+import AdminDashboard from "./components/AdminDashboard";
+import ServiceTierSelector, { SERVICE_TIERS } from "./components/ServiceTierSelector";
+import ReviewInvoiceCard from "./components/ReviewInvoiceCard";
+import {
+  calculateOrderQuote,
+  DEFAULT_PRICING_SETTINGS,
+  DEFAULT_MATERIAL_RATES,
+  DEFAULT_SHIPPING_ZONES,
+  parseFilamentCatalog,
+  serializeFilamentCatalog,
+  normalizeMaterialKey
+} from "./utils/pricingEngine";
 import React, { useState, useEffect, useRef, Suspense, useMemo, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Float, Html, useProgress, useGLTF, useEnvironment } from "@react-three/drei";
 import * as THREE from "three";
 import STLViewer from "./slicer/STLViewer.jsx";
-import AdminSlicerModal from "./slicer/AdminSlicerModal.jsx";
-import MoonrakerDispatchModal from "./slicer/MoonrakerDispatchModal.jsx";
-import { generateElegooGcode } from "./slicer/slicerEngine.js";
 import GalleryStudioUploader from "./utils/GalleryStudioUploader.jsx";
 import { processPartImageFile } from "./utils/partImageProcessor.js";
 import { upscaleImageFile } from "./utils/imageUpscaler.js";
 
 function getAssetPath(file) {
   const clean = (file || "").replace(/^\/+/, "");
-  if (typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/3d-ejust")) {
-    return `/3D-EJUST/${clean}`;
+  if (typeof window !== "undefined") {
+    const p = window.location.pathname.toLowerCase();
+    if (p.startsWith("/3d-ejust")) return `/3D-EJUST/${clean}`;
+    if (p.startsWith("/etba3ly.store")) return `/Etba3ly.store/${clean}`;
   }
   const base = import.meta.env.BASE_URL || "/";
   return `${base.replace(/\/+$/, "")}/${clean}`;
@@ -49,9 +60,11 @@ function parseCurrentRoute() {
     path = path.slice(base.length).replace(/^\/+/, "");
   }
 
-  // Handle GitHub Pages project subpath (/3D-EJUST/)
+  // Handle GitHub Pages project subpath (/3D-EJUST/ or /Etba3ly.store/)
   if (path.toLowerCase().startsWith("3d-ejust")) {
     path = path.slice("3d-ejust".length).replace(/^\/+/, "");
+  } else if (path.toLowerCase().startsWith("etba3ly.store")) {
+    path = path.slice("etba3ly.store".length).replace(/^\/+/, "");
   }
 
   const rawHash = (window.location.hash || "").replace(/^#\/?/, "");
@@ -124,14 +137,23 @@ async function copyToClipboard(text) {
 // ─────────────────────────────────────────────────────────
 // Printer helpers — parse/set printer tag in notes field
 // ─────────────────────────────────────────────────────────
-function getPrinterFromNotes(notes) {
-  if (!notes) return null;
-  const match = notes.match(/^\[PRINTER:([^\]]+)\]/);
-  return match ? match[1] : null;
+function getPrinterFromNotes(notesOrOrder) {
+  if (!notesOrOrder) return null;
+  const notes = typeof notesOrOrder === 'object'
+    ? (notesOrOrder.notes || notesOrOrder.printer || '')
+    : String(notesOrOrder);
+  if (typeof notesOrOrder === 'object' && notesOrOrder.printer) {
+    return String(notesOrOrder.printer).trim();
+  }
+  const match = notes.match(/\[PRINTER:([^\]]+)\]/i) || notes.match(/\[Assigned Hardware:\s*([^\]]+)\]/i);
+  return match ? match[1].trim() : null;
 }
 
 function setPrinterInNotes(notes, printer) {
-  const cleanNotes = (notes || "").replace(/^\[PRINTER:[^\]]+\]\s*/, "");
+  const cleanNotes = (notes || "")
+    .replace(/\[PRINTER:[^\]]+\]\s*/gi, "")
+    .replace(/\[Assigned Hardware:[^\]]+\]\s*/gi, "")
+    .trim();
   if (!printer) return cleanNotes;
   return `[PRINTER:${printer}] ${cleanNotes}`.trim();
 }
@@ -940,9 +962,12 @@ const DEFAULT_CONFIG = {
   hero_subtitle: "Upload your 3D design, pick your material, and we'll print it for you — fast, affordable, and right here on campus.",
   why_title: "Why Print With Us?",
   why_text: "We're students who love making things. Our setup is tuned for speed and precision, so you get your parts fast without breaking the bank. PLA, PETG, TPU — we've got what you need.",
-  price_per_gram: 3,
+  price_per_gram: 3.5,
+  micro_order_weight_threshold: 17,
+  micro_order_flat_price: 50,
+  pickup_minimum: 50,
   price_review_threshold: 300,
-  materials: "PLA, PETG, ABS, Carbon Fiber, TPU",
+  materials: "PLA, PLA+, PETG, ABS, TPU, Carbon Fiber",
   colors: "White, Black, Silver, Red, Orange, Blue, Gray",
   whatsapp_number: "",
   whatsapp_api_key: "",
@@ -1003,948 +1028,18 @@ function FullGalleryView({ items, onItemClick, onGoHome }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════
-// ADMIN PROFIT & FINANCIALS TAB COMPONENT
-// ═══════════════════════════════════════════════════════════
-function AdminProfitTab({
-  orders,
-  config,
-  spoolCostKg,
-  setSpoolCostKg,
-  electricityTariffKwh,
-  setElectricityTariffKwh,
-  printerPowerWatts,
-  setPrinterPowerWatts,
-  cc1WearRatePerHour,
-  setCc1WearRatePerHour,
-  printSpeedGph,
-  setPrintSpeedGph,
-  materialCosts,
-  setMaterialCosts,
-  fleetLogs,
-  setFleetLogs,
-  externalPrinterStates,
-  PRINTERS,
-  onClearExternalJob,
-  onDeleteFleetLog,
-  onOpenExternalPrompt,
-  onOpenScanHistory,
-  addToast
-}) {
-  const defaultRate = parseFloat(config.price_per_gram) || 3;
-  const tariffKwh = parseFloat(electricityTariffKwh) || 0;
-  const watts = parseFloat(printerPowerWatts) || 180;
-  const wearRatePerHour = parseFloat(cc1WearRatePerHour) || 0;
-  const speedGph = parseFloat(printSpeedGph) || 35; // grams per hour for CC1 high-speed printing
-
-  // Hourly and gram burdens for CC1 and power
-  const electricityCostPerHour = (watts / 1000) * tariffKwh;
-  const cc1WearPerHour = wearRatePerHour;
-  const machineHourlyBurden = electricityCostPerHour + cc1WearPerHour;
-  const electricityCostPerGram = speedGph > 0 ? electricityCostPerHour / speedGph : 0;
-  const wearCostPerGram = speedGph > 0 ? cc1WearPerHour / speedGph : 0;
-  const machineBurdenPerGram = electricityCostPerGram + wearCostPerGram;
-
-  // Extract all configured materials strictly from website CMS
-  const configuredMaterials = useMemo(() => {
-    const fromConfig = (config.materials || "")
-      .split(',')
-      .map(m => m.trim().toUpperCase())
-      .filter(Boolean);
-    return fromConfig.length > 0 ? fromConfig : ["PLA", "PETG", "ABS", "CARBON FIBER", "TPU"];
-  }, [config.materials]);
-
-  const getMaterialSpoolCost = useCallback((materialName) => {
-    if (!materialName) return parseFloat(spoolCostKg) || 750;
-    const key = materialName.trim().toUpperCase();
-    if (materialCosts && materialCosts[key] !== undefined && materialCosts[key] !== "" && !isNaN(materialCosts[key])) {
-      return Number(materialCosts[key]);
-    }
-    // Intelligent defaults based on Egyptian market averages
-    if (key.includes("PLA+")) return 750;
-    if (key.includes("PLA")) return 650;
-    if (key.includes("PETG")) return 700;
-    if (key.includes("ABS")) return 750;
-    if (key.includes("CARBON") || key.includes("CF")) return 1350;
-    if (key.includes("TPU") || key.includes("FLEX")) return 950;
-    if (key.includes("RESIN")) return 1100;
-    return parseFloat(spoolCostKg) || 750;
-  }, [materialCosts, spoolCostKg]);
-
-  const handleUpdateMaterialCost = (matKey, value) => {
-    const num = parseFloat(value);
-    const safeNum = isNaN(num) || num < 0 ? 0 : num;
-    setMaterialCosts(prev => {
-      const updated = { ...prev, [matKey]: safeNum };
-      localStorage.setItem("jp_material_costs", JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  const handleResetMaterialDefaults = () => {
-    const defaults = {
-      "PLA": 650,
-      "PLA+": 750,
-      "PETG": 700,
-      "ABS": 750,
-      "CARBON FIBER": 1350,
-      "TPU": 950,
-      "RESIN": 1100
-    };
-    setMaterialCosts(defaults);
-    localStorage.setItem("jp_material_costs", JSON.stringify(defaults));
-    if (addToast) addToast("Material spool prices reset to standard rates", "info");
-  };
-
-  const financialSummary = useMemo(() => {
-    const doneOrders = orders.filter(o => (o.status || "").toLowerCase().trim() === "done");
-    const printingOrders = orders.filter(o => (o.status || "").toLowerCase().trim() === "printing");
-    const queuedOrders = orders.filter(o => (o.status || "").toLowerCase().trim() === "queued");
-
-    const getOrderRevenue = (o) => {
-      if (o.totalprice !== null && o.totalprice !== undefined && !isNaN(o.totalprice)) {
-        return Number(o.totalprice);
-      }
-      return (Number(o.weightgrams) || 0) * defaultRate;
-    };
-
-    const doneRevenue = doneOrders.reduce((sum, o) => sum + getOrderRevenue(o), 0);
-    const printingRevenue = printingOrders.reduce((sum, o) => sum + getOrderRevenue(o), 0);
-    const queuedRevenue = queuedOrders.reduce((sum, o) => sum + getOrderRevenue(o), 0);
-    const pipelineRevenue = printingRevenue + queuedRevenue;
-
-    const doneGrams = doneOrders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
-    const activeGrams = [...printingOrders, ...queuedOrders].reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
-    const totalGramsAll = orders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
-
-    const donePrintHours = speedGph > 0 ? doneGrams / speedGph : 0;
-    const activePrintHours = speedGph > 0 ? activeGrams / speedGph : 0;
-    const totalPrintHoursAll = speedGph > 0 ? totalGramsAll / speedGph : 0;
-
-    // Cash collection tracking across all customer orders (Admin Only)
-    let totalCashCollected = 0;
-    let totalCashPending = 0;
-    let paidOrdersCount = 0;
-    let partialOrdersCount = 0;
-    let unpaidOrdersCount = 0;
-
-    orders.forEach(o => {
-      const rev = getOrderRevenue(o);
-      const payInfo = getOrderPaymentInfo(o);
-      if (payInfo.status === "paid") {
-        totalCashCollected += rev;
-        paidOrdersCount += 1;
-      } else if (payInfo.status === "partial") {
-        const paid = Math.min(rev, payInfo.paidAmount);
-        totalCashCollected += paid;
-        totalCashPending += Math.max(0, rev - paid);
-        partialOrdersCount += 1;
-      } else {
-        totalCashPending += rev;
-        unpaidOrdersCount += 1;
-      }
-    });
-
-    let doneFilamentCost = 0;
-    let doneWearCost = 0;
-    let doneElectricityCost = 0;
-
-    const doneOrdersList = doneOrders.map(o => {
-      const rev = getOrderRevenue(o);
-      const w = Number(o.weightgrams) || 0;
-      const hours = speedGph > 0 ? w / speedGph : 0;
-      const matSpoolCost = getMaterialSpoolCost(o.material);
-      const filamentCost = w * (matSpoolCost / 1000);
-      const wearCost = hours * wearRatePerHour;
-      const elecCost = hours * electricityCostPerHour;
-      const totalCost = filamentCost + wearCost + elecCost;
-      const prof = rev - totalCost;
-      const margin = rev > 0 ? (prof / rev) * 100 : 0;
-      const payInfo = getOrderPaymentInfo(o);
-
-      doneFilamentCost += filamentCost;
-      doneWearCost += wearCost;
-      doneElectricityCost += elecCost;
-
-      return {
-        id: o.id,
-        ordername: o.ordername || "Untitled",
-        name: o.name || "Customer",
-        material: o.material || "PLA",
-        color: o.color || "Standard",
-        weight: w,
-        hours,
-        filamentCost,
-        wearCost,
-        elecCost,
-        revenue: rev,
-        cost: totalCost,
-        profit: prof,
-        margin,
-        paymentStatus: payInfo.status,
-        paidAmount: payInfo.paidAmount,
-        date: o.createdat
-      };
-    });
-
-    // Offline USB print logs telemetry
-    const allUsbGrams = (fleetLogs || []).reduce((sum, l) => sum + (Number(l.grams) || 0), 0);
-    const allUsbHours = (fleetLogs || []).reduce((sum, l) => sum + (Number(l.hours) || (speedGph > 0 ? (Number(l.grams) || 0) / speedGph : 0)), 0);
-    const allFleetGrams = doneGrams + allUsbGrams;
-    const allFleetPrintHours = donePrintHours + allUsbHours;
-    const allFleetWearCost = allFleetPrintHours * wearRatePerHour;
-
-    const doneTotalCost = doneFilamentCost + doneWearCost + doneElectricityCost;
-    const netProfit = doneRevenue - doneTotalCost;
-    const profitMargin = doneRevenue > 0 ? (netProfit / doneRevenue) * 100 : 0;
-    const avgProfitPerOrder = doneOrders.length > 0 ? netProfit / doneOrders.length : 0;
-
-    // Per-Printer Hardware Fleet Telemetry
-    const printerFleetStats = {
-      perPrinter: {},
-      unassignedDoneCount: 0,
-      unassignedGrams: 0,
-      unassignedHours: 0,
-      unassignedWear: 0
-    };
-
-    (PRINTERS || ["CC Abdalla", "CC Mazen"]).forEach(printer => {
-      const printerDoneOrders = orders.filter(o => 
-        (o.status || "").toLowerCase().trim() === "done" && 
-        getPrinterFromNotes(o.notes) === printer
-      );
-      const printerActiveOrder = orders.find(o => 
-        (o.status || "").toLowerCase().trim() === "printing" && 
-        getPrinterFromNotes(o.notes) === printer
-      );
-      const printerUsbLogs = (fleetLogs || []).filter(l => l.printer === printer);
-
-      const orderGrams = printerDoneOrders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
-      const orderHours = speedGph > 0 ? orderGrams / speedGph : 0;
-
-      const usbGrams = printerUsbLogs.reduce((sum, l) => sum + (Number(l.grams) || 0), 0);
-      const usbHours = printerUsbLogs.reduce((sum, l) => sum + (Number(l.hours) || (speedGph > 0 ? (Number(l.grams) || 0) / speedGph : 0)), 0);
-
-      const totalGrams = orderGrams + usbGrams;
-      const totalHours = orderHours + usbHours;
-      const wearExpense = totalHours * wearRatePerHour;
-      const elecExpense = totalHours * electricityCostPerHour;
-
-      const externalState = externalPrinterStates && externalPrinterStates[printer];
-      const isUsbWorking = externalState && externalState.status === "working";
-
-      printerFleetStats.perPrinter[printer] = {
-        name: printer,
-        orderGrams,
-        orderHours,
-        usbGrams,
-        usbHours,
-        totalGrams,
-        totalHours,
-        wearExpense,
-        elecExpense,
-        totalJobs: printerDoneOrders.length + printerUsbLogs.length,
-        doneOrdersCount: printerDoneOrders.length,
-        usbJobsCount: printerUsbLogs.length,
-        activeOrder: printerActiveOrder,
-        isUsbWorking,
-        usbJobName: isUsbWorking ? externalState.jobName : null,
-        status: printerActiveOrder ? "printing" : isUsbWorking ? "usb" : "idle"
-      };
-    });
-
-    const unassignedDoneOrders = orders.filter(o => 
-      (o.status || "").toLowerCase().trim() === "done" && 
-      !getPrinterFromNotes(o.notes)
-    );
-    printerFleetStats.unassignedDoneCount = unassignedDoneOrders.length;
-    printerFleetStats.unassignedGrams = unassignedDoneOrders.reduce((sum, o) => sum + (Number(o.weightgrams) || 0), 0);
-    printerFleetStats.unassignedHours = speedGph > 0 ? printerFleetStats.unassignedGrams / speedGph : 0;
-    printerFleetStats.unassignedWear = printerFleetStats.unassignedHours * wearRatePerHour;
-
-    // Materials breakdown table
-    const materialMap = {};
-    configuredMaterials.forEach(mat => {
-      materialMap[mat] = {
-        name: mat,
-        spoolCost: getMaterialSpoolCost(mat),
-        totalOrders: 0,
-        doneOrders: 0,
-        grams: 0,
-        hours: 0,
-        filamentCost: 0,
-        wearAndPowerCost: 0,
-        totalCost: 0,
-        revenue: 0,
-        profit: 0,
-        margin: 0
-      };
-    });
-
-    orders.forEach(o => {
-      const mat = (o.material || "PLA").toUpperCase().trim();
-      if (!materialMap[mat]) {
-        materialMap[mat] = {
-          name: mat,
-          spoolCost: getMaterialSpoolCost(mat),
-          totalOrders: 0,
-          doneOrders: 0,
-          grams: 0,
-          hours: 0,
-          filamentCost: 0,
-          wearAndPowerCost: 0,
-          totalCost: 0,
-          revenue: 0,
-          profit: 0,
-          margin: 0
-        };
-      }
-      materialMap[mat].totalOrders += 1;
-      const rev = getOrderRevenue(o);
-      const w = Number(o.weightgrams) || 0;
-      const hours = speedGph > 0 ? w / speedGph : 0;
-      const fCost = w * (getMaterialSpoolCost(mat) / 1000);
-      const wpCost = hours * machineHourlyBurden;
-
-      materialMap[mat].grams += w;
-      materialMap[mat].hours += hours;
-
-      if ((o.status || "").toLowerCase().trim() === "done") {
-        materialMap[mat].doneOrders += 1;
-        materialMap[mat].revenue += rev;
-        materialMap[mat].filamentCost += fCost;
-        materialMap[mat].wearAndPowerCost += wpCost;
-        materialMap[mat].totalCost += (fCost + wpCost);
-      }
-    });
-
-    const materialStats = Object.values(materialMap).map(m => {
-      const profit = m.revenue - m.totalCost;
-      const margin = m.revenue > 0 ? (profit / m.revenue) * 100 : 0;
-      return { ...m, profit, margin };
-    });
-
-    return {
-      doneOrdersCount: doneOrders.length,
-      activeOrdersCount: printingOrders.length + queuedOrders.length,
-      doneRevenue,
-      pipelineRevenue,
-      doneGrams,
-      activeGrams,
-      totalGramsAll,
-      donePrintHours,
-      activePrintHours,
-      totalPrintHoursAll,
-      allUsbGrams,
-      allUsbHours,
-      allFleetGrams,
-      allFleetPrintHours,
-      allFleetWearCost,
-      printerFleetStats,
-      doneFilamentCost,
-      doneWearCost,
-      doneElectricityCost,
-      doneTotalCost,
-      netProfit,
-      profitMargin,
-      avgProfitPerOrder,
-      materialStats,
-      doneOrdersList,
-      totalCashCollected,
-      totalCashPending,
-      paidOrdersCount,
-      partialOrdersCount,
-      unpaidOrdersCount
-    };
-  }, [orders, defaultRate, speedGph, wearRatePerHour, electricityCostPerHour, machineHourlyBurden, configuredMaterials, getMaterialSpoolCost, fleetLogs, PRINTERS, externalPrinterStates]);
-
-  return (
-    <div className="animate-in" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {/* Financial KPI Cards */}
-      <div className="admin-stats-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-        <div className="card" title="Net profit realized from all completed orders (Revenue minus Raw Filament Cost, CC1 Machine Wear per hour, and Electricity)">
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Realized Net Profit
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "var(--accent)", margin: "6px 0" }}>
-            {financialSummary.netProfit.toFixed(2)} EGP
-          </div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--status-done)", display: "flex", alignItems: "center", gap: 6 }}>
-            <span>Margin: {financialSummary.profitMargin.toFixed(1)}%</span>
-            <span style={{ color: "var(--text-tertiary)" }}>&bull; Avg {financialSummary.avgProfitPerOrder.toFixed(1)} EGP/order</span>
-          </div>
-        </div>
-
-        <div className="card" title="Total cash received from completed orders, plus pending value in the active print pipeline">
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Revenue Collected
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "var(--text-primary)", margin: "6px 0" }}>
-            {financialSummary.doneRevenue.toFixed(2)} EGP
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            + {financialSummary.pipelineRevenue.toFixed(2)} EGP active in pipeline
-          </div>
-        </div>
-
-        <div className="card" title="Internal cash payment collections and outstanding unpaid balances across all orders (Admin only, never visible to customers)">
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Cash Collections (Admin Only)
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "var(--status-done)", margin: "6px 0" }}>
-            {financialSummary.totalCashCollected.toFixed(2)} EGP
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 2 }}>
-            <div>
-              {financialSummary.totalCashPending > 0 ? (
-                <span style={{ color: "#ff453a", fontWeight: 700 }}>{financialSummary.totalCashPending.toFixed(2)} EGP unpaid</span>
-              ) : (
-                <span style={{ color: "var(--status-done)", fontWeight: 700 }}>All orders settled</span>
-              )}
-            </div>
-            <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-              {financialSummary.paidOrdersCount} Paid &bull; {financialSummary.partialOrdersCount} Partial &bull; {financialSummary.unpaidOrdersCount} Unpaid
-            </span>
-          </div>
-        </div>
-
-        <div className="card" title="Direct manufacturing costs itemized into raw filament material, hourly CC1 hardware wear, and power consumption">
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Itemized Production Costs
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "#f87171", margin: "6px 0" }}>
-            {financialSummary.doneTotalCost.toFixed(2)} EGP
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
-            <span>Filament: <strong>{financialSummary.doneFilamentCost.toFixed(1)} EGP</strong></span>
-            <span>CC1 Machine Wear: <strong>{financialSummary.doneWearCost.toFixed(1)} EGP</strong> ({financialSummary.donePrintHours.toFixed(1)}h)</span>
-            <span>Electricity: <strong>{financialSummary.doneElectricityCost.toFixed(1)} EGP</strong></span>
-          </div>
-        </div>
-
-        <div className="card" title="Total active machine hours and filament weight extruded on your Centauri Carbon CC1 3D printer fleet">
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Fleet Hours & Extrusion
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "var(--status-printing)", margin: "6px 0" }}>
-            {financialSummary.allFleetPrintHours.toFixed(1)} hrs
-          </div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            ~{(financialSummary.allFleetGrams / 1000).toFixed(2)} kg total ({financialSummary.doneOrdersCount} orders + {financialSummary.allUsbHours > 0 ? `${(fleetLogs || []).length} USB` : '0 USB'})
-          </div>
-        </div>
-      </div>
-
-      {/* Centauri Fleet Telemetry & Machine Wear Odometers */}
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <h3 style={{ margin: "0 0 4px", display: "flex", alignItems: "center", gap: 10 }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 22, height: 22, color: "var(--accent)" }}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-              Centauri Fleet Hardware Odometers & Machine Wear
-            </h3>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
-              Tracks exact operating print hours, extruded filament weight, and accumulated hardware depreciation for each machine across website orders and offline USB jobs.
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            {onOpenScanHistory && (
-              <button
-                type="button"
-                className="btn btn-sm btn-accent"
-                style={{ padding: "6px 14px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}
-                onClick={onOpenScanHistory}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                Scan Print History
-              </button>
-            )}
-            <span style={{ background: "rgba(255,128,0,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--accent)" }}>
-              Fleet Total: {financialSummary.allFleetPrintHours.toFixed(1)} hrs
-            </span>
-            <span style={{ background: "rgba(0,122,255,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--status-printing)" }}>
-              Fleet Extruded: {(financialSummary.allFleetGrams / 1000).toFixed(2)} kg
-            </span>
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16 }}>
-          {(PRINTERS || ["CC Abdalla", "CC Mazen"]).map(printer => {
-            const pStats = (financialSummary.printerFleetStats && financialSummary.printerFleetStats.perPrinter && financialSummary.printerFleetStats.perPrinter[printer]) || {
-              orderGrams: 0, orderHours: 0, usbGrams: 0, usbHours: 0, totalGrams: 0, totalHours: 0, wearExpense: 0, elecExpense: 0, totalJobs: 0, doneOrdersCount: 0, usbJobsCount: 0, status: "idle"
-            };
-            const isWorking = pStats.status !== "idle";
-            const isUsb = pStats.status === "usb";
-
-            return (
-              <div
-                key={printer}
-                style={{
-                  padding: "18px 20px",
-                  borderRadius: "var(--radius-sm)",
-                  background: isWorking ? (isUsb ? "rgba(255,128,0,0.04)" : "rgba(0,122,255,0.04)") : "rgba(255,255,255,0.02)",
-                  border: isWorking ? (isUsb ? "1px solid rgba(255,128,0,0.3)" : "1px solid rgba(0,122,255,0.3)") : "1px solid var(--border-glass-strong)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: "50%",
-                        background: isWorking ? (isUsb ? "var(--accent)" : "var(--status-printing)") : "var(--status-done)",
-                        boxShadow: isWorking ? `0 0 10px ${isUsb ? "rgba(255,128,0,0.6)" : "rgba(0,122,255,0.6)"}` : "none"
-                      }}
-                    />
-                    <span style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>{printer}</span>
-                  </div>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      padding: "3px 10px",
-                      borderRadius: "var(--radius-full)",
-                      background: isWorking ? (isUsb ? "rgba(255,128,0,0.15)" : "rgba(0,122,255,0.15)") : "rgba(16,185,129,0.12)",
-                      color: isWorking ? (isUsb ? "var(--accent)" : "var(--status-printing)") : "var(--status-done)"
-                    }}
-                  >
-                    {isWorking ? (isUsb ? "Working (USB Job)" : "Working (Website Order)") : "Ready / Idle"}
-                  </span>
-                </div>
-
-                {isWorking && (
-                  <div style={{ fontSize: 12, padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)" }}>
-                    <span style={{ color: "var(--text-secondary)" }}>Active Task: </span>
-                    <strong style={{ color: "var(--text-primary)" }}>
-                      {pStats.activeOrder ? (pStats.activeOrder.ordername || "Website Print") : pStats.usbJobName}
-                    </strong>
-                  </div>
-                )}
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 4 }}>
-                  <div style={{ padding: "10px 12px", background: "rgba(0,0,0,0.15)", borderRadius: "var(--radius-sm)" }}>
-                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Operating Hours</div>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: "var(--text-primary)", margin: "4px 0 2px" }}>
-                      {pStats.totalHours.toFixed(1)} hrs
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                      {pStats.orderHours.toFixed(1)}h web &bull; {pStats.usbHours.toFixed(1)}h usb
-                    </div>
-                  </div>
-
-                  <div style={{ padding: "10px 12px", background: "rgba(0,0,0,0.15)", borderRadius: "var(--radius-sm)" }}>
-                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Filament Extruded</div>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: "var(--accent)", margin: "4px 0 2px" }}>
-                      {pStats.totalGrams.toFixed(0)} g
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                      ~{(pStats.totalGrams / 1000).toFixed(2)} kg total ({pStats.totalJobs} jobs)
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "var(--text-secondary)", paddingTop: 4 }}>
-                  <span>Machine Wear Burden:</span>
-                  <strong style={{ color: "#f87171" }}>{pStats.wearExpense.toFixed(2)} EGP</strong>
-                </div>
-
-                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                  {isUsb ? (
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-glass"
-                      style={{ flex: 1, padding: "6px 12px", fontSize: 12 }}
-                      onClick={() => onClearExternalJob && onClearExternalJob(printer)}
-                    >
-                      Clear USB Job
-                    </button>
-                  ) : !pStats.activeOrder ? (
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-glass"
-                      style={{ flex: 1, padding: "6px 12px", fontSize: 12 }}
-                      onClick={() => onOpenExternalPrompt && onOpenExternalPrompt(printer)}
-                    >
-                      + Log USB Print
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {financialSummary.printerFleetStats && financialSummary.printerFleetStats.unassignedDoneCount > 0 && (
-          <div style={{ marginTop: 14, padding: "10px 14px", background: "rgba(255,255,255,0.02)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)", fontSize: 12, color: "var(--text-secondary)" }}>
-            Note: <strong>{financialSummary.printerFleetStats.unassignedDoneCount}</strong> completed website orders ({financialSummary.printerFleetStats.unassignedGrams.toFixed(0)}g &bull; {financialSummary.printerFleetStats.unassignedHours.toFixed(1)}h) were completed before individual printer tagging was assigned and are included in the fleet wear burden ({financialSummary.printerFleetStats.unassignedWear.toFixed(2)} EGP).
-          </div>
-        )}
-      </div>
-
-      {/* Recent Direct USB & Offline Print Ledger */}
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <h3 style={{ margin: "0 0 4px" }}>Recent Direct USB & Offline Print Ledger ({fleetLogs ? fleetLogs.length : 0})</h3>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
-              Record of prints executed directly on machines without website orders. These factor directly into CC1 machine wear and filament telemetry.
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {(PRINTERS || ["CC Abdalla", "CC Mazen"]).map(printer => (
-              <button
-                key={printer}
-                type="button"
-                className="btn btn-sm btn-glass"
-                style={{ fontSize: 11, padding: "4px 10px" }}
-                onClick={() => onOpenExternalPrompt && onOpenExternalPrompt(printer)}
-              >
-                + Log Print on {printer}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {(!fleetLogs || fleetLogs.length === 0) ? (
-          <p style={{ margin: 0, color: "var(--text-tertiary)", fontSize: 13 }}>
-            No offline USB prints logged yet. Use "+ Log USB Print" when printing from a flash drive to track nozzle wear and operating hours accurately.
-          </p>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border-glass-strong)", color: "var(--text-tertiary)", textAlign: "left" }}>
-                  <th style={{ padding: "10px 12px" }}>Date & Time</th>
-                  <th style={{ padding: "10px 12px" }}>Printer</th>
-                  <th style={{ padding: "10px 12px" }}>Job / Part Description</th>
-                  <th style={{ padding: "10px 12px" }}>Weight</th>
-                  <th style={{ padding: "10px 12px" }}>Operating Duration</th>
-                  <th style={{ padding: "10px 12px" }}>CC1 Wear Burden</th>
-                  <th style={{ padding: "10px 12px", textAlign: "right" }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fleetLogs.map(log => {
-                  const hours = Number(log.hours) || (speedGph > 0 ? (Number(log.grams) || 0) / speedGph : 0);
-                  const wear = hours * wearRatePerHour;
-                  const dateStr = log.timestamp ? new Date(log.timestamp).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
-                  return (
-                    <tr key={log.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
-                      <td style={{ padding: "12px", color: "var(--text-tertiary)", fontSize: 12 }}>{dateStr}</td>
-                      <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{log.printer}</td>
-                      <td style={{ padding: "12px", color: "var(--accent)", fontWeight: 600 }}>{log.jobName || "Direct USB Job"}</td>
-                      <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{log.grams ? `${Number(log.grams).toFixed(0)} g` : "-"}</td>
-                      <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{hours.toFixed(1)} h</td>
-                      <td style={{ padding: "12px", color: "#f87171" }}>{wear.toFixed(2)} EGP</td>
-                      <td style={{ padding: "12px", textAlign: "right" }}>
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          style={{ padding: "3px 8px", fontSize: 11, background: "rgba(255,59,48,0.15)", color: "#FF3B30", border: "1px solid rgba(255,59,48,0.3)", borderRadius: "var(--radius-full)", cursor: "pointer" }}
-                          onClick={() => onDeleteFleetLog && onDeleteFleetLog(log.id)}
-                          title="Delete this USB log entry"
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Centauri Carbon 1 (CC1) Wear & Electricity Calibration */}
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <h3 style={{ margin: "0 0 4px" }}>Centauri Carbon 1 (CC1) Wear & Electricity Calibration</h3>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
-              Separates machine wear according to active printing hours from electricity. Electricity can be set to 0 for free/campus power or calibrated per kWh.
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ background: "rgba(255,128,0,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--accent)" }}>
-              Hourly Burden: {machineHourlyBurden.toFixed(2)} EGP/hr
-            </span>
-            <span style={{ background: "rgba(0,122,255,0.12)", padding: "6px 14px", borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 700, color: "var(--status-printing)" }}>
-              Weight Burden: {machineBurdenPerGram.toFixed(3)} EGP/g
-            </span>
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-              <label style={{ fontSize: 12, margin: 0 }}>Electricity Tariff (EGP / kWh)</label>
-              <button
-                type="button"
-                className="btn btn-sm btn-glass"
-                style={{ padding: "2px 8px", fontSize: 10 }}
-                title="Click to set electricity cost to 0 EGP if electricity is free or campus-supplied"
-                onClick={() => {
-                  setElectricityTariffKwh(0);
-                  localStorage.setItem("jp_elec_kwh", "0");
-                }}
-              >
-                Set Free (0 EGP)
-              </button>
-            </div>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              title="Electricity rate per kilowatt-hour. Enter 0 for free power or typical Egyptian residential/commercial tariff (e.g. 2.50 EGP/kWh)."
-              value={electricityTariffKwh}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value) || 0;
-                setElectricityTariffKwh(val);
-                localStorage.setItem("jp_elec_kwh", String(val));
-              }}
-              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
-              placeholder="e.g. 2.50 or 0"
-            />
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-              Rate: {electricityCostPerHour.toFixed(2)} EGP / hr ({electricityCostPerGram.toFixed(3)} EGP/g)
-            </div>
-          </div>
-
-          <div>
-            <label style={{ fontSize: 12 }}>CC1 Power Consumption (Watts)</label>
-            <input
-              type="number"
-              step="10"
-              min="0"
-              title="Continuous average wattage draw for the Elegoo Centauri Carbon (typically ~180W while printing with heated bed)."
-              value={printerPowerWatts}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value) || 0;
-                setPrinterPowerWatts(val);
-                localStorage.setItem("jp_printer_watts", String(val));
-              }}
-              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
-              placeholder="e.g. 180"
-            />
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-              Elegoo Centauri Carbon continuous average draw
-            </div>
-          </div>
-
-          <div>
-            <label style={{ fontSize: 12 }}>CC1 Wear & Maintenance (EGP / Print Hour)</label>
-            <input
-              type="number"
-              step="0.5"
-              min="0"
-              title="Hourly hardware wear allowance covering hardened nozzle wear, PEI sheet replacements, CoreXY belts, linear rails lubrication, and machine depreciation."
-              value={cc1WearRatePerHour}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value) || 0;
-                setCc1WearRatePerHour(val);
-                localStorage.setItem("jp_cc1_wear_rate", String(val));
-              }}
-              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
-              placeholder="e.g. 6.00"
-            />
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-              Nozzle, PEI bed, belts, linear rails & depreciation ({wearCostPerGram.toFixed(3)} EGP/g)
-            </div>
-          </div>
-
-          <div>
-            <label style={{ fontSize: 12 }}>CC1 Print Throughput (Grams / Hour)</label>
-            <input
-              type="number"
-              step="5"
-              min="5"
-              title="Average grams of filament extruded per active printing hour on high-speed CoreXY CC1 (typically 30-40g/hr)."
-              value={printSpeedGph}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value) || 35;
-                setPrintSpeedGph(val);
-                localStorage.setItem("jp_print_speed_gph", String(val));
-              }}
-              style={{ width: "100%", padding: "10px 14px", fontSize: 14 }}
-              placeholder="e.g. 35"
-            />
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-              High-speed CoreXY average extrusion speed (~35g/hr)
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Per-Material Filament Spool Pricing */}
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <h3 style={{ margin: "0 0 4px" }}>Per-Material Filament Spool Costs</h3>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
-              Every filament costs differently (e.g. PETG vs PLA+ vs Carbon Fiber). Configured from your website materials list.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn-sm btn-glass"
-            style={{ fontSize: 12 }}
-            onClick={handleResetMaterialDefaults}
-          >
-            Reset Market Standard Rates
-          </button>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
-          {configuredMaterials.map(mat => {
-            const currentCost = getMaterialSpoolCost(mat);
-            const costPerG = currentCost / 1000;
-            return (
-              <div
-                key={mat}
-                style={{
-                  padding: "14px 16px",
-                  borderRadius: "var(--radius-sm)",
-                  background: "rgba(255,255,255,0.02)",
-                  border: "1px solid var(--border-glass-strong)"
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: "var(--accent)" }}>{mat}</span>
-                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-tertiary)" }}>
-                    {costPerG.toFixed(3)} EGP / g
-                  </span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    type="number"
-                    step="25"
-                    min="0"
-                    title={`Cost to purchase a 1kg spool of ${mat}. Raw filament cost is ${costPerG.toFixed(3)} EGP per gram.`}
-                    value={materialCosts[mat] !== undefined ? materialCosts[mat] : currentCost}
-                    onChange={(e) => handleUpdateMaterialCost(mat, e.target.value)}
-                    style={{ flex: 1, padding: "8px 12px", fontSize: 13 }}
-                    placeholder="Spool cost (EGP)"
-                  />
-                  <span style={{ fontSize: 12, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>EGP / kg</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Material Profit Breakdown */}
-      <div className="card">
-        <h3 style={{ marginBottom: 16 }}>Material Profit Breakdown</h3>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--border-glass-strong)", color: "var(--text-tertiary)", textAlign: "left" }}>
-                <th style={{ padding: "10px 12px" }}>Material</th>
-                <th style={{ padding: "10px 12px" }}>Spool Cost</th>
-                <th style={{ padding: "10px 12px" }}>Done / Total</th>
-                <th style={{ padding: "10px 12px" }}>Weight</th>
-                <th style={{ padding: "10px 12px" }}>Est. Hours</th>
-                <th style={{ padding: "10px 12px" }}>Filament Cost</th>
-                <th style={{ padding: "10px 12px" }}>Wear & Power</th>
-                <th style={{ padding: "10px 12px" }}>Revenue</th>
-                <th style={{ padding: "10px 12px" }}>Net Profit</th>
-                <th style={{ padding: "10px 12px" }}>Margin</th>
-              </tr>
-            </thead>
-            <tbody>
-              {financialSummary.materialStats.map(m => (
-                <tr key={m.name} style={{ borderBottom: "1px solid var(--border-light)" }}>
-                  <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{m.name}</td>
-                  <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{m.spoolCost.toFixed(0)} EGP/kg</td>
-                  <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{m.doneOrders} / {m.totalOrders}</td>
-                  <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{m.grams.toFixed(0)} g</td>
-                  <td style={{ padding: "12px", color: "var(--text-tertiary)" }}>{m.hours.toFixed(1)} h</td>
-                  <td style={{ padding: "12px", color: "#f87171" }}>{m.filamentCost.toFixed(2)} EGP</td>
-                  <td style={{ padding: "12px", color: "#f87171" }}>{m.wearAndPowerCost.toFixed(2)} EGP</td>
-                  <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{m.revenue.toFixed(2)} EGP</td>
-                  <td style={{ padding: "12px", fontWeight: 800, color: "var(--accent)" }}>{m.profit.toFixed(2)} EGP</td>
-                  <td style={{ padding: "12px" }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: m.margin >= 50 ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)", color: m.margin >= 50 ? "var(--status-done)" : "var(--status-queued)" }}>
-                      {m.margin.toFixed(0)}%
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Completed Orders Profit Ledger */}
-      <div className="card">
-        <h3 style={{ marginBottom: 16 }}>Completed Orders Ledger ({financialSummary.doneOrdersList.length})</h3>
-        {financialSummary.doneOrdersList.length === 0 ? (
-          <p style={{ margin: 0, color: "var(--text-tertiary)", fontSize: 13 }}>
-            No orders marked as "Done" yet. Complete orders in the Order Queue to generate real profit records.
-          </p>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border-glass-strong)", color: "var(--text-tertiary)", textAlign: "left" }}>
-                  <th style={{ padding: "10px 12px" }}>Order</th>
-                  <th style={{ padding: "10px 12px" }}>Client</th>
-                  <th style={{ padding: "10px 12px" }}>Specs</th>
-                  <th style={{ padding: "10px 12px" }}>Weight & Time</th>
-                  <th style={{ padding: "10px 12px" }}>Filament Cost</th>
-                  <th style={{ padding: "10px 12px" }}>CC1 Wear</th>
-                  <th style={{ padding: "10px 12px" }}>Electricity</th>
-                  <th style={{ padding: "10px 12px" }}>Total Cost</th>
-                  <th style={{ padding: "10px 12px" }}>Revenue</th>
-                  <th style={{ padding: "10px 12px" }}>Payment</th>
-                  <th style={{ padding: "10px 12px" }}>Net Profit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {financialSummary.doneOrdersList.map(o => (
-                  <tr key={o.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
-                    <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{o.ordername}</td>
-                    <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{o.name}</td>
-                    <td style={{ padding: "12px", color: "var(--text-tertiary)" }}>{o.material} ({o.color})</td>
-                    <td style={{ padding: "12px", fontFamily: "var(--font-mono)" }}>{o.weight} g &bull; {o.hours.toFixed(1)}h</td>
-                    <td style={{ padding: "12px", color: "#f87171" }}>{o.filamentCost.toFixed(2)} EGP</td>
-                    <td style={{ padding: "12px", color: "#f87171" }}>{o.wearCost.toFixed(2)} EGP</td>
-                    <td style={{ padding: "12px", color: "#f87171" }}>{o.elecCost.toFixed(2)} EGP</td>
-                    <td style={{ padding: "12px", color: "#f87171", fontWeight: 700 }}>{o.cost.toFixed(2)} EGP</td>
-                    <td style={{ padding: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{o.revenue.toFixed(2)} EGP</td>
-                    <td style={{ padding: "12px" }}>
-                      <span style={{
-                        fontSize: 11,
-                        fontWeight: 800,
-                        padding: "3px 8px",
-                        borderRadius: "var(--radius-full)",
-                        background: o.paymentStatus === "paid" ? "rgba(52, 199, 89, 0.15)" : o.paymentStatus === "partial" ? "rgba(255, 149, 0, 0.15)" : "rgba(255, 59, 48, 0.15)",
-                        color: o.paymentStatus === "paid" ? "var(--status-done)" : o.paymentStatus === "partial" ? "var(--accent)" : "#ff453a",
-                        border: `1px solid ${o.paymentStatus === "paid" ? "rgba(52, 199, 89, 0.4)" : o.paymentStatus === "partial" ? "rgba(255, 149, 0, 0.4)" : "rgba(255, 59, 48, 0.4)"}`,
-                        textTransform: "uppercase"
-                      }}>
-                        {o.paymentStatus === "paid" ? "Paid" : o.paymentStatus === "partial" ? `Partial (${o.paidAmount.toFixed(0)})` : "Unpaid"}
-                      </span>
-                    </td>
-                    <td style={{ padding: "12px", fontWeight: 800, color: "var(--status-done)" }}>+{o.profit.toFixed(2)} EGP</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function App() {
+  // Capture ElectraGo referral code from URL (?ref=electrago)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get("ref");
+      if (ref) {
+        localStorage.setItem("etba3ly_referral", ref.toLowerCase().trim());
+      }
+    } catch {}
+  }, []);
   const [config, setConfig] = useState(() => {
     try {
       const cached = localStorage.getItem("etba3ly_cached_config");
@@ -1956,6 +1051,18 @@ export default function App() {
   const [orders, setOrders] = useState([]);
   const [queuedOrdersCount, setQueuedOrdersCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [materialRates, setMaterialRates] = useState(() => {
+    try {
+      const cached = localStorage.getItem('etba3ly_material_rates');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.pla && Number(parsed.pla.selling_rate) <= 2.0) parsed.pla.selling_rate = 3.5;
+        if (parsed.pla_plus && Number(parsed.pla_plus.selling_rate) <= 2.0) parsed.pla_plus.selling_rate = 3.5;
+        return { ...DEFAULT_MATERIAL_RATES, ...parsed };
+      }
+    } catch {}
+    return { ...DEFAULT_MATERIAL_RATES };
+  });
   const [darkMode, setDarkMode] = useState(() => {
     try {
       return localStorage.getItem("theme") !== "light";
@@ -1987,8 +1094,9 @@ export default function App() {
     if (!clean || clean === "home") clean = "home";
     if (clean === "gallery") clean = "full-gallery";
 
-    const isGhPagesSubpath = typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/3d-ejust");
-    const prefix = isGhPagesSubpath ? "/3D-EJUST" : "";
+    const isGhOld = typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/3d-ejust");
+    const isGhNew = typeof window !== "undefined" && window.location.pathname.toLowerCase().startsWith("/etba3ly.store");
+    const prefix = isGhOld ? "/3D-EJUST" : (isGhNew ? "/Etba3ly.store" : "");
     const targetPath = clean === "home" ? `${prefix}/home` : `${prefix}/${clean}`;
     try {
       if (window.location.pathname !== targetPath) {
@@ -2046,29 +1154,6 @@ export default function App() {
   const [adminSearch, setAdminSearch] = useState("");
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [adminStatusFilter, setAdminStatusFilter] = useState("all");
-  const [spoolCostKg, setSpoolCostKg] = useState(() => parseFloat(localStorage.getItem("jp_spool_cost")) || 750);
-  const [electricityTariffKwh, setElectricityTariffKwh] = useState(() => {
-    const val = localStorage.getItem("jp_elec_kwh");
-    return val !== null && val !== "" ? parseFloat(val) : 2.50;
-  });
-  const [printerPowerWatts, setPrinterPowerWatts] = useState(() => parseFloat(localStorage.getItem("jp_printer_watts")) || 180);
-  const [cc1WearRatePerHour, setCc1WearRatePerHour] = useState(() => parseFloat(localStorage.getItem("jp_cc1_wear_rate")) || 6.00);
-  const [printSpeedGph, setPrintSpeedGph] = useState(() => parseFloat(localStorage.getItem("jp_print_speed_gph")) || 35);
-  const [materialCosts, setMaterialCosts] = useState(() => {
-    try {
-      return {
-        "PLA": 650,
-        "PLA+": 750,
-        "PETG": 700,
-        "ABS": 750,
-        "CARBON FIBER": 1350,
-        "TPU": 950,
-        ...JSON.parse(localStorage.getItem("jp_material_costs") || "{}")
-      };
-    } catch {
-      return { "PLA": 650, "PLA+": 750, "PETG": 700, "ABS": 750, "CARBON FIBER": 1350, "TPU": 950 };
-    }
-  });
   const [lastSubmittedQuote, setLastSubmittedQuote] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
   const [successModal, setSuccessModal] = useState(null);
@@ -2092,6 +1177,8 @@ export default function App() {
   const [newGalleryFiles, setNewGalleryFiles] = useState([]);
 
   // 3D Slicer, Estimation & Hardware Dispatch State
+  const [selectedTier, setSelectedTier] = useState("standard");
+  const [enableSupports, setEnableSupports] = useState(true);
   const [orderInfill, setOrderInfill] = useState(20);
   const [orderLayerHeight, setOrderLayerHeight] = useState(0.20);
   const [orderNozzle, setOrderNozzle] = useState(0.40);
@@ -2158,7 +1245,7 @@ export default function App() {
     if (!externalPromptPrinter) return;
     const jobTitle = externalJobInput.trim() || "Direct USB / Offline Print";
     const weightNum = parseFloat(externalJobWeight) || 0;
-    const speed = parseFloat(printSpeedGph) || 35;
+    const speed = 35; // CoreXY average speed (g/hr)
     const hoursNum = parseFloat(externalJobHours) || (speed > 0 ? weightNum / speed : 0);
     const now = new Date().toISOString();
     const logId = `usb_${Date.now()}`;
@@ -2341,21 +1428,38 @@ export default function App() {
     loadSavedOrders();
   }, []);
 
-  // Synchronize newOrder material and color strictly with active CMS configuration
+  // Synchronize newOrder initial material and color with active CMS configuration
   useEffect(() => {
-    if (config.materials) {
-      const activeMats = config.materials.split(',').map(m => m.trim()).filter(Boolean);
-      if (activeMats.length > 0 && (!newOrder.material || !activeMats.includes(newOrder.material))) {
-        setNewOrder(prev => ({ ...prev, material: activeMats[0] }));
+    const available = Object.values(materialRates).filter(m => m && m.in_stock !== false);
+    setNewOrder(prev => {
+      let updatedMaterial = prev.material;
+      let updatedColor = prev.color;
+
+      if (available.length > 0) {
+        const isCurrentValid = prev.material && available.some(m => m.name.toLowerCase() === prev.material.toLowerCase());
+        if (!isCurrentValid) {
+          updatedMaterial = available[0].name;
+        }
+      } else if (config.materials) {
+        const activeMats = config.materials.split(',').map(m => m.replace(/\[restocking\]/gi, '').trim()).filter(Boolean);
+        if (activeMats.length > 0 && (!prev.material || !activeMats.some(m => m.toLowerCase() === prev.material.toLowerCase()))) {
+          updatedMaterial = activeMats[0];
+        }
       }
-    }
-    if (config.colors) {
-      const activeCols = config.colors.split(',').map(c => c.trim()).filter(Boolean);
-      if (activeCols.length > 0 && (!newOrder.color || !activeCols.includes(newOrder.color))) {
-        setNewOrder(prev => ({ ...prev, color: activeCols[0] }));
+
+      if (config.colors) {
+        const activeCols = config.colors.split(',').map(c => c.trim()).filter(Boolean);
+        if (activeCols.length > 0 && (!prev.color || !activeCols.some(c => c.toLowerCase() === prev.color.toLowerCase()))) {
+          updatedColor = activeCols[0];
+        }
       }
-    }
-  }, [config.materials, config.colors, newOrder.material, newOrder.color]);
+
+      if (updatedMaterial !== prev.material || updatedColor !== prev.color) {
+        return { ...prev, material: updatedMaterial, color: updatedColor };
+      }
+      return prev;
+    });
+  }, [materialRates, config.materials, config.colors]);
 
   // Scroll reveal — re-run when hash/admin changes so newly-rendered sections get observed
   useEffect(() => {
@@ -2403,6 +1507,10 @@ export default function App() {
           ? Number(data.price_review_threshold)
           : (storedThreshold ? parseFloat(storedThreshold) : 300);
 
+        const cleanWhy = (data.why_text || DEFAULT_CONFIG.why_text)
+          .replace(/\s*<!--RATES_CATALOG:.*?-->/s, '')
+          .trim();
+
         const isLegacy =
           !data.hero_title ||
           data.hero_title.includes("F1") ||
@@ -2421,13 +1529,14 @@ export default function App() {
           hero_title: DEFAULT_CONFIG.hero_title,
           hero_subtitle: DEFAULT_CONFIG.hero_subtitle,
           why_title: DEFAULT_CONFIG.why_title,
-          why_text: DEFAULT_CONFIG.why_text,
+          why_text: cleanWhy || DEFAULT_CONFIG.why_text,
           materials: DEFAULT_CONFIG.materials,
           colors: DEFAULT_CONFIG.colors,
           price_per_gram: data.price_per_gram || DEFAULT_CONFIG.price_per_gram,
           price_review_threshold: effectiveThreshold,
         } : {
           ...data,
+          why_text: cleanWhy || DEFAULT_CONFIG.why_text,
           telegram_bot_token: data.telegram_bot_token || storedTelegramToken,
           telegram_chat_id: data.telegram_chat_id || storedTelegramChatId,
           discord_webhook_url: data.discord_webhook_url || storedDiscordWebhook,
@@ -2436,6 +1545,18 @@ export default function App() {
         };
 
         setConfig(finalConfig);
+        if (data.materials || data.why_text) {
+          const effectiveStudentRate = parseFloat(finalConfig.price_per_gram) || 3.5;
+          const activeRates = parseFilamentCatalog(data.materials, data.why_text, effectiveStudentRate);
+          if (activeRates.pla && (Number(activeRates.pla.selling_rate) <= 2.0 || Number(activeRates.pla.selling_rate) < effectiveStudentRate)) {
+            activeRates.pla.selling_rate = effectiveStudentRate;
+          }
+          if (activeRates.pla_plus && (Number(activeRates.pla_plus.selling_rate) <= 2.0 || Number(activeRates.pla_plus.selling_rate) < effectiveStudentRate)) {
+            activeRates.pla_plus.selling_rate = effectiveStudentRate;
+          }
+          setMaterialRates(prev => ({ ...prev, ...activeRates }));
+          try { localStorage.setItem('etba3ly_material_rates', JSON.stringify(activeRates)); } catch (e) {}
+        }
         try { localStorage.setItem("etba3ly_cached_config", JSON.stringify(finalConfig)); } catch (e) {}
       } else {
         setConfig(prev => ({
@@ -2498,37 +1619,29 @@ export default function App() {
   }
 
   async function handleDeleteGalleryItem(item) {
-    setConfirmModal({
-      message: `Delete "${item.title}" from gallery?`,
-      onConfirm: async () => {
-        try {
-          // Delete media files from Supabase Storage permanently
-          if (item.media_urls) {
-            const urls = item.media_urls.split(',').filter(Boolean);
-            for (const url of urls) {
-              // Extract the actual storage path from the public URL
-              const parts = url.split('/storage/v1/object/public/gallery-media/');
-              const storagePath = parts.length > 1 ? decodeURIComponent(parts[1]) : url.split('/').pop();
-              const { error: storageErr } = await supabase.storage.from('gallery-media').remove([storagePath]);
-              if (storageErr) console.error('Storage delete error:', storagePath, storageErr);
-            }
-          }
-          // Delete the database record
-          const { error: dbErr } = await supabase.from("gallery_items").delete().eq("id", item.id);
-          if (dbErr) {
-            console.error('DB delete error:', dbErr);
-            addToast("Failed to delete: " + dbErr.message, "error");
-          } else {
-            addToast("Gallery item deleted permanently.", "success");
-          }
-          fetchGallery();
-        } catch (err) {
-          console.error('Delete gallery item error:', err);
-          addToast("Delete failed: " + err.message, "error");
+    if (!window.confirm(`Permanently delete "${item.title || 'item'}" from gallery?`)) return;
+    try {
+      if (item.media_urls) {
+        const urls = item.media_urls.split(',').filter(Boolean);
+        for (const url of urls) {
+          const parts = url.split('/storage/v1/object/public/gallery-media/');
+          const storagePath = parts.length > 1 ? decodeURIComponent(parts[1]) : url.split('/').pop();
+          const { error: storageErr } = await supabase.storage.from('gallery-media').remove([storagePath]);
+          if (storageErr) console.error('Storage delete error:', storagePath, storageErr);
         }
-        setConfirmModal(null);
       }
-    });
+      const { error: dbErr } = await supabase.from("gallery_items").delete().eq("id", item.id);
+      if (dbErr) {
+        console.error('DB delete error:', dbErr);
+        addToast("Failed to delete: " + dbErr.message, "error");
+      } else {
+        addToast("Gallery item deleted permanently.", "success");
+      }
+      fetchGallery();
+    } catch (err) {
+      console.error('Delete gallery item error:', err);
+      addToast("Delete failed: " + err.message, "error");
+    }
   }
 
   async function handleSaveGalleryItem() {
@@ -2806,32 +1919,57 @@ export default function App() {
 
       const trackingCode = generateTrackingCode();
       const weightGrams = clientMetrics ? (clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0) : 0;
-      const rate = parseFloat(config.price_per_gram) || 3;
-      const calculatedTotal = clientMetrics && clientMetrics.totalPrice ? clientMetrics.totalPrice : (weightGrams * rate);
+      const printHours = clientMetrics && clientMetrics.printingTimeSeconds ? (clientMetrics.printingTimeSeconds / 3600) : (weightGrams > 0 ? (weightGrams / 35) : 0.2);
+      const deliveryMode = newOrder.deliveryMode || "pickup";
+      const referralCode = typeof window !== "undefined" ? (localStorage.getItem("etba3ly_referral") || null) : null;
+
+      const quote = calculateOrderQuote({
+        items: [{ weightGrams, printHours, materialKey: (newOrder.material || "PLA").toLowerCase() }],
+        deliveryMode,
+        referralCode,
+        customMaterials: materialRates
+      });
+      const calculatedTotal = quote.customerTotal;
+      const depositRequired = quote.depositRequired;
+      const remainingBalance = quote.remainingBalance;
       const cleanNotes = (newOrder.notes || "").trim();
 
-      const defMat = config.materials ? config.materials.split(',')[0].trim() : "PLA";
+      const firstAvailable = Object.values(materialRates).find(m => m && m.in_stock !== false);
+      const defMat = firstAvailable ? firstAvailable.name : (config.materials ? config.materials.split(',')[0].trim() : "PLA");
       const defCol = config.colors ? config.colors.split(',')[0].trim() : "White";
       const finalMaterial = (newOrder.material || defMat).trim();
       const finalColor = (newOrder.color || defCol).trim();
       const fallbackName = hasLink && !hasFiles ? `${getPlatformFromUrl(cleanLink)?.name || 'Online'} 3D Model` : "Untitled Part";
 
+      const dynamicTags = [
+        `[PROFILE:${selectedTier || "standard"}]`,
+        `[SUPPORTS:${enableSupports ? "yes" : "no"}]`,
+        `[DELIVERY:${deliveryMode || "pickup"}]`,
+        `[DEPOSIT:${depositRequired || 0}]`,
+        `[BALANCE:${remainingBalance || 0}]`,
+        `[HOURS:${(quote.totalPrintHours || quote.printTimeHours || (weightGrams > 0 ? Number((weightGrams / 35).toFixed(1)) : 0.5)).toFixed(1)}]`,
+        referralCode ? `[REF:${referralCode}]` : null
+      ].filter(Boolean).join(" ");
+
+      const fullNotes = `${cleanNotes ? cleanNotes + " " : ""}${dynamicTags}`.trim();
+
       const payload = {
         name: newOrder.name,
         phone: newOrder.phone.replace(/[\s\-()]/g, ""),
-        email: newOrder.email,
+        email: newOrder.email || null,
         ordername: newOrder.orderName || fallbackName,
         material: finalMaterial,
         color: finalColor,
-        notes: cleanNotes,
+        notes: fullNotes,
         fileurl: urls.join(","),
         filesize: totalSize,
         status: "queued",
         priority: queuedOrdersCount,
         weightgrams: weightGrams,
-        pricepergram: rate,
+        pricepergram: Math.round((quote.materialCharge / (weightGrams || 1)) * 100) / 100,
         totalprice: calculatedTotal,
-        tracking_code: trackingCode
+        tracking_code: trackingCode,
+        createdat: new Date().toISOString()
       };
 
       const { error: insertErr } = await supabase.from("orders").insert([payload]);
@@ -2857,7 +1995,8 @@ export default function App() {
         totalPrice: calculatedTotal,
         name: newOrder.name,
         material: finalMaterial,
-        color: finalColor
+        color: finalColor,
+        tier: selectedTier
       });
 
       setUploadProgress({ active: false, percent: 100, currentFile: "", fileIndex: 0, totalFiles: 0, loadedBytes: 0, totalBytes: 0, stage: "" });
@@ -2866,7 +2005,11 @@ export default function App() {
       setCopiedTrackingCode(false);
       setNewOrder({ name: newOrder.name, phone: newOrder.phone, email: newOrder.email, orderName: "", material: defMat, color: defCol, notes: "", fileName: "", fileLink: "" });
       setClientMetrics(null);
+      setSelectedTier("standard");
+      setEnableSupports(true);
       setOrderInfill(20);
+      setOrderLayerHeight(0.20);
+      setOrderNozzle(0.40);
       setFormErrors({});
       setSelectedFiles([]);
       fetchOrders();
@@ -3638,1612 +2781,42 @@ export default function App() {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // ADMIN DASHBOARD
+  // ADMIN DASHBOARD (STRIPE / SHOPIFY REDESIGNED INTERFACE)
   // ═══════════════════════════════════════════════════════════
   if (hash === "#boss" && isAdmin) {
     return (
-      <div className="admin-container">
-        <div className="bg-orbs"><div className="bg-orb bg-orb-1"/><div className="bg-orb bg-orb-2"/><div className="bg-orb bg-orb-3"/></div>
-        <div style={{ position: "relative", zIndex: 10 }}>
-          <div className="admin-header" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
-            <img src={getAssetPath(darkMode ? "logo-dark.svg" : "logo-light.svg")} alt="Etba3ly" className="brand-logo-img admin-logo" style={{ height: 34, display: 'block' }} />
-            <h1 style={{ fontSize: 36, margin: 0, flex: 1 }}>Command Center</h1>
-            <button className="btn btn-glass" onClick={() => { fetchOrders(); fetchConfig(); addToast("Queue and config refreshed", "info"); }}>Refresh Orders</button>
-            <button className="btn btn-glass" onClick={exportCSV}>Export CSV</button>
-            <button className="btn btn-glass" onClick={handleAdminLogout}>Sign Out</button>
-          </div>
-
-          <div className="admin-tabs">
-            <button className={`btn ${adminTab === "orders" ? "btn-primary" : "btn-glass"}`} onClick={() => setAdminTab("orders")}>Manage Orders</button>
-            <button className={`btn ${adminTab === "profit" ? "btn-primary" : "btn-glass"}`} onClick={() => setAdminTab("profit")}>Profit & Analytics</button>
-            <button className={`btn ${adminTab === "gallery" ? "btn-primary" : "btn-glass"}`} onClick={() => setAdminTab("gallery")}>Gallery</button>
-            <button className={`btn ${adminTab === "cms" ? "btn-primary" : "btn-glass"}`} onClick={() => setAdminTab("cms")}>Edit Website</button>
-          </div>
-
-          {adminTab === "orders" && (
-            <>
-              <div className="admin-stats-grid">
-                <div className="card"><h3>Total Orders</h3><p style={{ fontSize: 36, margin: "8px 0 0", fontWeight: 900 }}>{orders.length}</p></div>
-                <div className="card"><h3>Printing Now</h3><p style={{ fontSize: 36, margin: "8px 0 0", fontWeight: 900, color: "var(--status-printing)" }}>{orders.filter(o => o.status === "printing").length}</p></div>
-                <div className="card"><h3>Completed</h3><p style={{ fontSize: 36, margin: "8px 0 0", fontWeight: 900, color: "var(--status-done)" }}>{orders.filter(o => o.status === "done").length}</p></div>
-              </div>
-              {/* Printer Status Dashboard */}
-              <div className="printer-dashboard card" style={{ marginBottom: 24 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-                  <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: 10 }}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 22, height: 22, color: "var(--accent)" }}><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-                    Printer Status & Telemetry
-                  </h3>
-                  <span style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 600 }}>Tracks Website Orders & Direct USB Flash Drives</span>
-                </div>
-                <div className="printer-status-grid">
-                  {PRINTERS.map(printer => {
-                    const activeOrder = orders.find(o => o.status === "printing" && getPrinterFromNotes(o.notes) === printer);
-                    const externalJob = externalPrinterStates[printer];
-                    const isWorking = Boolean(activeOrder || (externalJob && externalJob.status === "working"));
-                    const isExternal = !activeOrder && externalJob && externalJob.status === "working";
-
-                    return (
-                      <div key={printer} className={`printer-status-card ${isWorking ? (isExternal ? 'external-working' : 'working') : 'resting'}`}>
-                        <div className="printer-status-indicator">
-                          <div className={`printer-dot ${isWorking ? (isExternal ? 'external' : 'active') : 'idle'}`} />
-                          <span className="printer-name">{printer}</span>
-                        </div>
-                        <div className="printer-status-label">
-                          {activeOrder ? 'Working (Website Job)' : isExternal ? 'Working (Direct USB)' : 'Resting / Ready'}
-                        </div>
-                        {activeOrder && (
-                          <div className="printer-current-order">
-                            Printing: <strong>{activeOrder.ordername || "Untitled"}</strong> — {activeOrder.name}
-                          </div>
-                        )}
-                        {isExternal && (
-                          <div className="printer-current-order" style={{ color: "var(--accent)" }}>
-                            Direct Print: <strong>{externalJob.jobName || "Flash Drive Job"}</strong>
-                          </div>
-                        )}
-                        <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          {isExternal ? (
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-glass"
-                              style={{ padding: "4px 10px", fontSize: 11 }}
-                              onClick={() => handleClearExternalJob(printer)}
-                            >
-                              Clear USB Job
-                            </button>
-                          ) : !activeOrder ? (
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-glass"
-                              style={{ padding: "4px 10px", fontSize: 11 }}
-                              onClick={() => handleSetExternalJob(printer)}
-                            >
-                              Log USB Print
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <h3 style={{ margin: 0 }}>Order Queue</h3>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-accent"
-                      style={{ padding: "6px 14px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}
-                      onClick={() => {
-                        const defMat = config.materials ? config.materials.split(',')[0].trim() : "PLA";
-                        const defCol = config.colors ? config.colors.split(',')[0].trim() : "White";
-                        setNewAdminOrder({
-                          name: "",
-                          phone: "",
-                          email: "",
-                          ordername: "",
-                          material: defMat,
-                          color: defCol,
-                          weightgrams: "",
-                          pricepergram: config.price_per_gram || "3",
-                          totalprice: "",
-                          status: "queued",
-                          printer: PRINTERS[0] || "CC Abdalla",
-                          payment_status: "unpaid",
-                          paid_amount: 0,
-                          notes: ""
-                        });
-                        setIsCreateOrderOpen(true);
-                      }}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                      + Create Order
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-glass"
-                      style={{ padding: "6px 12px", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}
-                      onClick={() => setIsScanHistoryOpen(true)}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                      Scan Print History
-                    </button>
-                  </div>
-                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", flex: 1, justifyContent: "flex-end" }}>
-                    <input 
-                      placeholder="Search name, phone, code..." 
-                      value={adminSearch} 
-                      onChange={e => setAdminSearch(e.target.value)} 
-                      style={{ padding: "6px 14px", fontSize: 13, minWidth: 200, borderRadius: "var(--radius-full)" }} 
-                    />
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Sort:</span>
-                      {["date", "weight", "filesize", "price"].map(s => (
-                        <button key={s} className={`btn ${sortBy === s ? "btn-primary" : "btn-glass"}`}
-                          style={{ padding: "6px 14px", fontSize: 12 }}
-                          onClick={() => setSortBy(s)}>{s.charAt(0).toUpperCase() + s.slice(1)}</button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Status Filter Tabs */}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-                  {[
-                    { id: "all", label: `All Orders (${orders.length})` },
-                    { id: "queued", label: `Queued (${orders.filter(o => (o.status || "").toLowerCase().trim() === "queued").length})` },
-                    { id: "printing", label: `Printing (${orders.filter(o => (o.status || "").toLowerCase().trim() === "printing").length})` },
-                    { id: "done", label: `Done (${orders.filter(o => (o.status || "").toLowerCase().trim() === "done").length})` },
-                  ].map(f => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      className={`btn ${adminStatusFilter === f.id ? "btn-primary" : "btn-glass"}`}
-                      style={{ padding: "5px 12px", fontSize: 12, borderRadius: "var(--radius-full)" }}
-                      onClick={() => setAdminStatusFilter(f.id)}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Master Select All Checkbox & Bulk Actions */}
-                {(() => {
-                  const visibleOrders = getSortedOrders();
-                  const allVisibleSelected = visibleOrders.length > 0 && visibleOrders.every(o => selectedOrders.includes(o.id));
-                  const selectedTotal = orders.filter(o => selectedOrders.includes(o.id)).reduce((sum, o) => {
-                    const price = o.totalprice !== null && o.totalprice !== undefined ? Number(o.totalprice) : (Number(o.weightgrams) || 0) * (parseFloat(config.price_per_gram) || 3);
-                    return sum + price;
-                  }, 0);
-
-                  return (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16, padding: "10px 14px", background: "rgba(255,255,255,0.03)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)" }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <input
-                          type="checkbox"
-                          id="masterSelectAll"
-                          checked={allVisibleSelected}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedOrders(prev => Array.from(new Set([...prev, ...visibleOrders.map(o => o.id)])));
-                            } else {
-                              const visibleIds = visibleOrders.map(o => o.id);
-                              setSelectedOrders(prev => prev.filter(id => !visibleIds.includes(id)));
-                            }
-                          }}
-                          style={{ width: 18, height: 18, cursor: "pointer" }}
-                        />
-                        <label htmlFor="masterSelectAll" style={{ margin: 0, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                          Select All Visible ({visibleOrders.length})
-                        </label>
-                      </div>
-
-                      {selectedOrders.length > 0 && (
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>
-                            {selectedOrders.length} selected &bull; Total: {selectedTotal.toFixed(2)} EGP
-                          </span>
-                          <button className="btn btn-sm btn-glass" onClick={() => handleBulkStatus("queued")}>Set Queued</button>
-                          <button className="btn btn-sm btn-glass" onClick={() => handleBulkStatus("printing")}>Set Printing</button>
-                          <button className="btn btn-sm btn-glass" onClick={() => handleBulkStatus("done")}>Set Done</button>
-                          <button className="btn btn-sm" style={{ background: "#FF3B30", color: "#fff" }} onClick={handleBulkDelete}>Delete</button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {getSortedOrders().map(o => {
-                  const calculatedPrice = (o.weightgrams || 0) * (parseFloat(config.price_per_gram) || 0);
-                  const isSelected = selectedOrders.includes(o.id);
-                  const cleanPhone = (o.phone || "").replace(/[^0-9]/g, "");
-                  const waPhone = cleanPhone.startsWith("2") ? cleanPhone : `2${cleanPhone}`;
-                  const waMessage = `Hello ${o.name || "Customer"}, your 3D printing order "${o.ordername || "Order"}" (Tracking: ${o.tracking_code || ""}) is currently ${o.status.toUpperCase()} at Etba3ly.`;
-
-                  return (
-                    <div key={o.id} className="admin-order-card" style={{ display: 'flex', gap: 12 }}>
-                      <input 
-                        type="checkbox" 
-                        checked={isSelected} 
-                        onChange={(e) => {
-                          if (e.target.checked) setSelectedOrders(prev => [...prev, o.id]);
-                          else setSelectedOrders(prev => prev.filter(id => id !== o.id));
-                        }}
-                        style={{ width: 20, height: 20, marginTop: 16 }}
-                      />
-                      <div style={{ flex: 1 }}>
-                        <div className="admin-order-layout">
-                          <div className="admin-order-info">
-                            <div style={{ fontSize: 17, fontWeight: 800, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              {o.ordername || "Untitled"}
-                              <span style={{ fontSize: 10, background: o.status === "done" ? "var(--status-done)" : o.status === "printing" ? "var(--status-printing)" : "var(--status-queued)", color: "#fff", padding: "3px 10px", borderRadius: "var(--radius-full)", fontWeight: 700 }}>{o.status.toUpperCase()}</span>
-                              {o.tracking_code && (
-                                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                  <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700, fontFamily: "monospace" }}>{o.tracking_code}</span>
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm btn-glass"
-                                    style={{ padding: "1px 6px", fontSize: 10 }}
-                                    onClick={async () => {
-                                      await copyToClipboard(o.tracking_code);
-                                      addToast(`Copied ${o.tracking_code}`, "info");
-                                    }}
-                                    title="Copy tracking code"
-                                  >
-                                    Copy
-                                  </button>
-                                </span>
-                              )}
-                              {o.status === "printing" && getPrinterFromNotes(o.notes) && <span style={{ fontSize: 10, background: "rgba(0,122,255,0.1)", color: "var(--status-printing)", padding: "3px 10px", borderRadius: "var(--radius-full)", fontWeight: 700, border: "1px solid rgba(0,122,255,0.2)" }}>[PRINTER: {getPrinterFromNotes(o.notes)}]</span>}
-                              {Number(o.totalprice || 0) > (parseFloat(config.price_review_threshold) || 300) && (
-                                <span style={{ fontSize: 10, background: "rgba(255, 149, 0, 0.15)", color: "var(--accent)", padding: "3px 10px", borderRadius: "var(--radius-full)", fontWeight: 800, border: "1px solid rgba(255, 149, 0, 0.3)" }}>
-                                  High Volume Review
-                                </span>
-                              )}
-                              {/* Internal Payment Status (Admin Only) */}
-                              {(() => {
-                                const pay = getOrderPaymentInfo(o);
-                                const orderPrice = o.totalprice !== null && o.totalprice !== undefined ? Number(o.totalprice) : (Number(o.weightgrams) || 0) * (parseFloat(config.price_per_gram) || 3);
-                                return (
-                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
-                                    <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", textTransform: "uppercase" }}>Payment:</span>
-                                    <select
-                                      value={pay.status}
-                                      onChange={(e) => {
-                                        const newStat = e.target.value;
-                                        let newAmt = pay.paidAmount;
-                                        if (newStat === "paid") newAmt = orderPrice;
-                                        else if (newStat === "unpaid") newAmt = 0;
-                                        handleUpdatePayment(o.id, newStat, newAmt);
-                                      }}
-                                      style={{
-                                        padding: "3px 8px",
-                                        fontSize: 11,
-                                        fontWeight: 800,
-                                        borderRadius: "var(--radius-full)",
-                                        background: pay.status === "paid" ? "rgba(52, 199, 89, 0.15)" : pay.status === "partial" ? "rgba(255, 149, 0, 0.15)" : "rgba(255, 59, 48, 0.15)",
-                                        color: pay.status === "paid" ? "var(--status-done)" : pay.status === "partial" ? "var(--accent)" : "#ff453a",
-                                        border: `1px solid ${pay.status === "paid" ? "rgba(52, 199, 89, 0.4)" : pay.status === "partial" ? "rgba(255, 149, 0, 0.4)" : "rgba(255, 59, 48, 0.4)"}`,
-                                        cursor: "pointer"
-                                      }}
-                                      title="Internal Cash Payment Status (Admin Only)"
-                                    >
-                                      <option value="unpaid">Unpaid ({orderPrice.toFixed(0)} EGP)</option>
-                                      <option value="partial">Partial</option>
-                                      <option value="paid">Paid in Full</option>
-                                    </select>
-                                    {pay.status === "partial" && (
-                                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                                        <input
-                                          type="number"
-                                          step="1"
-                                          min="0"
-                                          max={orderPrice}
-                                          defaultValue={pay.paidAmount}
-                                          placeholder="Paid"
-                                          onBlur={(e) => handleUpdatePayment(o.id, "partial", e.target.value)}
-                                          onKeyDown={(e) => e.key === "Enter" && handleUpdatePayment(o.id, "partial", e.target.value)}
-                                          style={{ width: 60, padding: "2px 6px", fontSize: 11, fontWeight: 700, textAlign: "right" }}
-                                          title="Enter cash amount received"
-                                        />
-                                        <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>/ {orderPrice.toFixed(0)} EGP</span>
-                                      </span>
-                                    )}
-                                  </span>
-                                );
-                              })()}
-                            </div>
-                            <div style={{ color: "var(--text-secondary)", marginTop: 6, fontSize: 13, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                              <span>{o.name} &bull; {o.phone}{o.email && <> &bull; {o.email}</>}</span>
-                              {cleanPhone && (
-                                <a
-                                  href={`https://wa.me/${waPhone}?text=${encodeURIComponent(waMessage)}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="btn btn-sm btn-glass"
-                                  style={{ padding: "2px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4, color: "#25D366", borderColor: "rgba(37,211,102,0.3)" }}
-                                  title="Open WhatsApp chat with client"
-                                >
-                                  <WhatsAppIcon /> WhatsApp
-                                </a>
-                              )}
-                            </div>
-                            <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                              <span>{o.material} ({o.color})</span>
-                              {o.notes && o.notes.includes("[INFILL:") && (
-                                <span style={{ fontSize: 11, background: "rgba(255, 128, 0, 0.12)", color: "var(--accent)", padding: "2px 8px", borderRadius: "var(--radius-full)", fontWeight: 700 }}>
-                                  {o.notes.match(/\[INFILL:([^\]]+)\]/)?.[1] || ""} Infill
-                                </span>
-                              )}
-                            </div>
-                            {getCleanNotes(o.notes) && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4, fontStyle: "italic" }}>Notes: {getCleanNotes(o.notes)}</div>}
-                            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>
-                              {o.createdat && <span>{new Date(o.createdat).toLocaleString()} &bull; </span>}
-                              {o.filesize > 0 && <span>{(o.filesize / 1024).toFixed(0)} KB</span>}
-                            </div>
-                          </div>
-                          <div className="admin-order-actions">
-                            {o.status === "queued" && (
-                              <button
-                                type="button"
-                                className="btn btn-accent"
-                                style={{ padding: "8px 14px", fontSize: 12 }}
-                                onClick={() => {
-                                  const busyPrinters = orders.filter(x => x.status === "printing" && x.id !== o.id).map(x => getPrinterFromNotes(x.notes)).filter(Boolean);
-                                  const available = PRINTERS.find(p => !busyPrinters.includes(p)) || PRINTERS[0];
-                                  handleUpdateOrderStatus(o.id, "printing", available);
-                                }}
-                              >
-                                Start Print
-                              </button>
-                            )}
-                            {o.status === "printing" && (
-                              <button
-                                type="button"
-                                className="btn btn-primary"
-                                style={{ padding: "8px 14px", fontSize: 12, background: "var(--status-done)", borderColor: "var(--status-done)" }}
-                                onClick={() => handleUpdateOrderStatus(o.id, "done")}
-                              >
-                                Mark Done
-                              </button>
-                            )}
-                            <select value={o.status} onChange={(e) => {
-                              const newStatus = e.target.value;
-                              if (newStatus === "printing") {
-                                const busyPrinters = orders.filter(x => x.status === "printing" && x.id !== o.id).map(x => getPrinterFromNotes(x.notes)).filter(Boolean);
-                                const available = PRINTERS.find(p => !busyPrinters.includes(p)) || PRINTERS[0];
-                                handleUpdateOrderStatus(o.id, newStatus, available);
-                              } else {
-                                handleUpdateOrderStatus(o.id, newStatus);
-                              }
-                            }} style={{ width: 120, padding: 8, fontSize: 12 }}>
-                              <option value="queued">Queued</option>
-                              <option value="printing">Printing</option>
-                              <option value="done">Done</option>
-                            </select>
-                            {o.status === "printing" && (
-                              <select value={getPrinterFromNotes(o.notes) || PRINTERS[0]} onChange={(e) => handleUpdateOrderStatus(o.id, "printing", e.target.value)} style={{ width: 140, padding: 8, fontSize: 12 }}>
-                                {PRINTERS.map(p => <option key={p} value={p}>{p}</option>)}
-                              </select>
-                            )}
-                            {Boolean(o.fileurl && o.fileurl.toLowerCase().includes('.stl')) && (
-                              <button
-                                type="button"
-                                onClick={() => setAdminSlicerOrder(o)}
-                                className="btn btn-accent"
-                                style={{ padding: "8px 14px", fontSize: 12 }}
-                              >
-                                Inspect & Slice 3D
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleOpenMoonrakerForOrder(o)}
-                              className="btn btn-glass"
-                              style={{ padding: "8px 14px", fontSize: 12 }}
-                            >
-                              Send to Printer
-                            </button>
-                            {o.fileurl && o.fileurl.split(',').filter(Boolean).map((url, idx, arr) => {
-                              const isStorage = url.includes('/storage/v1/object/public/stl-files/') || url.match(/\.(stl|zip|rar)($|\?)/i);
-                              const plat = getPlatformFromUrl(url);
-                              if (isStorage) {
-                                return (
-                                  <a key={idx} href={url} download target="_blank" rel="noreferrer" className="btn btn-glass" style={{ padding: "8px 14px", fontSize: 12 }}>
-                                    Download File {arr.length > 1 ? idx + 1 : ""}
-                                  </a>
-                                );
-                              }
-                              return (
-                                <a key={idx} href={url} target="_blank" rel="noreferrer" className="btn btn-glass" style={{ padding: "8px 14px", fontSize: 12, borderColor: plat?.color || "var(--accent)", color: plat?.color || "var(--accent)", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                                  {plat?.name || 'Model Link'} {arr.length > 1 ? idx + 1 : ""}
-                                </a>
-                              );
-                            })}
-                            <button onClick={() => setEditingOrder(o)} className="btn btn-glass" style={{ padding: "8px 14px", fontSize: 12 }}>Edit</button>
-                            <button onClick={() => handleDeleteOrder(o.id)} style={{ padding: "8px 14px", background: "#FF3B30", color: "#fff", border: "none", borderRadius: "var(--radius-full)", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Delete</button>
-                          </div>
-                        </div>
-                        <AdminOrderCardFooter
-                          order={o}
-                          config={config}
-                          onUpdateWeight={handleUpdateWeight}
-                          onUpdatePrice={handleUpdatePrice}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          {adminTab === "profit" && (
-            <AdminProfitTab
-              orders={orders}
-              config={config}
-              spoolCostKg={spoolCostKg}
-              setSpoolCostKg={setSpoolCostKg}
-              electricityTariffKwh={electricityTariffKwh}
-              setElectricityTariffKwh={setElectricityTariffKwh}
-              printerPowerWatts={printerPowerWatts}
-              setPrinterPowerWatts={setPrinterPowerWatts}
-              cc1WearRatePerHour={cc1WearRatePerHour}
-              setCc1WearRatePerHour={setCc1WearRatePerHour}
-              printSpeedGph={printSpeedGph}
-              setPrintSpeedGph={setPrintSpeedGph}
-              materialCosts={materialCosts}
-              setMaterialCosts={setMaterialCosts}
-              fleetLogs={fleetLogs}
-              setFleetLogs={setFleetLogs}
-              externalPrinterStates={externalPrinterStates}
-              PRINTERS={PRINTERS}
-              onClearExternalJob={handleClearExternalJob}
-              onDeleteFleetLog={handleDeleteFleetLog}
-              onOpenExternalPrompt={handleSetExternalJob}
-              onOpenScanHistory={() => setIsScanHistoryOpen(true)}
-              addToast={addToast}
-            />
-          )}
-
-          {adminTab === "gallery" && (
-            <>
-              {/* Add New Gallery Item */}
-              <div className="card" style={{ marginBottom: 24 }}>
-                <h3 style={{ marginBottom: 16 }}>Add New Gallery Product</h3>
-                <div className="form-row">
-                  <div style={{ flex: 1 }}><label>Title *</label><input value={newGalleryItem.title} onChange={e => setNewGalleryItem(p => ({...p, title: e.target.value}))} placeholder="Product title" style={{ marginBottom: 12 }} /></div>
-                </div>
-                <div style={{ marginBottom: 12 }}><label>Description</label><textarea rows="2" value={newGalleryItem.description} onChange={e => setNewGalleryItem(p => ({...p, description: e.target.value}))} placeholder="Brief description..." /></div>
-                <GalleryStudioUploader
-                  files={newGalleryFiles}
-                  onProcessedFilesChange={setNewGalleryFiles}
-                  onProcessingStateChange={setGalleryProcessing}
-                />
-                <button className="btn btn-primary" onClick={handleAddGalleryItem} disabled={galleryUploading || galleryProcessing}>
-                  {galleryProcessing ? "Processing Images..." : galleryUploading ? "Uploading..." : "Add to Gallery"}
-                </button>
-              </div>
-
-              {/* Existing Gallery Items */}
-              <div className="card">
-                <h3 style={{ marginBottom: 16 }}>Gallery Items ({galleryItems.length})</h3>
-                {galleryItems.length === 0 && <p style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>No gallery items yet. Add one above.</p>}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-                  {galleryItems.map(item => {
-                    const mediaUrls = item.media_urls ? item.media_urls.split(',').filter(Boolean) : [];
-                    return (
-                      <div key={item.id} className="admin-gallery-card">
-                        <div className="admin-gallery-cover">
-                          {item.cover_url ? <img src={item.cover_url} alt={item.title} /> : <CubeIcon />}
-                          <div className="admin-gallery-media-count">{mediaUrls.length} media</div>
-                        </div>
-                        <div style={{ padding: '12px 16px' }}>
-                          <h4 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>{item.title}</h4>
-                          <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>{item.description || 'No description'}</p>
-                          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                            <button className="btn btn-glass" style={{ padding: '6px 12px', fontSize: 12 }} onClick={(e) => { e.stopPropagation(); setEditingGalleryItem({...item}); }}>Edit</button>
-                            <button style={{ padding: '6px 12px', fontSize: 12, background: '#FF3B30', color: '#fff', border: 'none', borderRadius: 'var(--radius-full)', fontWeight: 700, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); handleDeleteGalleryItem(item); }}>Delete</button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </>
-          )}
-
-          {adminTab === "cms" && (
-            <div className="card" style={{ maxWidth: 800 }}>
-              <h3 style={{ marginBottom: 8 }}>Content Management</h3>
-              <p style={{ marginBottom: 28, fontSize: 14 }}>Update your website text and pricing instantly.</p>
-              <form onSubmit={handleUpdateCMS}>
-                <div style={{ marginBottom: 20 }}><label>Brand Name</label><input value={config.brand_name || ""} onChange={e => setConfig(p => ({ ...p, brand_name: e.target.value }))} /></div>
-                <div className="form-row" style={{ marginBottom: 20 }}>
-                  <div style={{ flex: 1 }}>
-                    <label>Price per Gram (EGP)</label>
-                    <input type="number" step="0.5" min="0" value={config.price_per_gram} onChange={e => setConfig(p => ({ ...p, price_per_gram: e.target.value }))} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label>Order Review Threshold (EGP)</label>
-                    <input
-                      type="number"
-                      step="10"
-                      min="0"
-                      value={config.price_review_threshold !== undefined ? config.price_review_threshold : 300}
-                      onChange={e => setConfig(p => ({ ...p, price_review_threshold: e.target.value }))}
-                      placeholder="300"
-                    />
-                  </div>
-                </div>
-                <p style={{ marginTop: -12, marginBottom: 20, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
-                  Orders with an estimated slicer price exceeding this threshold prompt the client for workshop operator review for accurate pricing and tolerances, without revealing the threshold value to the customer.
-                </p>
-                <div style={{ marginBottom: 20 }}><label>Announcement Text</label><input value={config.announcement_text || ""} onChange={e => setConfig(p => ({ ...p, announcement_text: e.target.value }))} placeholder="Site wide announcement..." /></div>
-                <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <label style={{ margin: 0 }}>Show Announcement</label>
-                  <input type="checkbox" checked={config.announcement_active || false} onChange={e => setConfig(p => ({ ...p, announcement_active: e.target.checked }))} style={{ width: 24, height: 24 }} />
-                </div>
-                <hr style={{ border: 0, borderTop: "1px solid var(--border-glass)", margin: "28px 0" }} />
-                <div style={{ marginBottom: 20 }}><label>Materials (comma separated)</label><input value={config.materials} onChange={e => setConfig(p => ({ ...p, materials: e.target.value }))} /></div>
-                <div style={{ marginBottom: 28 }}><label>Colors (comma separated)</label><input value={config.colors} onChange={e => setConfig(p => ({ ...p, colors: e.target.value }))} /></div>
-                <hr style={{ border: 0, borderTop: "1px solid var(--border-glass)", margin: "28px 0" }} />
-                <div style={{ marginBottom: 20 }}><label>Hero Title</label><input value={config.hero_title} onChange={e => setConfig(p => ({ ...p, hero_title: e.target.value }))} /></div>
-                <div style={{ marginBottom: 20 }}><label>Hero Subtitle</label><textarea rows="3" value={config.hero_subtitle} onChange={e => setConfig(p => ({ ...p, hero_subtitle: e.target.value }))} /></div>
-                <div style={{ marginBottom: 20 }}><label>Why Us - Title</label><input value={config.why_title} onChange={e => setConfig(p => ({ ...p, why_title: e.target.value }))} /></div>
-                <div style={{ marginBottom: 32 }}><label>Why Us - Text</label><textarea rows="4" value={config.why_text} onChange={e => setConfig(p => ({ ...p, why_text: e.target.value }))} /></div>
-                <hr style={{ border: 0, borderTop: "1px solid var(--border-glass)", margin: "28px 0" }} />
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                  <label style={{ margin: 0 }}>Social & Contact Info</label>
-                  <button type="button" className={`btn ${config.show_socials !== false ? "btn-accent" : "btn-glass"}`} style={{ padding: "8px 12px", gap: 6 }} onClick={() => setConfig(p => ({ ...p, show_socials: p.show_socials === false ? true : false }))}>
-                    {config.show_socials !== false ? <EyeIcon /> : <EyeSlashIcon />} {config.show_socials !== false ? "Visible" : "Hidden"}
-                  </button>
-                </div>
-                <div style={{ marginBottom: 20 }}>
-                  <label>WhatsApp Number (International or Egyptian e.g. 010... / +20...)</label>
-                  <input value={config.whatsapp_number || ""} onChange={e => setConfig(p => ({ ...p, whatsapp_number: e.target.value }))} placeholder="e.g. +201012345678 or 01012345678" />
-                </div>
-                {/* 1. Telegram Push Alerts (Free & Unbannable) */}
-                <div style={{ marginBottom: 20, padding: "18px", borderRadius: "var(--radius-sm)", background: "rgba(0,136,204,0.04)", border: "1px solid rgba(0,136,204,0.25)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", color: "#2AABEE", background: "rgba(42,171,238,0.14)", padding: "2px 8px", borderRadius: 4 }}>Recommended</span>
-                      <label style={{ margin: 0, fontWeight: 700 }}>Telegram Order Alerts (Free & Instant)</label>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-accent"
-                      style={{ padding: "4px 12px", fontSize: 11 }}
-                      disabled={isTestingTelegram}
-                      onClick={handleTestTelegram}
-                    >
-                      {isTestingTelegram ? "Sending..." : "Send Test Telegram Alert"}
-                    </button>
-                  </div>
-                  <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                    100% free, unbannable mobile alerts. When a customer places an order, your bot pings your phone immediately.
-                  </p>
-                  <div className="form-row" style={{ marginBottom: 10 }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 12 }}>Telegram Bot Token</label>
-                      <input
-                        value={config.telegram_bot_token || ""}
-                        onChange={e => setConfig(p => ({ ...p, telegram_bot_token: e.target.value }))}
-                        placeholder="e.g. 7123456789:AAFlmX..."
-                      />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: 12 }}>Telegram Chat ID</label>
-                      <input
-                        value={config.telegram_chat_id || ""}
-                        onChange={e => setConfig(p => ({ ...p, telegram_chat_id: e.target.value }))}
-                        placeholder="e.g. 987654321"
-                      />
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", lineHeight: 1.6, background: "rgba(255,255,255,0.02)", padding: "8px 12px", borderRadius: 6, border: "1px solid var(--border-glass)" }}>
-                    Quick 60-second setup: 1. Search <strong>@BotFather</strong> on Telegram and send <code>/newbot</code> to get your Bot Token. 2. Open your new bot and click <strong>Start</strong>. 3. Search <strong>@userinfobot</strong> on Telegram to get your numeric Chat ID.
-                  </div>
-                </div>
-
-                {/* 2. Discord Webhook Alerts */}
-                <div style={{ marginBottom: 20, padding: "16px", borderRadius: "var(--radius-sm)", background: "rgba(88,101,242,0.04)", border: "1px solid rgba(88,101,242,0.2)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-                    <label style={{ margin: 0, fontWeight: 700 }}>Discord Webhook Order Alerts (Optional Backup)</label>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-glass"
-                      style={{ padding: "4px 12px", fontSize: 11 }}
-                      disabled={isTestingDiscord}
-                      onClick={handleTestDiscord}
-                    >
-                      {isTestingDiscord ? "Sending..." : "Send Test Discord Alert"}
-                    </button>
-                  </div>
-                  <input
-                    value={config.discord_webhook_url || ""}
-                    onChange={e => setConfig(p => ({ ...p, discord_webhook_url: e.target.value }))}
-                    placeholder="https://discord.com/api/webhooks/..."
-                    style={{ marginBottom: 8 }}
-                  />
-                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
-                    Posts real-time order embed cards into your private Discord channel.
-                  </p>
-                </div>
-
-                {/* 3. CallMeBot WhatsApp Alerts (Legacy) */}
-                <div style={{ marginBottom: 20, padding: "16px", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-glass-strong)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-                    <label style={{ margin: 0, fontWeight: 700 }}>CallMeBot WhatsApp Order Alerts API Key (Legacy)</label>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-glass"
-                      style={{ padding: "4px 12px", fontSize: 11 }}
-                      disabled={isTestingWhatsApp}
-                      onClick={handleTestWhatsApp}
-                    >
-                      {isTestingWhatsApp ? "Sending..." : "Send Test WhatsApp Alert"}
-                    </button>
-                  </div>
-                  <input
-                    value={config.whatsapp_api_key || ""}
-                    onChange={e => setConfig(p => ({ ...p, whatsapp_api_key: e.target.value }))}
-                    placeholder="Enter CallMeBot API Key (e.g. 123456)"
-                    style={{ marginBottom: 8 }}
-                  />
-                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
-                    Note: CallMeBot WhatsApp public numbers are frequently unavailable due to gateway bans. For guaranteed 100% delivery, use Telegram above.
-                  </p>
-                </div>
-                <div style={{ marginBottom: 20 }}><label>Instagram Link</label><input value={config.instagram_link || ""} onChange={e => setConfig(p => ({ ...p, instagram_link: e.target.value }))} placeholder="https://instagram.com/..." /></div>
-                <div style={{ marginBottom: 24 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <label style={{ margin: 0 }}>Notification Email Address</label>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-glass"
-                      style={{ padding: "3px 10px", fontSize: 11 }}
-                      disabled={isTestingEmail}
-                      onClick={handleTestEmail}
-                    >
-                      {isTestingEmail ? "Testing..." : "Send Test Invoice Email"}
-                    </button>
-                  </div>
-                  <input type="email" value={config.email_address || ""} onChange={e => setConfig(p => ({ ...p, email_address: e.target.value }))} placeholder="hello@example.com" />
-                  {emailDiagnosticStatus && (
-                    <div style={{
-                      marginTop: 10,
-                      padding: "10px 14px",
-                      borderRadius: "var(--radius-sm)",
-                      fontSize: 12,
-                      background: emailDiagnosticStatus.state === "success" ? "rgba(16,185,129,0.12)" : emailDiagnosticStatus.state === "error" ? "rgba(255,59,48,0.12)" : "rgba(255,128,0,0.12)",
-                      border: `1px solid ${emailDiagnosticStatus.state === "success" ? "rgba(16,185,129,0.3)" : emailDiagnosticStatus.state === "error" ? "rgba(255,59,48,0.3)" : "rgba(255,128,0,0.3)"}`,
-                      color: emailDiagnosticStatus.state === "success" ? "var(--status-done)" : emailDiagnosticStatus.state === "error" ? "#FF3B30" : "var(--accent)"
-                    }}>
-                      <strong>{emailDiagnosticStatus.state === "success" ? "Email Diagnostics Passed: " : emailDiagnosticStatus.state === "error" ? "Email Diagnostic Notice: " : "Status: "}</strong>
-                      {emailDiagnosticStatus.message}
-                    </div>
-                  )}
-                </div>
-                <div style={{ marginBottom: 32 }}><label>Privacy Policy</label><textarea rows="6" value={config.privacy_policy || ""} onChange={e => setConfig(p => ({ ...p, privacy_policy: e.target.value }))} placeholder="Enter your privacy policy text here..." /></div>
-                <button type="submit" className="btn btn-primary" disabled={savingCMS}>{savingCMS ? "Saving..." : "Save Configuration"}</button>
-              </form>
-            </div>
-          )}
-
-          {/* Admin Modals */}
-          {confirmModal && (
-            <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="modal-content" style={{ padding: 32, textAlign: 'center' }}>
-                <h3 style={{ marginBottom: 16 }}>{confirmModal.message}</h3>
-                <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
-                  <button className="btn btn-glass" onClick={() => setConfirmModal(null)}>Cancel</button>
-                  <button className="btn btn-danger" style={{ background: '#FF3B30', color: 'white' }} onClick={confirmModal.onConfirm}>Confirm</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {editingOrder && (
-            <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="modal-content" style={{ padding: 32, width: '90%', maxWidth: 600, maxHeight: '90vh', overflowY: 'auto' }}>
-                <h2 style={{ marginBottom: 24 }}>Edit Order: {editingOrder.ordername || "Untitled"}</h2>
-                
-                <div className="form-row">
-                  <div style={{ flex: 1 }}><label>Name</label><input value={editingOrder.name || ""} onChange={e => setEditingOrder({...editingOrder, name: e.target.value})} style={{ width: '100%', marginBottom: 16 }} /></div>
-                  <div style={{ flex: 1 }}><label>Phone</label><input value={editingOrder.phone || ""} onChange={e => setEditingOrder({...editingOrder, phone: e.target.value})} style={{ width: '100%', marginBottom: 16 }} /></div>
-                </div>
-                <div><label>Email</label><input value={editingOrder.email || ""} onChange={e => setEditingOrder({...editingOrder, email: e.target.value})} style={{ width: '100%', marginBottom: 16 }} /></div>
-                <div className="form-row">
-                  <div style={{ flex: 1 }}>
-                    <label>Material</label>
-                    <select
-                      value={editingOrder.material || ""}
-                      onChange={e => setEditingOrder({ ...editingOrder, material: e.target.value })}
-                      style={{ width: '100%', marginBottom: 16 }}
-                    >
-                      {Array.from(new Set([
-                        ...(editingOrder.material ? [editingOrder.material] : []),
-                        ...(config.materials || "").split(',').map(m => m.trim()).filter(Boolean)
-                      ])).map(m => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label>Color</label>
-                    <select
-                      value={editingOrder.color || ""}
-                      onChange={e => setEditingOrder({ ...editingOrder, color: e.target.value })}
-                      style={{ width: '100%', marginBottom: 16 }}
-                    >
-                      {Array.from(new Set([
-                        ...(editingOrder.color ? [editingOrder.color] : []),
-                        ...(config.colors || "").split(',').map(c => c.trim()).filter(Boolean)
-                      ])).map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div style={{ flex: 1 }}>
-                    <label>Weight (grams)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={editingOrder.weightgrams ?? ""}
-                      onChange={e => {
-                        const w = parseFloat(e.target.value) || 0;
-                        const autoP = w * (parseFloat(config.price_per_gram) || 0);
-                        setEditingOrder({ ...editingOrder, weightgrams: w, totalprice: autoP });
-                      }}
-                      style={{ width: '100%', marginBottom: 16 }}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label>Total Price (EGP)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={editingOrder.totalprice ?? ""}
-                      onChange={e => setEditingOrder({ ...editingOrder, totalprice: parseFloat(e.target.value) || 0 })}
-                      style={{ width: '100%', marginBottom: 16, fontWeight: 700, color: 'var(--accent)' }}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label>Notes</label>
-                  <textarea rows="3" value={getCleanNotes(editingOrder.notes)} onChange={e => setEditingOrder({...editingOrder, notes: setPrinterInNotes(e.target.value, getPrinterFromNotes(editingOrder.notes))})} style={{ width: '100%', marginBottom: 16 }} />
-                </div>
-                
-                {/* Internal Cash Payment Tracking (Admin Only) */}
-                {(() => {
-                  const pay = getOrderPaymentInfo(editingOrder);
-                  const orderPrice = editingOrder.totalprice !== null && editingOrder.totalprice !== undefined ? Number(editingOrder.totalprice) : (Number(editingOrder.weightgrams) || 0) * (parseFloat(config.price_per_gram) || 3);
-                  return (
-                    <div style={{ padding: 14, background: "rgba(255,255,255,0.03)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)", marginBottom: 16 }}>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
-                        Internal Cash Payment Tracking (Admin Only)
-                      </div>
-                      <div className="form-row">
-                        <div style={{ flex: 1 }}>
-                          <label>Payment Status</label>
-                          <select
-                            value={pay.status}
-                            onChange={(e) => {
-                              const newStat = e.target.value;
-                              const newAmt = newStat === "paid" ? orderPrice : newStat === "unpaid" ? 0 : pay.paidAmount;
-                              const updatedNotes = setOrderPaymentInNotes(editingOrder.notes, newStat, newAmt);
-                              setEditingOrder({
-                                ...editingOrder,
-                                payment_status: newStat,
-                                paid_amount: newAmt,
-                                notes: updatedNotes
-                              });
-                            }}
-                            style={{ width: "100%" }}
-                          >
-                            <option value="unpaid">Unpaid</option>
-                            <option value="partial">Partially Paid</option>
-                            <option value="paid">Paid in Full</option>
-                          </select>
-                        </div>
-                        {pay.status === "partial" && (
-                          <div style={{ flex: 1 }}>
-                            <label>Amount Paid (EGP)</label>
-                            <input
-                              type="number"
-                              step="1"
-                              min="0"
-                              max={orderPrice}
-                              value={pay.paidAmount}
-                              onChange={(e) => {
-                                const amt = parseFloat(e.target.value) || 0;
-                                const updatedNotes = setOrderPaymentInNotes(editingOrder.notes, "partial", amt);
-                                setEditingOrder({
-                                  ...editingOrder,
-                                  payment_status: "partial",
-                                  paid_amount: amt,
-                                  notes: updatedNotes
-                                });
-                              }}
-                              style={{ width: "100%" }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                <div>
-                  <label>Files & Model Links</label>
-                  {editingOrder.fileurl && editingOrder.fileurl.split(',').filter(Boolean).length > 0 ? (
-                    editingOrder.fileurl.split(',').filter(Boolean).map((url, idx) => {
-                      const isStorage = url.includes('/storage/v1/object/public/stl-files/') || url.match(/\.(stl|zip|rar)($|\?)/i);
-                      const plat = getPlatformFromUrl(url);
-                      const parts = url.split('/');
-                      const filename = parts[parts.length - 1];
-                      return (
-                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.05)', padding: '8px 12px', borderRadius: 8, marginBottom: 8 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-                            <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: isStorage ? 'rgba(0,122,255,0.15)' : 'rgba(255,128,0,0.15)', color: isStorage ? '#3B82F6' : plat?.color || '#FF8000', fontWeight: 800 }}>
-                              {isStorage ? 'FILE' : plat?.name?.toUpperCase() || 'LINK'}
-                            </span>
-                            <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--text-primary)', textDecoration: 'underline', wordBreak: 'break-all' }}>
-                              {isStorage ? filename : url}
-                            </a>
-                          </div>
-                          <button type="button" className="btn btn-sm" style={{ background: '#FF3B30', color: 'white', padding: "4px 8px", border: "none", borderRadius: "var(--radius-full)", cursor: "pointer", marginLeft: 8 }} onClick={async () => {
-                             if(!window.confirm("Permanently delete this " + (isStorage ? "file?" : "link?"))) return;
-                             const newUrls = editingOrder.fileurl.split(',').filter(Boolean).filter((_, i) => i !== idx);
-                             if (isStorage) {
-                               await supabase.storage.from('stl-files').remove([filename]);
-                             }
-                             setEditingOrder({ ...editingOrder, fileurl: newUrls.join(',') });
-                          }}>Delete</button>
-                        </div>
-                      );
-                    })
-                  ) : <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 8 }}>No files or links attached.</div>}
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8, marginBottom: 16 }}>
-                    <input
-                      type="url"
-                      id="editOrderAddLinkInput"
-                      placeholder="Attach external model link (https://...)"
-                      style={{ flex: 1, padding: "6px 10px", fontSize: 12.5 }}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-glass"
-                      onClick={() => {
-                        const input = document.getElementById("editOrderAddLinkInput");
-                        if (!input || !input.value.trim()) return;
-                        const link = normalizeUrl(input.value.trim());
-                        if (!isValidUrl(link)) {
-                          addToast("Please enter a valid URL.", "error");
-                          return;
-                        }
-                        const curUrls = editingOrder.fileurl ? editingOrder.fileurl.split(',').filter(Boolean) : [];
-                        curUrls.push(link);
-                        setEditingOrder({ ...editingOrder, fileurl: curUrls.join(',') });
-                        input.value = "";
-                        addToast("Link attached to order.", "success");
-                      }}
-                    >
-                      Attach Link
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: 16, justifyContent: 'flex-end', marginTop: 32 }}>
-                  <button className="btn btn-glass" onClick={() => setEditingOrder(null)}>Cancel</button>
-                  <button className="btn btn-primary" onClick={async () => {
-                    const pay = getOrderPaymentInfo(editingOrder);
-                    const finalNotes = setOrderPaymentInNotes(editingOrder.notes, pay.status, pay.paidAmount);
-                    const payloadToSave = {
-                      ...editingOrder,
-                      notes: finalNotes,
-                      payment_status: pay.status,
-                      paid_amount: pay.paidAmount
-                    };
-                    const { error: saveErr } = await supabase.from("orders").update(payloadToSave).eq("id", editingOrder.id);
-                    if (saveErr) {
-                      const { payment_status, paid_amount, ...cleanPayload } = payloadToSave;
-                      await supabase.from("orders").update(cleanPayload).eq("id", editingOrder.id);
-                    }
-                    fetchOrders();
-                    setEditingOrder(null);
-                    addToast("Order updated across website and financial model", "success");
-                  }}>Save Changes</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {editingGalleryItem && (
-            <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="modal-content" style={{ padding: 32, width: '90%', maxWidth: 700, maxHeight: '90vh', overflowY: 'auto' }}>
-                <h2 style={{ marginBottom: 24 }}>Edit Gallery Item</h2>
-                <div style={{ marginBottom: 16 }}><label>Title</label><input value={editingGalleryItem.title} onChange={e => setEditingGalleryItem({...editingGalleryItem, title: e.target.value})} /></div>
-                <div style={{ marginBottom: 16 }}><label>Description</label><textarea rows="3" value={editingGalleryItem.description || ""} onChange={e => setEditingGalleryItem({...editingGalleryItem, description: e.target.value})} /></div>
-                
-                <label>Media Files</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
-                  {editingGalleryItem.media_urls && editingGalleryItem.media_urls.split(',').filter(Boolean).map((url, idx) => (
-                    <div key={idx} style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: editingGalleryItem.cover_url === url ? '3px solid var(--accent)' : '1px solid var(--border-glass)' }}>
-                      <img src={url} alt="" style={{ width: '100%', height: 100, objectFit: 'cover', display: 'block' }} />
-                      <div style={{ display: 'flex', gap: 4, padding: 4, flexWrap: 'wrap' }}>
-                        <button style={{ flex: 1, fontSize: 10, padding: '4px', cursor: 'pointer', background: editingGalleryItem.cover_url === url ? 'var(--accent)' : 'rgba(255,255,255,0.1)', color: editingGalleryItem.cover_url === url ? '#fff' : 'var(--text-secondary)', border: 'none', borderRadius: 4 }} onClick={() => setEditingGalleryItem({...editingGalleryItem, cover_url: url})}>Cover</button>
-                        <button
-                          style={{ flex: 1, fontSize: 10, padding: '4px', cursor: 'pointer', background: 'rgba(59, 130, 246, 0.2)', color: '#60A5FA', border: '1px solid rgba(59, 130, 246, 0.4)', borderRadius: 4, fontWeight: 700 }}
-                          disabled={upscalingMediaUrl === url}
-                          onClick={() => handleUpscaleExistingGalleryUrl(url, 2)}
-                          title="Upscale to 2x High Definition"
-                        >
-                          {upscalingMediaUrl === url ? "..." : "Upscale 2x"}
-                        </button>
-                        <button
-                          style={{ flex: 1, fontSize: 10, padding: '4px', cursor: 'pointer', background: 'rgba(255,128,0,0.2)', color: 'var(--accent)', border: '1px solid rgba(255,128,0,0.4)', borderRadius: 4, fontWeight: 700 }}
-                          disabled={convertingMediaUrl === url}
-                          onClick={() => handleConvertExistingGalleryUrlToGlow(url)}
-                          title="Remove background and apply Etba3ly Glowing Orange backdrop"
-                        >
-                          {convertingMediaUrl === url ? "..." : "Glow BG"}
-                        </button>
-                        <button style={{ fontSize: 10, padding: '4px 6px', cursor: 'pointer', background: '#FF3B30', color: '#fff', border: 'none', borderRadius: 4 }} onClick={() => handleRemoveMediaFromGalleryItem(url)}>X</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ marginBottom: 24 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-                    <label style={{ margin: 0 }}>Add More Images / GIFs (Normal Photos)</label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', margin: 0, fontWeight: 600 }}>
-                      <input
-                        type="checkbox"
-                        checked={editUploadUpscale}
-                        onChange={(e) => setEditUploadUpscale(e.target.checked)}
-                        style={{ width: 15, height: 15 }}
-                      />
-                      Upscale new images (2x HD)
-                    </label>
-                  </div>
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*,.gif"
-                    onChange={(e) => {
-                      const selected = Array.from(e.target.files);
-                      if (selected.length > 0) {
-                        handleAddMediaToGalleryItem(selected, editUploadUpscale);
-                        e.target.value = '';
-                      }
-                    }}
-                    style={{ padding: 14, border: "2px dashed var(--border-glass)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.05)", width: '100%', boxSizing: 'border-box' }}
-                  />
-                  {galleryUploading && <div style={{ fontSize: 12, color: 'var(--accent)', marginTop: 6 }}>Uploading photo(s)...</div>}
-                </div>
-
-                <div style={{ display: 'flex', gap: 16, justifyContent: 'flex-end' }}>
-                  <button className="btn btn-glass" onClick={() => setEditingGalleryItem(null)}>Cancel</button>
-                  <button className="btn btn-primary" onClick={handleSaveGalleryItem}>Save Changes</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Admin 3D Slicer Modal */}
-          <AdminSlicerModal
-            isOpen={Boolean(adminSlicerOrder)}
-            onClose={() => setAdminSlicerOrder(null)}
-            order={adminSlicerOrder}
-            pricePerGram={config.price_per_gram}
-            onUpdateWeightPrice={(id, weight, price) => {
-              handleUpdateWeight(id, weight, price);
-              addToast(`Updated order to ${weight}g & ${Number(price).toFixed(2)} EGP`, "success");
-              setAdminSlicerOrder(null);
-            }}
-            onOpenMoonraker={(order, gcode) => {
-              setAdminSlicerOrder(null);
-              handleOpenMoonrakerForOrder(order, gcode);
-            }}
-          />
-
-          {/* Moonraker Hardware Dispatch Modal */}
-          <MoonrakerDispatchModal
-            isOpen={Boolean(moonrakerOrder)}
-            onClose={() => setMoonrakerOrder(null)}
-            order={moonrakerOrder}
-            gcodeString={moonrakerGcode}
-            fileName={moonrakerOrder ? (moonrakerOrder.ordername || 'job') : 'model'}
-            onDispatchSuccess={handleMoonrakerDispatchSuccess}
-          />
-
-          {/* External USB Print Prompt Modal */}
-          {externalPromptPrinter && (
-            <div className="modal-overlay" style={{ zIndex: 10000 }} onClick={() => setExternalPromptPrinter(null)}>
-              <div className="modal-content" style={{ maxWidth: 460, width: "100%", padding: 28, textAlign: "left" }} onClick={e => e.stopPropagation()}>
-                <h3 style={{ margin: "0 0 10px 0", fontSize: 18, fontWeight: 800 }}>Log Direct USB Print for {externalPromptPrinter}</h3>
-                <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>
-                  Track machine telemetry, real operating hours, and nozzle wear when printing directly from a USB flash drive or physical touchscreen.
-                </p>
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ fontSize: 12 }}>Job or Part Description *</label>
-                  <input
-                    value={externalJobInput}
-                    onChange={e => setExternalJobInput(e.target.value)}
-                    placeholder="e.g. Flash Drive: Mechanical Gear"
-                    autoFocus
-                  />
-                </div>
-                <div className="form-row" style={{ marginBottom: 20 }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 12 }}>Filament Extruded (grams)</label>
-                    <input
-                      type="number"
-                      step="1"
-                      min="0"
-                      value={externalJobWeight}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setExternalJobWeight(val);
-                        if (val && !externalJobHours) {
-                          const w = parseFloat(val) || 0;
-                          const speed = parseFloat(printSpeedGph) || 35;
-                          if (speed > 0) setExternalJobHours((w / speed).toFixed(1));
-                        }
-                      }}
-                      placeholder="e.g. 85"
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 12 }}>Print Duration (hours)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={externalJobHours}
-                      onChange={e => setExternalJobHours(e.target.value)}
-                      placeholder="e.g. 2.4"
-                    />
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                  <button type="button" className="btn btn-glass" onClick={() => setExternalPromptPrinter(null)}>Cancel</button>
-                  <button type="button" className="btn btn-accent" onClick={handleSaveExternalJob}>Log & Mark as Working</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Admin Create Order Modal */}
-          {isCreateOrderOpen && (
-            <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="modal-content" style={{ padding: 32, width: '90%', maxWidth: 660, maxHeight: '90vh', overflowY: 'auto' }}>
-                <h2 style={{ marginBottom: 6 }}>Create New Order (Admin)</h2>
-                <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 20 }}>
-                  Inject offline, direct, or custom client orders directly into the production queue with full telemetry and internal payment tracking.
-                </p>
-
-                <div className="form-row">
-                  <div style={{ flex: 1 }}>
-                    <label>Customer Name *</label>
-                    <input
-                      value={newAdminOrder.name}
-                      onChange={e => setNewAdminOrder({ ...newAdminOrder, name: e.target.value })}
-                      placeholder="e.g. Karim Tarek"
-                      style={{ width: "100%", marginBottom: 14 }}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label>Egyptian Phone *</label>
-                    <input
-                      value={newAdminOrder.phone}
-                      onChange={e => {
-                        let val = e.target.value.replace(/\D/g, "");
-                        if (val.length > 11) val = val.slice(0, 11);
-                        setNewAdminOrder({ ...newAdminOrder, phone: val });
-                      }}
-                      placeholder="e.g. 01012345678"
-                      style={{ width: "100%", marginBottom: 14 }}
-                    />
-                  </div>
-                </div>
-
-                <div className="form-row">
-                  <div style={{ flex: 1 }}>
-                    <label>Email Address (Optional)</label>
-                    <input
-                      value={newAdminOrder.email}
-                      onChange={e => setNewAdminOrder({ ...newAdminOrder, email: e.target.value })}
-                      placeholder="client@example.com"
-                      style={{ width: "100%", marginBottom: 14 }}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label>Part / Order Description</label>
-                    <input
-                      value={newAdminOrder.ordername}
-                      onChange={e => setNewAdminOrder({ ...newAdminOrder, ordername: e.target.value })}
-                      placeholder="e.g. Robotics Gear Housing"
-                      style={{ width: "100%", marginBottom: 14 }}
-                    />
-                  </div>
-                </div>
-
-                <div className="form-row">
-                  <div style={{ flex: 1 }}>
-                    <label>Material</label>
-                    <select
-                      value={newAdminOrder.material}
-                      onChange={e => setNewAdminOrder({ ...newAdminOrder, material: e.target.value })}
-                      style={{ width: "100%", marginBottom: 14 }}
-                    >
-                      {(config.materials || "PLA,PETG,ABS").split(',').map(m => m.trim()).filter(Boolean).map(m => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label>Filament Color</label>
-                    <select
-                      value={newAdminOrder.color}
-                      onChange={e => setNewAdminOrder({ ...newAdminOrder, color: e.target.value })}
-                      style={{ width: "100%", marginBottom: 14 }}
-                    >
-                      {(config.colors || "White,Black,McLaren Orange").split(',').map(c => c.trim()).filter(Boolean).map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="form-row">
-                  <div style={{ flex: 1 }}>
-                    <label>Filament Weight (grams)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={newAdminOrder.weightgrams}
-                      onChange={e => {
-                        const val = e.target.value;
-                        const w = parseFloat(val) || 0;
-                        const rate = parseFloat(newAdminOrder.pricepergram) || (parseFloat(config.price_per_gram) || 3);
-                        setNewAdminOrder(prev => ({
-                          ...prev,
-                          weightgrams: val,
-                          totalprice: (w * rate).toFixed(2)
-                        }));
-                      }}
-                      placeholder="e.g. 65"
-                      style={{ width: "100%", marginBottom: 14 }}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label>Unit Rate (EGP/g)</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={newAdminOrder.pricepergram}
-                      onChange={e => {
-                        const val = e.target.value;
-                        const rate = parseFloat(val) || 0;
-                        const w = parseFloat(newAdminOrder.weightgrams) || 0;
-                        setNewAdminOrder(prev => ({
-                          ...prev,
-                          pricepergram: val,
-                          totalprice: (w * rate).toFixed(2)
-                        }));
-                      }}
-                      placeholder="3"
-                      style={{ width: "100%", marginBottom: 14 }}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label>Total Price (EGP)</label>
-                    <input
-                      type="number"
-                      step="1"
-                      min="0"
-                      value={newAdminOrder.totalprice}
-                      onChange={e => setNewAdminOrder({ ...newAdminOrder, totalprice: e.target.value })}
-                      placeholder="0.00"
-                      style={{ width: "100%", marginBottom: 14, fontWeight: 700, color: "var(--accent)" }}
-                    />
-                  </div>
-                </div>
-
-                <div className="form-row">
-                  <div style={{ flex: 1 }}>
-                    <label>Production Status</label>
-                    <select
-                      value={newAdminOrder.status}
-                      onChange={e => setNewAdminOrder({ ...newAdminOrder, status: e.target.value })}
-                      style={{ width: "100%", marginBottom: 14 }}
-                    >
-                      <option value="queued">Queued</option>
-                      <option value="printing">Printing Live</option>
-                      <option value="done">Completed & Ready</option>
-                    </select>
-                  </div>
-                  {newAdminOrder.status === "printing" && (
-                    <div style={{ flex: 1 }}>
-                      <label>Assigned Printer</label>
-                      <select
-                        value={newAdminOrder.printer}
-                        onChange={e => setNewAdminOrder({ ...newAdminOrder, printer: e.target.value })}
-                        style={{ width: "100%", marginBottom: 14 }}
-                      >
-                        {PRINTERS.map(p => <option key={p} value={p}>{p}</option>)}
-                      </select>
-                    </div>
-                  )}
-                </div>
-
-                {/* Internal Payment Status (Admin Only) */}
-                <div style={{ padding: 14, background: "rgba(255,255,255,0.03)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)", marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
-                    Internal Cash Payment Tracking (Admin Only)
-                  </div>
-                  <div className="form-row">
-                    <div style={{ flex: 1 }}>
-                      <label>Payment Status</label>
-                      <select
-                        value={newAdminOrder.payment_status}
-                        onChange={e => {
-                          const stat = e.target.value;
-                          const total = parseFloat(newAdminOrder.totalprice) || 0;
-                          setNewAdminOrder(prev => ({
-                            ...prev,
-                            payment_status: stat,
-                            paid_amount: stat === "paid" ? total : stat === "unpaid" ? 0 : prev.paid_amount
-                          }));
-                        }}
-                        style={{ width: "100%" }}
-                      >
-                        <option value="unpaid">Unpaid</option>
-                        <option value="partial">Partially Paid</option>
-                        <option value="paid">Paid in Full</option>
-                      </select>
-                    </div>
-                    {newAdminOrder.payment_status === "partial" && (
-                      <div style={{ flex: 1 }}>
-                        <label>Amount Paid (EGP)</label>
-                        <input
-                          type="number"
-                          step="1"
-                          min="0"
-                          max={parseFloat(newAdminOrder.totalprice) || 9999}
-                          value={newAdminOrder.paid_amount}
-                          onChange={e => setNewAdminOrder({ ...newAdminOrder, paid_amount: e.target.value })}
-                          placeholder="e.g. 50"
-                          style={{ width: "100%" }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <label>3D Model or Design URL (Optional)</label>
-                  <input
-                    type="url"
-                    value={newAdminOrder.fileurl || ""}
-                    onChange={e => setNewAdminOrder({ ...newAdminOrder, fileurl: e.target.value })}
-                    placeholder="https://www.printables.com/model/... or Google Drive"
-                    style={{ width: "100%", marginBottom: 14 }}
-                  />
-                </div>
-
-                <div>
-                  <label>Internal Workshop Notes</label>
-                  <textarea
-                    rows="2"
-                    value={newAdminOrder.notes}
-                    onChange={e => setNewAdminOrder({ ...newAdminOrder, notes: e.target.value })}
-                    placeholder="e.g. Paid cash at workshop pickup, layer height 0.2mm"
-                    style={{ width: "100%", marginBottom: 20 }}
-                  />
-                </div>
-
-                <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-                  <button type="button" className="btn btn-glass" onClick={() => setIsCreateOrderOpen(false)}>Cancel</button>
-                  <button
-                    type="button"
-                    className="btn btn-accent"
-                    onClick={handleAdminCreateOrder}
-                    disabled={isCreatingAdminOrder}
-                  >
-                    {isCreatingAdminOrder ? "Creating Order..." : "Create Order"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Moonraker / Printer History Audit & Suggestion Modal */}
-          {isScanHistoryOpen && (
-            <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-              <div className="modal-content" style={{ padding: 32, width: '92%', maxWidth: 740, maxHeight: '90vh', overflowY: 'auto' }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
-                  <div>
-                    <h2 style={{ margin: "0 0 6px", display: "flex", alignItems: "center", gap: 10 }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 22, height: 22, color: "var(--accent)" }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                      Scan 3D Printer History
-                    </h2>
-                    <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
-                      Query your printer's Klipper / Moonraker API for recent print jobs to audit machine operating hours, extruded grams, and accumulated hardware depreciation.
-                    </p>
-                  </div>
-                  <button type="button" className="btn btn-sm btn-glass" onClick={() => setIsScanHistoryOpen(false)}>Close</button>
-                </div>
-
-                {/* Tab Switcher */}
-                <div style={{ display: "flex", gap: 8, marginBottom: 20, borderBottom: "1px solid var(--border-glass)", paddingBottom: 12 }}>
-                  <button
-                    type="button"
-                    className={`btn btn-sm ${scanTab === "moonraker" ? "btn-primary" : "btn-glass"}`}
-                    onClick={() => setScanTab("moonraker")}
-                  >
-                    Moonraker Wi-Fi Scanner
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn btn-sm ${scanTab === "unassigned_orders" ? "btn-primary" : "btn-glass"}`}
-                    onClick={() => setScanTab("unassigned_orders")}
-                  >
-                    Unassigned Completed Website Orders
-                  </button>
-                </div>
-
-                {scanTab === "moonraker" && (
-                  <>
-                    <div style={{ padding: 16, background: "rgba(255,255,255,0.03)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)", marginBottom: 20 }}>
-                      <div className="form-row">
-                        <div style={{ flex: 1 }}>
-                          <label style={{ fontSize: 12 }}>Target Printer Odometer</label>
-                          <select
-                            value={scanTargetPrinter}
-                            onChange={e => setScanTargetPrinter(e.target.value)}
-                            style={{ width: "100%", padding: "10px 12px" }}
-                          >
-                            {PRINTERS.map(p => <option key={p} value={p}>{p}</option>)}
-                          </select>
-                        </div>
-                        <div style={{ flex: 1.6 }}>
-                          <label style={{ fontSize: 12 }}>Moonraker Host / IP (Dynamic IP Supported)</label>
-                          <input
-                            value={moonrakerHost}
-                            onChange={e => {
-                              setMoonrakerHost(e.target.value);
-                              localStorage.setItem("jp_moonraker_host", e.target.value);
-                            }}
-                            placeholder="e.g. 192.168.1.50 or fluidd.local:7125"
-                            style={{ width: "100%", padding: "10px 12px" }}
-                          />
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, flexWrap: "wrap", gap: 10 }}>
-                        <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-                          Dynamic IP changes on reconnect? Enter the current IP assigned by your Wi-Fi router.
-                        </span>
-                        <button
-                          type="button"
-                          className="btn btn-accent"
-                          style={{ padding: "8px 18px", fontSize: 13 }}
-                          onClick={handleScanMoonraker}
-                          disabled={isScanningHistory}
-                        >
-                          {isScanningHistory ? "Scanning Moonraker..." : "Scan History"}
-                        </button>
-                      </div>
-                    </div>
-
-                    {scanError && (
-                      <div style={{ padding: 14, background: "rgba(255,59,48,0.1)", border: "1px solid rgba(255,59,48,0.3)", borderRadius: "var(--radius-sm)", marginBottom: 20, fontSize: 13 }}>
-                        <div style={{ fontWeight: 800, color: "#ff453a", marginBottom: 6 }}>Connection Diagnostic</div>
-                        <div style={{ color: "var(--text-secondary)", marginBottom: 10 }}>{scanError}</div>
-                        <div style={{ padding: 8, background: "rgba(0,0,0,0.3)", borderRadius: 4, fontFamily: "monospace", fontSize: 11, color: "var(--accent)" }}>
-                          # Allow browser access in moonraker.conf:<br />
-                          [authorization]<br />
-                          cors_domains:<br />
-                          &nbsp;&nbsp;*
-                        </div>
-                      </div>
-                    )}
-
-                    {scannedJobs.length > 0 && (
-                      <div style={{ marginBottom: 20 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700 }}>
-                            Found {scannedJobs.length} print jobs ({selectedJobIds.length} selected for odometer update):
-                          </div>
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-glass"
-                              onClick={() => {
-                                const newOnly = scannedJobs.filter(j => !j.isLogged).map(j => j.jobId);
-                                setSelectedJobIds(newOnly);
-                              }}
-                            >
-                              Select All New
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-glass"
-                              onClick={() => setSelectedJobIds(scannedJobs.map(j => j.jobId))}
-                            >
-                              Select All
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-glass"
-                              onClick={() => setSelectedJobIds([])}
-                            >
-                              Clear
-                            </button>
-                          </div>
-                        </div>
-
-                        <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--border-glass)", borderRadius: "var(--radius-sm)" }}>
-                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                            <thead>
-                              <tr style={{ borderBottom: "1px solid var(--border-glass)", color: "var(--text-tertiary)", textAlign: "left", background: "rgba(255,255,255,0.02)" }}>
-                                <th style={{ padding: "8px 10px", width: 36 }}></th>
-                                <th style={{ padding: "8px 10px" }}>File Name</th>
-                                <th style={{ padding: "8px 10px" }}>Status</th>
-                                <th style={{ padding: "8px 10px" }}>Duration</th>
-                                <th style={{ padding: "8px 10px" }}>Extruded</th>
-                                <th style={{ padding: "8px 10px" }}>End Time</th>
-                                <th style={{ padding: "8px 10px" }}>Odometer</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {scannedJobs.map(job => {
-                                const isSelected = selectedJobIds.includes(job.jobId);
-                                return (
-                                  <tr key={job.jobId} style={{ borderBottom: "1px solid var(--border-glass)", background: isSelected ? "rgba(255,128,0,0.05)" : "transparent" }}>
-                                    <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                                      <input
-                                        type="checkbox"
-                                        checked={isSelected}
-                                        onChange={e => {
-                                          if (e.target.checked) setSelectedJobIds(prev => [...prev, job.jobId]);
-                                          else setSelectedJobIds(prev => prev.filter(id => id !== job.jobId));
-                                        }}
-                                      />
-                                    </td>
-                                    <td style={{ padding: "8px 10px", fontWeight: 700, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                      {job.filename}
-                                    </td>
-                                    <td style={{ padding: "8px 10px" }}>
-                                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: job.isCompleted ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.08)", color: job.isCompleted ? "var(--status-done)" : "var(--text-tertiary)", fontWeight: 700 }}>
-                                        {job.status.toUpperCase()}
-                                      </span>
-                                    </td>
-                                    <td style={{ padding: "8px 10px" }}>{job.durationHours.toFixed(2)}h</td>
-                                    <td style={{ padding: "8px 10px", fontWeight: 700 }}>{job.grams.toFixed(0)}g</td>
-                                    <td style={{ padding: "8px 10px", color: "var(--text-tertiary)" }}>{job.dateStr}</td>
-                                    <td style={{ padding: "8px 10px" }}>
-                                      {job.isLogged ? (
-                                        <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>Already Logged</span>
-                                      ) : (
-                                        <span style={{ fontSize: 10, color: "var(--accent)", fontWeight: 700 }}>Ready to Add</span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Audit Summary & Approval Action */}
-                        {(() => {
-                          const selectedJobs = scannedJobs.filter(j => selectedJobIds.includes(j.jobId));
-                          const selHours = selectedJobs.reduce((sum, j) => sum + j.durationHours, 0);
-                          const selGrams = selectedJobs.reduce((sum, j) => sum + j.grams, 0);
-                          const wearCost = selHours * (parseFloat(cc1WearRatePerHour) || 6.0);
-
-                          return (
-                            <div style={{ marginTop: 16, padding: 14, background: "rgba(255,128,0,0.06)", border: "1px solid rgba(255,128,0,0.3)", borderRadius: "var(--radius-sm)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-                              <div>
-                                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--accent)" }}>
-                                  Selected: {selectedJobs.length} jobs &bull; {selHours.toFixed(1)} operating hours &bull; {Math.round(selGrams)}g filament
-                                </div>
-                                <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
-                                  Accumulated Machine Wear Burden: <strong>{wearCost.toFixed(2)} EGP</strong> ({scanTargetPrinter})
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                className="btn btn-accent"
-                                onClick={handleApproveMoonrakerJobs}
-                                disabled={selectedJobs.length === 0}
-                              >
-                                Approve & Add to {scanTargetPrinter} Odometers
-                              </button>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {scanTab === "unassigned_orders" && (
-                  <div>
-                    {(() => {
-                      const unassigned = orders.filter(o => (o.status || "").toLowerCase().trim() === "done" && !getPrinterFromNotes(o.notes));
-                      if (unassigned.length === 0) {
-                        return (
-                          <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
-                            All completed website orders are already attributed to individual printer hardware odometers.
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div>
-                          <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
-                            Found <strong>{unassigned.length}</strong> completed website orders not yet attributed to a specific hardware printer. Select an order to attribute its print hours and grams to {scanTargetPrinter}:
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 300, overflowY: "auto" }}>
-                            {unassigned.map(o => {
-                              const w = Number(o.weightgrams) || 0;
-                              const speed = parseFloat(printSpeedGph) || 35;
-                              const h = speed > 0 ? (w / speed) : 0;
-                              return (
-                                <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "rgba(255,255,255,0.03)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-glass)", flexWrap: "wrap", gap: 8 }}>
-                                  <div>
-                                    <strong style={{ fontSize: 13 }}>{o.ordername || "Order"}</strong> &bull; <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>{o.name} ({o.tracking_code})</span>
-                                    <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{w}g &bull; ~{h.toFixed(1)} hrs &bull; {o.material}</div>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm btn-accent"
-                                    onClick={async () => {
-                                      await handleUpdateOrderStatus(o.id, "done", scanTargetPrinter);
-                                      addToast(`Attributed order ${o.tracking_code} to ${scanTargetPrinter}`, "success");
-                                    }}
-                                  >
-                                    Assign to {scanTargetPrinter}
-                                  </button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Toasts inside Admin Dashboard */}
-          <div className="toast-container">
-            {toasts.map(t => (
-              <div key={t.id} className={`toast ${t.type}`}>
-                {t.msg}
-                <button className="toast-close" onClick={() => setToasts(p => p.filter(x => x.id !== t.id))}>×</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      <AdminDashboard
+        orders={orders}
+        setOrders={setOrders}
+        config={config}
+        setConfig={setConfig}
+        supabase={supabase}
+        PRINTERS={PRINTERS}
+        darkMode={darkMode}
+        fetchOrders={fetchOrders}
+        fetchConfig={fetchConfig}
+        handleAdminLogout={handleAdminLogout}
+        addToast={addToast}
+        exportCSV={exportCSV}
+        galleryItems={galleryItems}
+        newGalleryItem={newGalleryItem}
+        setNewGalleryItem={setNewGalleryItem}
+        newGalleryFiles={newGalleryFiles}
+        setNewGalleryFiles={setNewGalleryFiles}
+        galleryUploading={galleryUploading}
+        galleryProcessing={galleryProcessing}
+        setGalleryProcessing={setGalleryProcessing}
+        handleAddGalleryItem={handleAddGalleryItem}
+        handleDeleteGalleryItem={handleDeleteGalleryItem}
+        handleTestTelegram={handleTestTelegram}
+        isTestingTelegram={isTestingTelegram}
+        handleTestDiscord={handleTestDiscord}
+        isTestingDiscord={isTestingDiscord}
+        handleTestEmail={handleTestEmail}
+        isTestingEmail={isTestingEmail}
+        materials={materialRates}
+        setMaterials={setMaterialRates}
+      />
     );
   }
 
@@ -5407,7 +2980,32 @@ export default function App() {
                     <div style={{ width: "100%" }}>
                       <label>Material</label>
                       <select value={newOrder.material} onChange={e => setNewOrder(p => ({ ...p, material: e.target.value }))}>
-                        {config.materials.split(',').map(m => <option key={m} value={m.trim()}>{m.trim()}</option>)}
+                        {materialRates && Object.keys(materialRates).length > 0 ? (
+                          Object.entries(materialRates).map(([k, m]) => {
+                            const isRestocking = m.in_stock === false;
+                            return (
+                              <option key={k} value={m.name} disabled={isRestocking}>
+                                {m.name}{isRestocking ? ' (Restocking soon)' : ''}
+                              </option>
+                            );
+                          })
+                        ) : config.materials ? (
+                          config.materials.split(',').map(m => {
+                            const raw = m.trim();
+                            const isRestocking = raw.toLowerCase().includes('[restocking]');
+                            const cleanName = raw
+                              .replace(/\[restocking\]/gi, '')
+                              .replace(/\[rate:[\d.]+\]/gi, '')
+                              .replace(/\[cost:[\d.]+\]/gi, '')
+                              .trim();
+                            if (!cleanName) return null;
+                            return (
+                              <option key={cleanName} value={cleanName} disabled={isRestocking}>
+                                {cleanName}{isRestocking ? ' (Restocking soon)' : ''}
+                              </option>
+                            );
+                          })
+                        ) : <option value="PLA">PLA</option>}
                       </select>
                     </div>
                   </div>
@@ -5419,11 +3017,11 @@ export default function App() {
                       <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 800 }}>{newOrder.color || "Select Color"}</span>
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {config.colors.split(',').map(c => {
+                      {(config.colors || "White, Black, Silver, Red").split(',').map(c => {
                         const colorName = c.trim();
                         if (!colorName) return null;
                         const hex = getColorHex(colorName);
-                        const isSelected = (newOrder.color || "").toLowerCase() === colorName.toLowerCase();
+                        const isSelected = (newOrder.color || "").toLowerCase().trim() === colorName.toLowerCase().trim();
                         return (
                           <button
                             key={colorName}
@@ -5463,6 +3061,20 @@ export default function App() {
                       })}
                     </div>
                   </div>
+
+                  {/* Service Tier Selection */}
+                  <ServiceTierSelector
+                    selectedTier={selectedTier}
+                    onSelectTier={(tierKey) => setSelectedTier(tierKey)}
+                    orderInfill={orderInfill}
+                    setOrderInfill={setOrderInfill}
+                    orderLayerHeight={orderLayerHeight}
+                    setOrderLayerHeight={setOrderLayerHeight}
+                    orderNozzle={orderNozzle}
+                    setOrderNozzle={setOrderNozzle}
+                    enableSupports={enableSupports}
+                    setEnableSupports={setEnableSupports}
+                  />
 
                   <div style={{ marginBottom: 20 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -5604,7 +3216,15 @@ export default function App() {
                   {/* 3D STL Object Preview & Slicer Estimation */}
                   {Boolean(selectedFiles.find(f => f.name.toLowerCase().endsWith(".stl"))) && (
                     <div style={{ marginBottom: 24 }}>
-                      <label>3D Model & Build Plate Preview</label>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                        <label style={{ margin: 0 }}>3D Model & Build Plate Preview</label>
+                        {clientMetrics && (
+                          <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-full)", background: clientMetrics.fitsBed ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)", color: clientMetrics.fitsBed ? "var(--status-done)" : "#ef4444", fontWeight: 700, border: `1px solid ${clientMetrics.fitsBed ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
+                            {clientMetrics.fitsBed ? "Fits Centauri Bed (256x256mm)" : "Exceeds Bed Envelope"}
+                          </span>
+                        )}
+                      </div>
+
                       <STLViewer
                         file={selectedFiles.find(f => f.name.toLowerCase().endsWith(".stl"))}
                         color={newOrder.color}
@@ -5617,83 +3237,27 @@ export default function App() {
                         height="260px"
                       />
 
-                      {clientMetrics && (
-                        <div className="print-estimate-card">
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-                            <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--accent)" }}>
-                              Client Print Estimate
-                            </span>
-                            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-full)", background: clientMetrics.fitsBed ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)", color: clientMetrics.fitsBed ? "var(--status-done)" : "#ef4444", fontWeight: 700, border: `1px solid ${clientMetrics.fitsBed ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
-                              {clientMetrics.fitsBed ? "Fits Centauri Bed (256x256mm)" : "Exceeds Bed Envelope"}
-                            </span>
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 12 }}>
-                            <div>
-                              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Est. Weight</div>
-                              <div style={{ fontSize: 16, fontWeight: 800 }}>{(clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0)} g</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Est. Time</div>
-                              <div style={{ fontSize: 16, fontWeight: 800 }}>{clientMetrics.printTimeFormatted}</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Est. Price</div>
-                              {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) ? (
-                                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--accent)", lineHeight: 1.2, marginTop: 4 }}>
-                                  Review Required for Final Price
-                                </div>
-                              ) : (
-                                <div style={{ fontSize: 18, fontWeight: 900, color: "var(--accent)" }}>{clientMetrics.totalPrice.toFixed(2)} EGP</div>
-                              )}
-                            </div>
-                            {clientMetrics.metrics && (
-                              <div>
-                                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Dimensions</div>
-                                <div style={{ fontSize: 12, fontWeight: 700 }}>{clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm</div>
-                              </div>
-                            )}
-                            {clientMetrics.filamentLengthMeters && (
-                              <div>
-                                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Filament & Layers</div>
-                                <div style={{ fontSize: 12, fontWeight: 700 }}>{clientMetrics.filamentLengthMeters}m &bull; {clientMetrics.numLayers} L</div>
-                              </div>
-                            )}
-                          </div>
-                          {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) && (
-                            <div style={{
-                              marginTop: 14,
-                              padding: "12px 16px",
-                              background: "rgba(255, 128, 0, 0.08)",
-                              border: "1px solid rgba(255, 128, 0, 0.25)",
-                              borderRadius: "var(--radius-sm)",
-                              fontSize: 12.5,
-                              lineHeight: 1.5,
-                              color: "var(--text-primary)"
-                            }}>
-                              <div style={{ fontWeight: 800, color: "var(--accent)", marginBottom: 4 }}>
-                                Operator Review Required for Accurate Pricing
-                              </div>
-                              <div style={{ color: "var(--text-secondary)" }}>
-                                Due to the volume and geometry of this model, our workshop engineers will review your 3D design to ensure optimal print orientation, structural tolerances, and confirm accurate final pricing.
-                              </div>
-                            </div>
+                      {clientMetrics && clientMetrics.metrics && (
+                        <div style={{ marginTop: 8, marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "var(--text-secondary)", padding: "8px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)", flexWrap: "wrap", gap: 8 }}>
+                          <span>Dimensions: <strong>{clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm</strong></span>
+                          {clientMetrics.filamentLengthMeters && (
+                            <span>Filament Length: <strong>{clientMetrics.filamentLengthMeters}m</strong></span>
                           )}
                         </div>
                       )}
-                      <div style={{
-                        marginTop: 10,
-                        padding: "10px 14px",
-                        fontSize: 11,
-                        lineHeight: 1.5,
-                        color: "var(--text-tertiary)",
-                        background: "rgba(128,128,128,0.06)",
-                        borderRadius: "var(--radius-sm)",
-                        border: "1px solid rgba(128,128,128,0.12)"
-                      }}>
-                        * This is an automated preliminary estimate based on uploaded 3D geometry.
-                        Final weight, print time, and price may be adjusted based on machine orientation,
-                        support structures, and slicer tolerances confirmed by our workshop team.
-                      </div>
+
+                      {/* Live Review Invoice Card */}
+                      <ReviewInvoiceCard
+                        clientMetrics={clientMetrics}
+                        materialKey={newOrder.material || "pla"}
+                        materialName={newOrder.material || "PLA"}
+                        serviceTier={selectedTier}
+                        config={config}
+                        materialRates={materialRates}
+                        enableSupports={enableSupports}
+                        orderData={newOrder}
+                        showDepositInfo={false}
+                      />
                     </div>
                   )}
 
@@ -5721,7 +3285,7 @@ export default function App() {
               {orderStep === 3 && (
                 <div className="animate-in">
                   <h3 style={{ marginBottom: 16 }}>Order Summary</h3>
-                  <div className="review-summary-card">
+                  <div className="review-summary-card" style={{ marginBottom: 20 }}>
                     <div className="review-item">
                       <span className="review-item-label">Client Name</span>
                       <span className="review-item-value">{newOrder.name}</span>
@@ -5738,6 +3302,12 @@ export default function App() {
                     <div className="review-item">
                       <span className="review-item-label">Project</span>
                       <span className="review-item-value">{newOrder.orderName || "Untitled"}</span>
+                    </div>
+                    <div className="review-item">
+                      <span className="review-item-label">Service Tier</span>
+                      <span className="review-item-value" style={{ fontWeight: 800, color: "var(--accent)" }}>
+                        {selectedTier === "economy" ? "Economy (Draft 0.28mm)" : selectedTier === "professional" ? "Professional (Fine 0.12mm)" : "Standard (Standard 0.20mm)"}
+                      </span>
                     </div>
                     <div className="review-item">
                       <span className="review-item-label">Material & Color</span>
@@ -5760,66 +3330,21 @@ export default function App() {
                         {!selectedFiles.length && !newOrder.fileLink && "No file or link"}
                       </span>
                     </div>
+                  </div>
 
-                    {clientMetrics ? (
-                      <>
-                        <div style={{ margin: "6px 0", borderTop: "1px solid var(--border-glass)" }}></div>
-                        <div className="review-item">
-                          <span className="review-item-label">Est. Weight & Time</span>
-                          <span className="review-item-value">
-                            ~{(clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0)} g &bull; ~{clientMetrics.printTimeFormatted}
-                          </span>
-                        </div>
-                        {clientMetrics.metrics && (
-                          <div className="review-item">
-                            <span className="review-item-label">Dimensions</span>
-                            <span className="review-item-value">
-                              {clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm
-                            </span>
-                          </div>
-                        )}
-                        <div className="review-item" style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid var(--border-glass)" }}>
-                          <span className="review-item-label" style={{ fontSize: 15, fontWeight: 700 }}>Est. Total</span>
-                          {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) ? (
-                            <span style={{ fontSize: 15, fontWeight: 800, color: "var(--accent)", textAlign: "right" }}>
-                              Review Required for Final Price
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: 20, fontWeight: 900, color: "var(--accent)" }}>
-                              {clientMetrics.totalPrice.toFixed(2)} EGP
-                            </span>
-                          )}
-                        </div>
-                        {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) && (
-                          <div style={{
-                            marginTop: 10,
-                            padding: "10px 14px",
-                            background: "rgba(255, 128, 0, 0.08)",
-                            border: "1px solid rgba(255, 128, 0, 0.25)",
-                            borderRadius: "var(--radius-sm)",
-                            fontSize: 12,
-                            color: "var(--text-secondary)",
-                            lineHeight: 1.4
-                          }}>
-                            Our workshop team will review the 3D model for accurate pricing and confirm the final quote before printing begins.
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ margin: "6px 0", borderTop: "1px solid var(--border-glass)" }}></div>
-                        <div className="review-item">
-                          <span className="review-item-label">Base Rate</span>
-                          <span className="review-item-value">{config.price_per_gram} EGP/g</span>
-                        </div>
-                        <div className="review-item" style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid var(--border-glass)" }}>
-                          <span className="review-item-label" style={{ fontSize: 15, fontWeight: 700 }}>Est. Total</span>
-                          <span style={{ fontSize: 15, fontWeight: 800, color: "var(--accent)" }}>
-                            Calculated upon slicing ({config.price_per_gram} EGP/g)
-                          </span>
-                        </div>
-                      </>
-                    )}
+                  {/* Pricing Breakdown Card */}
+                  <div style={{ marginBottom: 24 }}>
+                    <ReviewInvoiceCard
+                      clientMetrics={clientMetrics}
+                      materialKey={newOrder.material || "pla"}
+                      materialName={newOrder.material || "PLA"}
+                      serviceTier={selectedTier}
+                      config={config}
+                      materialRates={materialRates}
+                      enableSupports={enableSupports}
+                      orderData={newOrder}
+                      showDepositInfo={true}
+                    />
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
                     <button className="btn btn-glass" onClick={() => setOrderStep(2)}>Back</button>
@@ -5861,6 +3386,14 @@ export default function App() {
                         <span className="review-item-label">Part Name</span>
                         <span className="review-item-value">{lastSubmittedQuote.orderName}</span>
                       </div>
+                      {lastSubmittedQuote.tier && (
+                        <div className="review-item">
+                          <span className="review-item-label">Service Tier</span>
+                          <span className="review-item-value" style={{ fontWeight: 700, color: "var(--accent)" }}>
+                            {lastSubmittedQuote.tier === "economy" ? "Economy (Draft 0.28mm)" : lastSubmittedQuote.tier === "professional" ? "Professional (Fine 0.12mm)" : "Standard (Standard 0.20mm)"}
+                          </span>
+                        </div>
+                      )}
                       <div className="review-item">
                         <span className="review-item-label">Material & Color</span>
                         <span className="review-item-value" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -6009,20 +3542,34 @@ export default function App() {
 
                     <StatusStepper status={r.status} />
 
-                    <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border-glass)", fontSize: 13, color: "var(--text-secondary)" }}>
-                      <span>Material: <strong style={{ color: "var(--text-primary)" }}>{r.material || "PLA"}</strong></span>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                        Color:
-                        <span style={{ width: 10, height: 10, borderRadius: "50%", background: getColorHex(r.color), border: "1px solid rgba(255,255,255,0.3)", display: "inline-block" }} />
-                        <strong style={{ color: "var(--text-primary)" }}>{r.color || "Standard"}</strong>
-                      </span>
-                      {r.weightgrams > 0 && <span>Weight: <strong style={{ color: "var(--text-primary)" }}>{r.weightgrams} g</strong></span>}
-                      {r.totalprice > 0 ? (
-                        <span style={{ marginLeft: "auto" }}>Price: <strong style={{ color: "var(--accent)", fontSize: 15 }}>{r.totalprice.toFixed(2)} EGP</strong></span>
-                      ) : (
-                        <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 12 }}>Rate: {config.price_per_gram} EGP/g</span>
-                      )}
-                    </div>
+                    {(() => {
+                      const delivery = (r.delivery_mode || (r.notes?.match(/\[DELIVERY:([^\]]+)\]/i)?.[1]) || (r.notes?.match(/\[Mode:\s*([^\]|]+)/i)?.[1]) || "pickup").trim();
+                      const depositMatch = r.notes?.match(/\[DEPOSIT:([^\]]+)\]/i) || r.notes?.match(/\[Deposit:\s*([^\]|EGP]+)/i);
+                      const depositVal = r.deposit_required !== undefined && r.deposit_required !== null && !isNaN(Number(r.deposit_required))
+                        ? Number(r.deposit_required)
+                        : (depositMatch ? parseFloat(depositMatch[1]) : (r.totalprice ? Math.round(r.totalprice * 0.5) : null));
+
+                      return (
+                        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border-glass)", fontSize: 13, color: "var(--text-secondary)" }}>
+                          <span>Material: <strong style={{ color: "var(--text-primary)" }}>{r.material || "PLA"}</strong></span>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            Color:
+                            <span style={{ width: 10, height: 10, borderRadius: "50%", background: getColorHex(r.color), border: "1px solid rgba(255,255,255,0.3)", display: "inline-block" }} />
+                            <strong style={{ color: "var(--text-primary)" }}>{r.color || "Standard"}</strong>
+                          </span>
+                          {r.weightgrams > 0 && <span>Weight: <strong style={{ color: "var(--text-primary)" }}>{r.weightgrams} g</strong></span>}
+                          <span>Fulfillment: <strong style={{ color: "var(--text-primary)", textTransform: "capitalize" }}>{delivery}</strong></span>
+                          {depositVal !== null && !isNaN(depositVal) && (
+                            <span>Deposit: <strong style={{ color: "var(--text-primary)" }}>{Number(depositVal).toFixed(0)} EGP</strong></span>
+                          )}
+                          {r.totalprice > 0 ? (
+                            <span style={{ marginLeft: "auto" }}>Price: <strong style={{ color: "var(--accent)", fontSize: 15 }}>{r.totalprice.toFixed(2)} EGP</strong></span>
+                          ) : (
+                            <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 12 }}>Rate: {config.price_per_gram} EGP/g</span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -6059,7 +3606,7 @@ export default function App() {
                 border: 0
               }}
             >
-              Etba3ly Store | اطبعلي — 3D Printing Service Egypt
+              Etba3ly Store — On-Demand 3D Printing Service Egypt
             </span>
             <h1 style={{ whiteSpace: "pre-line" }}>{config.hero_title}</h1>
             <p style={{ whiteSpace: "pre-line" }}>{config.hero_subtitle}</p>
@@ -6077,7 +3624,7 @@ export default function App() {
           {/* ── WHY US ── */}
           <section id="why" className="section-container reveal">
             <h2>{config.why_title}</h2>
-            <p>{config.why_text}</p>
+            <p>{(config.why_text || "").replace(/\s*<!--RATES_CATALOG:.*?-->/s, "").trim()}</p>
             <div className="feature-cards">
               {[
                 { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--accent)"}}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>, title: "Fast Turnaround", desc: "Most orders done in 24–48hrs" },
@@ -6228,9 +3775,9 @@ export default function App() {
         <div className="footer-grid">
           <div>
             <div className="footer-brand">
-              <img src={getAssetPath("logo-dark.svg")} alt={`${brandName} Store - اطبعلي للطباعة ثلاثية الأبعاد`} className="footer-logo-img footer-logo" />
+              <img src={getAssetPath("logo-dark.svg")} alt={`${brandName} Store - On-Demand 3D Printing Service Egypt`} className="footer-logo-img footer-logo" />
             </div>
-            <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 14, margin: "0 0 6px 0", fontWeight: 600 }}>Etba3ly Store | متجر اطبعلي للطباعة ثلاثية الأبعاد</p>
+            <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 14, margin: "0 0 6px 0", fontWeight: 600 }}>Etba3ly Store | On-Demand 3D Printing Service Egypt</p>
             <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: 0 }}>Student-powered 3D printing. Fast, affordable, on campus across Egypt.</p>
           </div>
           <div className="footer-col">
@@ -6262,7 +3809,7 @@ export default function App() {
             )}
           </div>
         </div>
-        <div className="footer-bottom">&copy; {new Date().getFullYear()} {brandName} Store (اطبعلي). All rights reserved. | On-Demand 3D Printing Service Egypt</div>
+        <div className="footer-bottom">&copy; {new Date().getFullYear()} {brandName} Store. All rights reserved. | On-Demand 3D Printing Service Egypt</div>
       </footer>
 
       {/* Privacy Policy Modal */}

@@ -1,0 +1,273 @@
+# Task: Integrate a Complete Dynamic Pricing & Profit Calculation System into Etba3ly
+
+You are a senior full-stack React developer, financial systems engineer, and 3D printing business operations expert.
+
+Your task is to upgrade the existing Etba3ly (إطبعلي) 3D printing website with a complete, accurate, dynamic pricing and profitability system, while removing the old buggy admin money panel, rewriting the profit calculations, and organizing how we take orders and payments.
+
+IMPORTANT: Modify the existing project. Do not rebuild the website from scratch. Preserve existing visual identity (Liquid Glass UI), student dorm operational priorities (Elegoo Centauri Carbon, quiet hours, PLA/PETG, PEI bed), and strictly NO emojis.
+
+## 1. Existing Technology Stack
+- React 19 + Vite
+- Custom CSS with Liquid Glass design
+- Supabase PostgreSQL, Storage, Auth, Realtime
+- Three.js STL viewer
+- Existing slicerEngine.js
+- Existing App.jsx
+- Existing admin dashboard
+- Existing order submission, payment tracking, and printer management
+
+First, inspect the entire codebase and identify the current pricing, slicing, checkout, order storage, and admin profit calculation logic.
+Preserve all existing functionality, UI components, routing, animations, authentication, STL uploading, order tracking, and printer integration.
+
+## 2. Replace the Old Pricing Formula
+The current system charges a flat 3.00 EGP per gram.
+Replace this with:
+Manufacturing Price = Setup Fee + (Estimated Filament Weight × Material Rate) + (Estimated Print Time in Hours × Hourly Printing Rate)
+
+Use these default values:
+- PLA: Selling Rate 1.80 EGP/g, Cost 0.65 EGP/g
+- PLA+ / Rapid PLA: Selling Rate 2.00 EGP/g, Cost 0.75 EGP/g
+- PETG: Selling Rate 2.10 EGP/g, Cost 0.70 EGP/g
+- TPU: Selling Rate 2.70 EGP/g, Cost 0.95 EGP/g
+- Carbon Fiber Filled: Selling Rate 3.50 EGP/g, Cost 1.35 EGP/g
+
+Additional defaults:
+- Setup fee: 25 EGP per order
+- Printing hourly rate: 12 EGP/hour
+- Minimum manufacturing subtotal for campus pickup: 75 EGP
+- Minimum manufacturing subtotal for nationwide delivery: 150 EGP
+- Standard packaging charge: 25 EGP for shipped orders
+- Electricity cost: 0 EGP/hour by default, fully editable
+- Maintenance and wear cost: 5 EGP/printing hour
+- Printer ownership/depreciation allowance: 4.50 EGP/printing hour
+- Failed-print material reserve: 8% of raw material cost
+
+All these parameters MUST be editable in the admin dashboard and stored persistently in Supabase.
+Do not hardcode financial parameters throughout the application.
+
+## 3. Correct Price Calculation Logic
+For each order:
+1. Calculate total estimated filament weight, including supports, brim, and other consumed filament where supported by the slicing engine.
+2. Calculate total estimated printer occupancy in hours.
+3. Apply the selected material selling rate.
+4. Add the setup fee only once per order.
+5. Apply the minimum manufacturing subtotal according to fulfillment method.
+6. Round the manufacturing subtotal UP to the nearest 5 EGP.
+7. Add packaging and shipping separately.
+8. Calculate the required deposit and remaining balance.
+
+Formula:
+rawSubtotal = setupFee + totalWeightG * materialSellingRate + totalPrintHours * printingHourlyRate;
+minimum = deliveryMode === "pickup" ? pickupMinimum : shippingMinimum;
+manufacturingSubtotal = Math.ceil(Math.max(rawSubtotal, minimum) / 5) * 5;
+customerTotal = manufacturingSubtotal + packagingFee + shippingFee;
+
+For multiple items, charge the setup fee only once.
+Use accurate total printer occupancy from the slicing plan, rather than blindly summing times for parts that can be printed together.
+
+## 4. Customer-Facing Pricing Interface & Redesign
+Update the existing quotation interface to display:
+- Selected material
+- Estimated filament weight
+- Estimated print time
+- Material charge
+- Setup fee
+- Printing time charge
+- Minimum order adjustment, if applicable
+- Manufacturing subtotal
+- Packaging charge
+- Shipping charge
+- Final customer price
+- Required deposit
+- Remaining balance
+
+All prices must update automatically whenever the customer changes a relevant option.
+Maintain the current premium Liquid Glass design.
+Do not introduce neon gradients, excessive glowing elements, emojis, generic AI-generated dashboards, or unnecessary animations.
+Use a minimalist, elegant interface consistent with the existing Etba3ly branding.
+
+## 5. Delivery and Minimum Order Rules
+Support two fulfillment methods:
+Campus Pickup:
+- Minimum manufacturing subtotal: 75 EGP
+- No shipping charge
+- No standard parcel packaging charge
+
+Nationwide Shipping:
+- Minimum manufacturing subtotal: 150 EGP
+- Packaging: 25 EGP by default
+- Shipping charged separately
+
+Initial editable shipping estimates:
+- Alexandria: 55 EGP
+- Cairo / Giza: 75 EGP
+- Delta / Canal: 90 EGP
+- Upper Egypt / Remote: 110 EGP
+
+These are provisional estimates, not confirmed courier rates.
+Allow administrators to modify shipping zones, fees, and packaging charges.
+Prepare the architecture for future courier API integration.
+
+## 6. ElectraGo Referral Commission
+Integrate a referral system for the ElectraGo partnership.
+Default referral commission: 5%
+Make the percentage fully editable by administrators.
+Support referral URLs such as: https://etba3ly.store/?ref=electrago
+Requirements:
+- Track referral attribution when a customer arrives through a referral link.
+- Store the referral source with the order.
+- Calculate commission ONLY on the actual collected manufacturing subtotal after discounts.
+- Exclude shipping and packaging.
+- Do not pay commission on canceled, unpaid, or refunded orders.
+- Handle partial refunds by adjusting commission accordingly.
+- Display referral commission in the admin profit dashboard.
+- Track monthly referral revenue and commission owed.
+Provide optional configurable commission tiers such as 5%, 7.5%, and 10%, but keep 5% as the default.
+Referral attribution must be validated server-side.
+
+## 7. Admin Profit and Cost Dashboard (Complete Redesign)
+Remove the old buggy admin money panel and replace it with a clean, robust financial view.
+For each order calculate:
+Revenue:
+- Manufacturing revenue
+- Packaging revenue
+- Shipping revenue
+- Total collected revenue
+
+Costs:
+- Raw filament cost
+- Estimated electricity cost
+- Machine maintenance cost
+- Printer depreciation/usage allowance
+- Failed-print reserve
+- Actual packaging cost
+- Actual courier expense
+- ElectraGo or other referral commission
+- Payment processing fees
+- Other variable costs
+
+Profitability:
+- Total direct costs
+- Order contribution before fixed overhead
+- Allocated fixed overhead, where configured
+- Estimated order profit after allocated overhead
+- Profit margin percentage
+- Contribution per printer-hour
+
+Use separate fields for customer-facing packaging/shipping charges and actual business expenses.
+Avoid double-counting maintenance, depreciation, and printer-owner usage compensation.
+Allow admins to choose whether the printers are privately owned by partners or owned by the business, so the accounting treatment is consistent.
+
+## 8. Two-Partner Profit Sharing
+The business has two partners.
+Add configurable profit-sharing settings.
+Initial defaults:
+- Partner A ownership: 50%
+- Partner B ownership: 50%
+
+Expansion-stage profit allocation:
+- 40% available for partner distributions
+- 40% retained for business growth
+- 20% allocated to cash reserves
+
+Within the 40% distribution pool, split according to ownership percentages.
+For example, if distributable net profit is 20,000 EGP:
+- Partner A: 4,000 EGP
+- Partner B: 4,000 EGP
+- Growth fund: 8,000 EGP
+- Cash reserves: 4,000 EGP
+
+Also support a later-stage allocation of:
+- 60% partner distributions
+- 25% growth
+- 15% reserves
+
+Make every percentage editable.
+Partner distributions must be based on realized net profit after costs, expenses, liabilities, and appropriate tax provisions—not gross revenue or customer deposits.
+Do not automatically distribute profits when the company has insufficient cash.
+
+## 9. Admin Settings
+Create a dedicated financial settings section inside the existing authenticated admin dashboard.
+Include editable controls for:
+- Setup fee
+- Printing hourly rate
+- Material selling rates
+- Material purchase costs
+- Electricity cost per hour
+- Printer maintenance cost per hour
+- Depreciation or machine usage allowance
+- Failed-print reserve percentage
+- Campus pickup minimum
+- Shipping minimum
+- Packaging selling fee
+- Actual packaging cost
+- Shipping zones and rates
+- Referral commissions
+- Deposit percentage
+- Monthly fixed overhead
+- Partner ownership percentages
+- Partner profit allocation percentages
+
+Electricity cost must default to 0 EGP/hour.
+Settings must persist in Supabase and remain unchanged after refreshing the page.
+Only authorized admins can read sensitive financial information or change pricing settings.
+Do not implement financial security using a hardcoded frontend password.
+Use Supabase Auth, Row Level Security, and appropriate server-side authorization.
+
+## 10. Payment and Deposit Calculation
+Default deposit: 50% of the manufacturing subtotal
+Calculate:
+depositRequired = Math.ceil(manufacturingSubtotal * 0.5);
+remainingBalance = customerTotal - depositRequired;
+
+Make the deposit percentage configurable.
+For custom printed orders:
+- Require a verified deposit before production.
+- Require the remaining balance before dispatch.
+- Do not automatically enable COD for custom orders.
+- Keep customer deposits separate from recognized completed-order revenue.
+Preserve the existing payment reconciliation functionality.
+
+## 11. Backend Security and Data Integrity
+The frontend must never be trusted as the source of final prices.
+Implement authoritative server-side price validation using Supabase Edge Functions or another trusted backend layer.
+Requirements:
+- Validate material, weight, print time, delivery method, and quote configuration.
+- Never accept a client-submitted final total as authoritative.
+- Store immutable accepted quote snapshots with pricing version and calculated line items.
+- Preserve historical order prices when admin settings change.
+- Prevent unauthorized modification of profit and cost data.
+- Enforce Supabase Row Level Security.
+- Keep service-role keys and printer credentials out of frontend code.
+- Use database transactions or equivalent safe workflows where required.
+
+If the existing browser slicing engine cannot be independently verified server-side, treat its result as provisional and require a trusted slicing or admin-approval step before finalizing the quote.
+
+## 12. Integration Requirements
+Inspect and update the relevant existing files:
+- slicerEngine.js
+- App.jsx
+- Existing admin dashboard components
+- Existing Supabase database schema
+- Existing order creation logic
+- Existing payment tracking logic
+- Existing notification and invoice generation
+
+Create a reusable pricing service/module rather than duplicating formulas in different components.
+Make sure invoices, customer quotations, stored orders, admin dashboards, and payment totals all use the same accepted pricing snapshot.
+Preserve the existing customer journey and all unrelated features.
+
+## 13. Testing Requirements
+Test at least these cases:
+1. A 30 g PLA print requiring 40 minutes: Raw 87 EGP -> Rounded 90 EGP for pickup
+2. A 30 g PLA print requiring 7 hours: Raw 163 EGP -> Rounded 165 EGP
+3. A 6 g PLA micro-order: Apply pickup (75 EGP) or shipping (150 EGP) minimum
+4. A nationwide shipping order: Apply 150 EGP minimum, add packaging (25 EGP) and shipping
+5. An ElectraGo referral: 5% commission on manufacturing subtotal only
+6. Electricity setting: Defaults to 0 EGP/hour, updating recalculates costs/profits without affecting customer price
+7. Multiple items: Setup fee applied once
+8. Partner distributions: Validate ownership & allocation splits
+9. Historical orders: Settings changes do not alter historical orders
+10. Security: Reject manipulated prices
+
+Provide a comprehensive, concrete file-by-file implementation plan and exact code structures.

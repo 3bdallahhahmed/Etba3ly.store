@@ -2255,3 +2255,42 @@ label {
 }
 
 
+
+
+/* =============================================================
+   CENTAURI PRINT OS — SERVICE TIER SELECTOR & REVIEW INVOICE
+   ============================================================= */
+.service-tier-wrapper {
+  transition: all 0.3s var(--ease-smooth);
+}
+
+.service-tier-card {
+  transition: all 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.service-tier-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 128, 0, 0.4) !important;
+}
+
+.service-tier-card.selected {
+  border-color: #FF8000 !important;
+  box-shadow: 0 0 20px rgba(255, 128, 0, 0.22);
+}
+
+.review-invoice-card {
+  transition: all 0.3s var(--ease-smooth);
+}
+
+.review-invoice-card:hover {
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45);
+}
+
+.review-invoice-metric-box {
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.review-invoice-metric-box:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}

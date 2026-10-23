@@ -4,7 +4,7 @@ A premium, high-performance web dashboard for managing 3D print farms.
 
 Built with React, Vite, and Supabase, Centurai Print OS provides a centralized interface for tracking orders, assigning active jobs to hardware (e.g., CC Abdalla, CC Mazen), and offering customers a beautiful portal to check their order status.
 
-## ✨ Features
+## Features
 
 - **Liquid Glass UI:** A stunning, modern design featuring glass-morphism, responsive CSS grid layouts, and smooth micro-animations.
 - **Admin Command Center:** A secure, Supabase-authenticated dashboard for full farm management.
@@ -12,14 +12,14 @@ Built with React, Vite, and Supabase, Centurai Print OS provides a centralized i
 - **Public Order Tracking:** Customers can view the progress of their print jobs using a secure tracking code.
 - **CMS Integration:** Allows administrators to update site text, pricing, and configuration dynamically.
 
-## 🚀 Tech Stack
+## Tech Stack
 
 - **Frontend:** React, Vite
 - **Styling:** Custom Vanilla CSS (no Tailwind, pure design flexibility)
 - **Backend/Database:** Supabase (PostgreSQL, Realtime, Auth, Storage)
 - **3D Rendering:** `@react-three/fiber` for abstract, immersive background elements.
 
-## 🛠️ Getting Started
+## Getting Started
 
 To run the project locally for development:
 
@@ -46,6 +46,6 @@ To run the project locally for development:
    npm run dev
    ```
 
-## 🤝 Contributing
+## Contributing
 
 This project uses an **Environment-Based Branching** workflow. Direct pushes to the `main` branch are restricted. Please refer to [CONTRIBUTING.md](.github/CONTRIBUTING.md) for details on the development process.
