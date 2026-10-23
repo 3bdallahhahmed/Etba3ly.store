@@ -24,10 +24,10 @@ export const DEFAULT_PRICING_SETTINGS = {
   actual_packaging_cost: 10.00,
 
   // Direct operating costs & amortization
-  electricity_hourly_rate: 0.40,   // 200W avg draw = 400 kWh over 2,000h = ~800 EGP in Egypt (0.40 EGP/hr)
-  maintenance_hourly_rate: 3.50,   // Periodic nozzles, PTFE tubes, textured PEI build plates
-  depreciation_hourly_rate: 20.00, // 40,000 EGP printer cost / 2,000 hours = 20.00 EGP/hr
-  failed_print_reserve_pct: 0.12,  // 12% reserve for supports, skirts, and failed prints (raising usable cost to ~0.76 EGP/g)
+  electricity_hourly_rate: 0.00,
+  maintenance_hourly_rate: 0.00,
+  depreciation_hourly_rate: 0.00,
+  failed_print_reserve_pct: 0.00,
 
   // Commercial & partner splits
   deposit_percentage: 0.50,
@@ -248,9 +248,10 @@ export function calculateOrderQuote({
   const microFlatPrice = Number(cfg.micro_order_flat_price) || 50.0;
   const isMicroOrder = totalWeightG > 0 && totalWeightG < microThreshold;
 
-  const setupFee = Number(cfg.setup_fee) || 0;
-  const hourlyRate = Number(cfg.printing_hourly_rate) || 0;
-  const timeCharge = totalPrintHours * hourlyRate;
+  // Customer pricing is purely material rate (zero setup fee and zero time charges added to price)
+  const setupFee = 0;
+  const hourlyRate = 0;
+  const timeCharge = 0;
 
   const pickupMin = isMicroOrder ? microFlatPrice : (Number(cfg.pickup_minimum) || 50);
   const shippingMin = Number(cfg.shipping_minimum) || 150;
@@ -266,8 +267,8 @@ export function calculateOrderQuote({
     manufacturingSubtotal = microFlatPrice;
     minimumApplied = true;
   } else {
-    // 17g and above: Flat rate does NOT activate; normal rate (3.5/g) applies
-    rawSubtotal = setupFee + materialCharge + timeCharge;
+    // 17g and above: Flat rate does NOT activate; customer pricing is purely material rate (weight * selling_rate)
+    rawSubtotal = materialCharge;
     minimumApplied = rawSubtotal < minimum;
     manufacturingSubtotal = Math.ceil(Math.max(rawSubtotal, minimum) / 5) * 5;
   }
@@ -291,32 +292,9 @@ export function calculateOrderQuote({
   const depositRequired = Math.ceil(manufacturingSubtotal * depositPct);
   const remainingBalance = customerTotal - depositRequired;
 
-  // Direct Cost Breakdown
-  const electricityHourly = cfg.electricity_hourly_rate !== undefined && !isNaN(Number(cfg.electricity_hourly_rate))
-    ? Number(cfg.electricity_hourly_rate)
-    : 0.40;
-  const maintenanceHourly = cfg.maintenance_hourly_rate !== undefined && !isNaN(Number(cfg.maintenance_hourly_rate))
-    ? Number(cfg.maintenance_hourly_rate)
-    : 3.50;
-  const depreciationHourly = cfg.depreciation_hourly_rate !== undefined && !isNaN(Number(cfg.depreciation_hourly_rate))
-    ? Number(cfg.depreciation_hourly_rate)
-    : 20.00;
-  const failedReservePct = cfg.failed_print_reserve_pct !== undefined && !isNaN(Number(cfg.failed_print_reserve_pct))
-    ? Number(cfg.failed_print_reserve_pct)
-    : 0.12;
-
-  const electricityCost = totalPrintHours * electricityHourly;
-  const maintenanceCost = totalPrintHours * maintenanceHourly;
-  const depreciationCost = totalPrintHours * depreciationHourly;
-  const failedPrintReserve = rawMaterialCost * failedReservePct;
-
-  const totalDirectCosts =
-    rawMaterialCost +
-    electricityCost +
-    maintenanceCost +
-    depreciationCost +
-    failedPrintReserve +
-    actualPackagingCost;
+  // Direct Cost Breakdown: Strictly filament material cost plus actual packaging if shipping
+  // (Removed electricity, machine wear, printer depreciation, and failed print reserve)
+  const totalDirectCosts = rawMaterialCost + actualPackagingCost;
 
   // Referral Commission: Calculated strictly on manufacturing subtotal
   const isReferralEligible = Boolean(referralCode && String(referralCode).trim().length > 0);
@@ -331,6 +309,7 @@ export function calculateOrderQuote({
     // Volume & Time
     totalWeightG: Math.round(totalWeightG * 100) / 100,
     totalPrintHours: Math.round(totalPrintHours * 100) / 100,
+    printTimeHours: Math.round(totalPrintHours * 100) / 100,
 
     // Customer Price Breakdown
     isMicroOrder,
@@ -352,10 +331,10 @@ export function calculateOrderQuote({
     // Accounting & Direct Costs
     costs: {
       rawMaterialCost: Math.round(rawMaterialCost * 100) / 100,
-      electricityCost: Math.round(electricityCost * 100) / 100,
-      maintenanceCost: Math.round(maintenanceCost * 100) / 100,
-      depreciationCost: Math.round(depreciationCost * 100) / 100,
-      failedPrintReserve: Math.round(failedPrintReserve * 100) / 100,
+      electricityCost: 0,
+      maintenanceCost: 0,
+      depreciationCost: 0,
+      failedPrintReserve: 0,
       actualPackagingCost,
       totalDirectCosts: Math.round(totalDirectCosts * 100) / 100
     },

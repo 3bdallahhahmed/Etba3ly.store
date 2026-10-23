@@ -37,17 +37,24 @@ if (partnerAPassed && partnerBPassed && growthPassed && cashPassed) {
   allPassed = false;
 }
 
-// 3. Rounding up to 5 EGP Verification
+// 3. Rounding up to 5 EGP Verification (Pure Material Pricing: 28g * 3.50 = 98 -> 100 EGP)
 const testRounding = calculateOrderQuote({
   items: [{ weightGrams: 28, printHours: 1.1, materialKey: 'pla' }],
   deliveryMode: 'pickup'
 });
-// Raw: 25 + (28 * 1.80) + (1.1 * 12) = 25 + 50.4 + 13.2 = 88.6 EGP
-// Rounded up to 5 EGP: 90 EGP
-if (testRounding.manufacturingSubtotal === 90) {
-  console.log('[PASS] Rounding rule: Math.ceil(88.6 / 5) * 5 = 90 EGP');
+if (testRounding.manufacturingSubtotal === 100) {
+  console.log('[PASS] Rounding rule: 28g * 3.50 = 98 -> Math.ceil(98 / 5) * 5 = 100 EGP');
 } else {
   console.error('[FAIL] Rounding rule failed', testRounding.manufacturingSubtotal);
+  allPassed = false;
+}
+
+// 4. Direct Cost Verification (strictly raw material cost, no machine accounting)
+const expectedMaterialCost = 18.48; // 28g * 0.66
+if (testRounding.costs.totalDirectCosts === expectedMaterialCost && testRounding.costs.electricityCost === 0 && testRounding.costs.depreciationCost === 0) {
+  console.log('[PASS] Direct Cost Rule: strictly material cost (18.48 EGP), machine accounting removed');
+} else {
+  console.error('[FAIL] Direct Cost Rule failed', testRounding.costs);
   allPassed = false;
 }
 

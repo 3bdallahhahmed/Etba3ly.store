@@ -1,5 +1,4 @@
 import AdminDashboard from "./components/AdminDashboard";
-import AdminFinancialDashboard from "./components/AdminFinancialDashboard";
 import ServiceTierSelector, { SERVICE_TIERS } from "./components/ServiceTierSelector";
 import ReviewInvoiceCard from "./components/ReviewInvoiceCard";
 import {
@@ -17,9 +16,6 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Float, Html, useProgress, useGLTF, useEnvironment } from "@react-three/drei";
 import * as THREE from "three";
 import STLViewer from "./slicer/STLViewer.jsx";
-import AdminSlicerModal from "./slicer/AdminSlicerModal.jsx";
-import MoonrakerDispatchModal from "./slicer/MoonrakerDispatchModal.jsx";
-import { generateElegooGcode } from "./slicer/slicerEngine.js";
 import GalleryStudioUploader from "./utils/GalleryStudioUploader.jsx";
 import { processPartImageFile } from "./utils/partImageProcessor.js";
 import { upscaleImageFile } from "./utils/imageUpscaler.js";
@@ -141,14 +137,23 @@ async function copyToClipboard(text) {
 // ─────────────────────────────────────────────────────────
 // Printer helpers — parse/set printer tag in notes field
 // ─────────────────────────────────────────────────────────
-function getPrinterFromNotes(notes) {
-  if (!notes) return null;
-  const match = notes.match(/^\[PRINTER:([^\]]+)\]/);
-  return match ? match[1] : null;
+function getPrinterFromNotes(notesOrOrder) {
+  if (!notesOrOrder) return null;
+  const notes = typeof notesOrOrder === 'object'
+    ? (notesOrOrder.notes || notesOrOrder.printer || '')
+    : String(notesOrOrder);
+  if (typeof notesOrOrder === 'object' && notesOrOrder.printer) {
+    return String(notesOrOrder.printer).trim();
+  }
+  const match = notes.match(/\[PRINTER:([^\]]+)\]/i) || notes.match(/\[Assigned Hardware:\s*([^\]]+)\]/i);
+  return match ? match[1].trim() : null;
 }
 
 function setPrinterInNotes(notes, printer) {
-  const cleanNotes = (notes || "").replace(/^\[PRINTER:[^\]]+\]\s*/, "");
+  const cleanNotes = (notes || "")
+    .replace(/\[PRINTER:[^\]]+\]\s*/gi, "")
+    .replace(/\[Assigned Hardware:[^\]]+\]\s*/gi, "")
+    .trim();
   if (!printer) return cleanNotes;
   return `[PRINTER:${printer}] ${cleanNotes}`.trim();
 }
@@ -1023,13 +1028,6 @@ function FullGalleryView({ items, onItemClick, onGoHome }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════
-// ADMIN PROFIT & FINANCIALS TAB COMPONENT (DYNAMIC PRICING & PROFITABILITY SYSTEM)
-// ═══════════════════════════════════════════════════════════
-function AdminProfitTab({ orders, supabase, addToast }) {
-  return <AdminFinancialDashboard orders={orders} supabase={supabase} addToast={addToast} />;
-}
-
 export default function App() {
   // Capture ElectraGo referral code from URL (?ref=electrago)
   useEffect(() => {
@@ -1156,29 +1154,6 @@ export default function App() {
   const [adminSearch, setAdminSearch] = useState("");
   const [selectedOrders, setSelectedOrders] = useState([]);
   const [adminStatusFilter, setAdminStatusFilter] = useState("all");
-  const [spoolCostKg, setSpoolCostKg] = useState(() => parseFloat(localStorage.getItem("jp_spool_cost")) || 750);
-  const [electricityTariffKwh, setElectricityTariffKwh] = useState(() => {
-    const val = localStorage.getItem("jp_elec_kwh");
-    return val !== null && val !== "" ? parseFloat(val) : 2.50;
-  });
-  const [printerPowerWatts, setPrinterPowerWatts] = useState(() => parseFloat(localStorage.getItem("jp_printer_watts")) || 180);
-  const [cc1WearRatePerHour, setCc1WearRatePerHour] = useState(() => parseFloat(localStorage.getItem("jp_cc1_wear_rate")) || 6.00);
-  const [printSpeedGph, setPrintSpeedGph] = useState(() => parseFloat(localStorage.getItem("jp_print_speed_gph")) || 35);
-  const [materialCosts, setMaterialCosts] = useState(() => {
-    try {
-      return {
-        "PLA": 650,
-        "PLA+": 750,
-        "PETG": 700,
-        "ABS": 750,
-        "CARBON FIBER": 1350,
-        "TPU": 950,
-        ...JSON.parse(localStorage.getItem("jp_material_costs") || "{}")
-      };
-    } catch {
-      return { "PLA": 650, "PLA+": 750, "PETG": 700, "ABS": 750, "CARBON FIBER": 1350, "TPU": 950 };
-    }
-  });
   const [lastSubmittedQuote, setLastSubmittedQuote] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
   const [successModal, setSuccessModal] = useState(null);
@@ -1270,7 +1245,7 @@ export default function App() {
     if (!externalPromptPrinter) return;
     const jobTitle = externalJobInput.trim() || "Direct USB / Offline Print";
     const weightNum = parseFloat(externalJobWeight) || 0;
-    const speed = parseFloat(printSpeedGph) || 35;
+    const speed = 35; // CoreXY average speed (g/hr)
     const hoursNum = parseFloat(externalJobHours) || (speed > 0 ? weightNum / speed : 0);
     const now = new Date().toISOString();
     const logId = `usb_${Date.now()}`;
@@ -1972,7 +1947,7 @@ export default function App() {
         `[DELIVERY:${deliveryMode || "pickup"}]`,
         `[DEPOSIT:${depositRequired || 0}]`,
         `[BALANCE:${remainingBalance || 0}]`,
-        quote.printTimeHours ? `[HOURS:${quote.printTimeHours.toFixed(2)}]` : null,
+        `[HOURS:${(quote.totalPrintHours || quote.printTimeHours || (weightGrams > 0 ? Number((weightGrams / 35).toFixed(1)) : 0.5)).toFixed(1)}]`,
         referralCode ? `[REF:${referralCode}]` : null
       ].filter(Boolean).join(" ");
 
@@ -3567,20 +3542,34 @@ export default function App() {
 
                     <StatusStepper status={r.status} />
 
-                    <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border-glass)", fontSize: 13, color: "var(--text-secondary)" }}>
-                      <span>Material: <strong style={{ color: "var(--text-primary)" }}>{r.material || "PLA"}</strong></span>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                        Color:
-                        <span style={{ width: 10, height: 10, borderRadius: "50%", background: getColorHex(r.color), border: "1px solid rgba(255,255,255,0.3)", display: "inline-block" }} />
-                        <strong style={{ color: "var(--text-primary)" }}>{r.color || "Standard"}</strong>
-                      </span>
-                      {r.weightgrams > 0 && <span>Weight: <strong style={{ color: "var(--text-primary)" }}>{r.weightgrams} g</strong></span>}
-                      {r.totalprice > 0 ? (
-                        <span style={{ marginLeft: "auto" }}>Price: <strong style={{ color: "var(--accent)", fontSize: 15 }}>{r.totalprice.toFixed(2)} EGP</strong></span>
-                      ) : (
-                        <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 12 }}>Rate: {config.price_per_gram} EGP/g</span>
-                      )}
-                    </div>
+                    {(() => {
+                      const delivery = (r.delivery_mode || (r.notes?.match(/\[DELIVERY:([^\]]+)\]/i)?.[1]) || (r.notes?.match(/\[Mode:\s*([^\]|]+)/i)?.[1]) || "pickup").trim();
+                      const depositMatch = r.notes?.match(/\[DEPOSIT:([^\]]+)\]/i) || r.notes?.match(/\[Deposit:\s*([^\]|EGP]+)/i);
+                      const depositVal = r.deposit_required !== undefined && r.deposit_required !== null && !isNaN(Number(r.deposit_required))
+                        ? Number(r.deposit_required)
+                        : (depositMatch ? parseFloat(depositMatch[1]) : (r.totalprice ? Math.round(r.totalprice * 0.5) : null));
+
+                      return (
+                        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border-glass)", fontSize: 13, color: "var(--text-secondary)" }}>
+                          <span>Material: <strong style={{ color: "var(--text-primary)" }}>{r.material || "PLA"}</strong></span>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            Color:
+                            <span style={{ width: 10, height: 10, borderRadius: "50%", background: getColorHex(r.color), border: "1px solid rgba(255,255,255,0.3)", display: "inline-block" }} />
+                            <strong style={{ color: "var(--text-primary)" }}>{r.color || "Standard"}</strong>
+                          </span>
+                          {r.weightgrams > 0 && <span>Weight: <strong style={{ color: "var(--text-primary)" }}>{r.weightgrams} g</strong></span>}
+                          <span>Fulfillment: <strong style={{ color: "var(--text-primary)", textTransform: "capitalize" }}>{delivery}</strong></span>
+                          {depositVal !== null && !isNaN(depositVal) && (
+                            <span>Deposit: <strong style={{ color: "var(--text-primary)" }}>{Number(depositVal).toFixed(0)} EGP</strong></span>
+                          )}
+                          {r.totalprice > 0 ? (
+                            <span style={{ marginLeft: "auto" }}>Price: <strong style={{ color: "var(--accent)", fontSize: 15 }}>{r.totalprice.toFixed(2)} EGP</strong></span>
+                          ) : (
+                            <span style={{ marginLeft: "auto", color: "var(--text-tertiary)", fontSize: 12 }}>Rate: {config.price_per_gram} EGP/g</span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}

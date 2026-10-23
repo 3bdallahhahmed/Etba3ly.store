@@ -99,47 +99,75 @@ function getAssetPath(file) {
 
 // Printer Helper Functions
 // ─────────────────────────────────────────────────────────────
-function getPrinterFromNotes(notes) {
-  if (!notes) return null;
-  const match = notes.match(/^\[PRINTER:([^\]]+)\]/);
-  return match ? match[1] : null;
+function getPrinterFromNotes(notesOrOrder) {
+  if (!notesOrOrder) return null;
+  const notes = typeof notesOrOrder === 'object'
+    ? (notesOrOrder.notes || notesOrOrder.printer || '')
+    : String(notesOrOrder);
+  if (typeof notesOrOrder === 'object' && notesOrOrder.printer) {
+    return String(notesOrOrder.printer).trim();
+  }
+  const match = notes.match(/\[PRINTER:([^\]]+)\]/i) || notes.match(/\[Assigned Hardware:\s*([^\]]+)\]/i);
+  return match ? match[1].trim() : null;
 }
 
 function setPrinterInNotes(notes, printer) {
-  const cleanNotes = (notes || "").replace(/^\[PRINTER:[^\]]+\]\s*/, "");
+  const cleanNotes = (notes || "")
+    .replace(/\[PRINTER:[^\]]+\]\s*/gi, "")
+    .replace(/\[Assigned Hardware:[^\]]+\]\s*/gi, "")
+    .trim();
   if (!printer) return cleanNotes;
   return `[PRINTER:${printer}] ${cleanNotes}`.trim();
 }
 
-function getDeliveryMode(order) {
-  if (!order) return 'pickup';
-  if (order.delivery_mode) return order.delivery_mode;
-  if (order.notes) {
-    const match = order.notes.match(/\[DELIVERY:([^\]]+)\]/i) || order.notes.match(/\[Mode:\s*([^\]|]+)/i);
+function getDeliveryMode(orderOrNotes) {
+  if (!orderOrNotes) return 'pickup';
+  if (typeof orderOrNotes === 'object') {
+    if (orderOrNotes.delivery_mode) return String(orderOrNotes.delivery_mode).toLowerCase().trim();
+    const notes = orderOrNotes.notes || '';
+    const match = notes.match(/\[DELIVERY:([^\]]+)\]/i) || notes.match(/\[Mode:\s*([^\]|]+)/i);
     if (match) return match[1].trim().toLowerCase();
+    return 'pickup';
   }
-  return 'pickup';
+  const match = String(orderOrNotes).match(/\[DELIVERY:([^\]]+)\]/i) || String(orderOrNotes).match(/\[Mode:\s*([^\]|]+)/i);
+  return match ? match[1].trim().toLowerCase() : 'pickup';
 }
 
-function getOrderDeposit(order) {
-  if (!order) return 0;
-  if (order.deposit_required !== undefined && order.deposit_required !== null) return Number(order.deposit_required);
-  if (order.notes) {
-    const match = order.notes.match(/\[DEPOSIT:([^\]]+)\]/i) || order.notes.match(/\[Deposit:\s*([^\]|EGP]+)/i);
-    if (match) return parseFloat(match[1]) || 0;
+function getOrderDeposit(orderOrNotes) {
+  if (!orderOrNotes) return 0;
+  if (typeof orderOrNotes === 'object') {
+    if (orderOrNotes.deposit_required !== undefined && orderOrNotes.deposit_required !== null && !isNaN(Number(orderOrNotes.deposit_required))) {
+      return Number(orderOrNotes.deposit_required);
+    }
+    const notes = orderOrNotes.notes || '';
+    const match = notes.match(/\[DEPOSIT:([^\]]+)\]/i) || notes.match(/(?:\[Deposit:|\|\s*Deposit:)\s*([^\]|EGP\s]+)/i);
+    if (match) {
+      const parsed = parseFloat(match[1]);
+      if (!isNaN(parsed)) return parsed;
+    }
+    return Math.round((Number(orderOrNotes.totalprice) || 0) * 0.5);
   }
-  return Math.round((Number(order.totalprice) || 0) * 0.5);
+  const match = String(orderOrNotes).match(/\[DEPOSIT:([^\]]+)\]/i) || String(orderOrNotes).match(/(?:\[Deposit:|\|\s*Deposit:)\s*([^\]|EGP\s]+)/i);
+  return match ? (parseFloat(match[1]) || 0) : 0;
 }
 
-function getOrderPrintHours(order) {
-  if (!order) return 0.5;
-  if (order.printhours !== undefined && order.printhours !== null) return Number(order.printhours);
-  if (order.notes) {
-    const match = order.notes.match(/\[HOURS:([^\]]+)\]/i) || order.notes.match(/\[Time:\s*([^\]|h]+)/i);
-    if (match) return parseFloat(match[1]) || 0;
+function getOrderPrintHours(orderOrNotes) {
+  if (!orderOrNotes) return 0.5;
+  if (typeof orderOrNotes === 'object') {
+    if (orderOrNotes.printhours !== undefined && orderOrNotes.printhours !== null && !isNaN(Number(orderOrNotes.printhours))) {
+      return Number(orderOrNotes.printhours);
+    }
+    const notes = orderOrNotes.notes || '';
+    const match = notes.match(/\[HOURS:([^\]]+)\]/i) || notes.match(/\[Time:\s*([^\]|h]+)/i);
+    if (match) {
+      const parsed = parseFloat(match[1]);
+      if (!isNaN(parsed)) return parsed;
+    }
+    const w = Number(orderOrNotes.weightgrams) || 0;
+    return w > 0 ? Number((w / 35).toFixed(1)) : 0.5;
   }
-  const w = Number(order.weightgrams) || 0;
-  return w > 0 ? Number((w / 35).toFixed(1)) : 0.5;
+  const match = String(orderOrNotes).match(/\[HOURS:([^\]]+)\]/i) || String(orderOrNotes).match(/\[Time:\s*([^\]|h]+)/i);
+  return match ? (parseFloat(match[1]) || 0.5) : 0.5;
 }
 
 function getOrderPaymentInfo(order) {
@@ -294,7 +322,19 @@ export default function AdminDashboard({
   const [pricingSettings, setPricingSettings] = useState(() => {
     try {
       const cached = localStorage.getItem('etba3ly_pricing_settings');
-      if (cached) return { ...DEFAULT_PRICING_SETTINGS, ...JSON.parse(cached) };
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return {
+          ...DEFAULT_PRICING_SETTINGS,
+          ...parsed,
+          setup_fee: 0,
+          printing_hourly_rate: 0,
+          electricity_hourly_rate: 0,
+          maintenance_hourly_rate: 0,
+          depreciation_hourly_rate: 0,
+          failed_print_reserve_pct: 0
+        };
+      }
     } catch {}
     return { ...DEFAULT_PRICING_SETTINGS };
   });
@@ -963,10 +1003,7 @@ export default function AdminDashboard({
       const directMat = Object.values(materials).find(m => m && m.name && m.name.toLowerCase() === String(o.material || '').toLowerCase().trim());
       const matCostRate = directMat?.cost || materials[matKey]?.cost || 0.66;
       const materialCost = w * matCostRate;
-      const machineWearCost = h * (Number(pricingSettings.maintenance_hourly_rate) || 3.50);
-      const depreciationCost = h * (Number(pricingSettings.depreciation_hourly_rate) || 20.00);
-      const reserveCost = materialCost * (Number(pricingSettings.failed_print_reserve_pct) || 0.12);
-      const directCost = materialCost + machineWearCost + depreciationCost + reserveCost;
+      const directCost = materialCost;
 
       if (isPrinting) {
         if (printer === 'CC Abdalla') abdallaActiveJob = o;
@@ -1722,7 +1759,7 @@ export default function AdminDashboard({
                 color: theme.textSecondary
               }}>
                 <div>Total combined fleet operating hours logged: <strong style={{ color: theme.text }}>{fleetData.totalFleetHours} hours</strong></div>
-                <div>Wear & maintenance provisions applied: <strong style={{ color: theme.text }}>5.00 EGP/hr</strong></div>
+                <div>Active CoreXY Printers: <strong style={{ color: theme.text }}>2 (CC Abdalla, CC Mazen)</strong></div>
               </div>
             </div>
           )}
@@ -2003,129 +2040,6 @@ export default function AdminDashboard({
                   </div>
                 </div>
 
-                <details style={{
-                  background: theme.canvas,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: 8,
-                  padding: '12px 16px'
-                }}>
-                  <summary style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, cursor: 'pointer', userSelect: 'none' }}>
-                    Advanced Machine Accounting & Reserves (Optional)
-                  </summary>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginTop: 14 }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
-                        Setup Fee (EGP)
-                      </label>
-                      <input
-                        type="number"
-                        step="1"
-                        value={pricingSettings.setup_fee}
-                        onChange={e => setPricingSettings({ ...pricingSettings, setup_fee: parseFloat(e.target.value) || 0 })}
-                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
-                        Printing Hourly Rate (EGP/hr)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={pricingSettings.printing_hourly_rate}
-                        onChange={e => setPricingSettings({ ...pricingSettings, printing_hourly_rate: parseFloat(e.target.value) || 0 })}
-                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
-                        Electricity (EGP/hr - 200W draw)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={pricingSettings.electricity_hourly_rate}
-                        onChange={e => setPricingSettings({ ...pricingSettings, electricity_hourly_rate: parseFloat(e.target.value) || 0 })}
-                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
-                        Wear Burden (EGP/hr)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={pricingSettings.maintenance_hourly_rate}
-                        onChange={e => setPricingSettings({ ...pricingSettings, maintenance_hourly_rate: parseFloat(e.target.value) || 0 })}
-                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
-                        Printer Cost (EGP)
-                      </label>
-                      <input
-                        type="number"
-                        step="1000"
-                        value={pricingSettings.printer_cost || 40000}
-                        onChange={e => {
-                          const c = parseFloat(e.target.value) || 0;
-                          const l = pricingSettings.printer_lifespan_hours || 2000;
-                          setPricingSettings({
-                            ...pricingSettings,
-                            printer_cost: c,
-                            depreciation_hourly_rate: l > 0 ? Math.round((c / l) * 100) / 100 : pricingSettings.depreciation_hourly_rate
-                          });
-                        }}
-                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
-                        Depreciation Allowance (EGP/hr)
-                      </label>
-                      <input
-                        type="number"
-                        step="1"
-                        value={pricingSettings.depreciation_hourly_rate || 20}
-                        onChange={e => setPricingSettings({ ...pricingSettings, depreciation_hourly_rate: parseFloat(e.target.value) || 0 })}
-                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
-                        Filament Spool Cost (EGP / kg)
-                      </label>
-                      <input
-                        type="number"
-                        step="10"
-                        value={pricingSettings.spool_cost_per_kg || 660}
-                        onChange={e => setPricingSettings({ ...pricingSettings, spool_cost_per_kg: parseFloat(e.target.value) || 0 })}
-                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
-                        Failed-Print Reserve (%)
-                      </label>
-                      <input
-                        type="number"
-                        step="1"
-                        value={((Number(pricingSettings.failed_print_reserve_pct) ?? 0.12) * 100)}
-                        onChange={e => setPricingSettings({ ...pricingSettings, failed_print_reserve_pct: (parseFloat(e.target.value) || 0) / 100 })}
-                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
-                      />
-                    </div>
-                  </div>
-                </details>
 
                 {/* Materials Table */}
                 <div style={{ marginTop: 12 }}>
