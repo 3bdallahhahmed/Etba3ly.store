@@ -5,16 +5,27 @@
  */
 
 export const DEFAULT_PRICING_SETTINGS = {
+  // Machine capital & lifespan specs (Elegoo Centauri Carbon CC1)
+  printer_cost: 40000.00,          // Machine purchase price (EGP)
+  printer_lifespan_hours: 2000.00,  // Design operational lifespan (hours)
+  spool_cost_per_kg: 660.00,       // Standard 1kg filament spool cost (EGP)
+  avg_print_speed_g_per_hr: 30.00, // CoreXY extrusion speed average (25-45 g/hr)
+
+  // Order pricing parameters
   setup_fee: 25.00,
   printing_hourly_rate: 12.00,
   pickup_minimum: 75.00,
   shipping_minimum: 150.00,
   packaging_fee: 25.00,
   actual_packaging_cost: 10.00,
-  electricity_hourly_rate: 0.00, // Electricity default 0 EGP/hr in dorms
-  maintenance_hourly_rate: 5.00,
-  depreciation_hourly_rate: 4.50,
-  failed_print_reserve_pct: 0.08,
+
+  // Direct operating costs & amortization
+  electricity_hourly_rate: 0.40,   // 200W avg draw = 400 kWh over 2,000h = ~800 EGP in Egypt (0.40 EGP/hr)
+  maintenance_hourly_rate: 3.50,   // Periodic nozzles, PTFE tubes, textured PEI build plates
+  depreciation_hourly_rate: 20.00, // 40,000 EGP printer cost / 2,000 hours = 20.00 EGP/hr
+  failed_print_reserve_pct: 0.12,  // 12% reserve for supports, skirts, and failed prints (raising usable cost to ~0.76 EGP/g)
+
+  // Commercial & partner splits
   deposit_percentage: 0.50,
   referral_commission_pct: 0.05,
   monthly_fixed_overhead: 0.00,
@@ -26,12 +37,12 @@ export const DEFAULT_PRICING_SETTINGS = {
 };
 
 export const DEFAULT_MATERIAL_RATES = {
-  pla: { name: "PLA", selling_rate: 1.80, cost: 0.65, in_stock: true },
-  pla_plus: { name: "PLA+", selling_rate: 2.00, cost: 0.75, in_stock: true },
-  petg: { name: "PETG", selling_rate: 2.10, cost: 0.70, in_stock: true },
-  abs: { name: "ABS", selling_rate: 2.20, cost: 0.75, in_stock: true },
-  tpu: { name: "TPU", selling_rate: 2.70, cost: 0.95, in_stock: true },
-  carbon_fiber: { name: "Carbon Fiber", selling_rate: 3.50, cost: 1.35, in_stock: true }
+  pla: { name: "PLA", selling_rate: 3.00, cost: 0.66, in_stock: true },
+  pla_plus: { name: "PLA+", selling_rate: 3.25, cost: 0.75, in_stock: true },
+  petg: { name: "PETG", selling_rate: 3.50, cost: 0.78, in_stock: true },
+  abs: { name: "ABS", selling_rate: 3.60, cost: 0.80, in_stock: true },
+  tpu: { name: "TPU", selling_rate: 4.20, cost: 0.95, in_stock: true },
+  carbon_fiber: { name: "Carbon Fiber", selling_rate: 5.00, cost: 1.35, in_stock: true }
 };
 
 export const DEFAULT_SHIPPING_ZONES = {
@@ -96,8 +107,8 @@ export function parseFilamentCatalog(rawMaterials, rawWhyText = '') {
           Object.entries(parsed).forEach(([k, v]) => {
             normalized[k] = {
               name: v.name || k,
-              selling_rate: Number(v.selling_rate) || 2.0,
-              cost: Number(v.cost) || 0.75,
+              selling_rate: Number(v.selling_rate) || 3.0,
+              cost: Number(v.cost) || 0.66,
               in_stock: v.in_stock !== false
             };
           });
@@ -138,8 +149,8 @@ export function parseFilamentCatalog(rawMaterials, rawWhyText = '') {
         const def = DEFAULT_MATERIAL_RATES[key] || DEFAULT_MATERIAL_RATES[normKey] || DEFAULT_MATERIAL_RATES.pla;
         result[key] = {
           name: cleanName,
-          selling_rate: rateMatch ? parseFloat(rateMatch[1]) : (def.selling_rate || 2.0),
-          cost: costMatch ? parseFloat(costMatch[1]) : (def.cost || 0.75),
+          selling_rate: rateMatch ? parseFloat(rateMatch[1]) : (def.selling_rate || 3.0),
+          cost: costMatch ? parseFloat(costMatch[1]) : (def.cost || 0.66),
           in_stock: !isRestocking
         };
       });
@@ -252,10 +263,18 @@ export function calculateOrderQuote({
   const remainingBalance = customerTotal - depositRequired;
 
   // Direct Cost Breakdown
-  const electricityHourly = Number(cfg.electricity_hourly_rate) || 0;
-  const maintenanceHourly = Number(cfg.maintenance_hourly_rate) || 5;
-  const depreciationHourly = Number(cfg.depreciation_hourly_rate) || 4.5;
-  const failedReservePct = Number(cfg.failed_print_reserve_pct) || 0.08;
+  const electricityHourly = cfg.electricity_hourly_rate !== undefined && !isNaN(Number(cfg.electricity_hourly_rate))
+    ? Number(cfg.electricity_hourly_rate)
+    : 0.40;
+  const maintenanceHourly = cfg.maintenance_hourly_rate !== undefined && !isNaN(Number(cfg.maintenance_hourly_rate))
+    ? Number(cfg.maintenance_hourly_rate)
+    : 3.50;
+  const depreciationHourly = cfg.depreciation_hourly_rate !== undefined && !isNaN(Number(cfg.depreciation_hourly_rate))
+    ? Number(cfg.depreciation_hourly_rate)
+    : 20.00;
+  const failedReservePct = cfg.failed_print_reserve_pct !== undefined && !isNaN(Number(cfg.failed_print_reserve_pct))
+    ? Number(cfg.failed_print_reserve_pct)
+    : 0.12;
 
   const electricityCost = totalPrintHours * electricityHourly;
   const maintenanceCost = totalPrintHours * maintenanceHourly;
@@ -370,43 +389,127 @@ export function calculatePartnerDistributions(distributableProfit, customSetting
 }
 
 /**
+ * Calculates Break-Even unit economics and machine payoff analytics.
+ * Elegoo Centauri Carbon (CC1) unit model:
+ * - Printer cost: 40,000 EGP
+ * - Design lifespan: 2,000 operational hours
+ * - Spool cost: 660 EGP / 1,000g spool = 0.66 EGP/g
+ * - Selling price: 3.00 EGP/g (PLA)
+ * - Gross profit margin: 2.34 EGP/g
+ * - Break-even volume: 40,000 / 2.34 = 17,094 grams (~17.1 kg)
+ * - Required extrusion speed: 17,094 / 2,000 hrs = 8.55 g/hr
+ * - Payoff time at CoreXY speed (30 g/hr): ~570 hours
+ * - Pure profit runway: 1,430+ hours
+ */
+export function calculateBreakEvenMetrics({
+  printerCost = 40000,
+  lifespanHours = 2000,
+  sellingRatePerGram = 3.00,
+  spoolCostPerKg = 660,
+  rawCostPerGram = null,
+  avgSpeedGramsPerHour = 30,
+  completedGrams = 0,
+  completedHours = 0
+} = {}) {
+  const pCost = Number(printerCost) || 40000;
+  const lHours = Number(lifespanHours) || 2000;
+  const sCost = Number(spoolCostPerKg) || 660;
+  const rawCost = rawCostPerGram !== null && rawCostPerGram !== undefined && !isNaN(Number(rawCostPerGram))
+    ? Number(rawCostPerGram)
+    : (sCost / 1000);
+  const sellingRate = Number(sellingRatePerGram) || 3.00;
+  const avgSpeed = Number(avgSpeedGramsPerHour) || 30;
+
+  // Gross profit per gram
+  const grossProfitPerGram = Math.max(0.01, sellingRate - rawCost);
+
+  // Break-even filament volume in grams
+  const breakEvenGrams = Math.ceil(pCost / grossProfitPerGram);
+  const breakEvenKg = Math.round((breakEvenGrams / 1000) * 10) / 10;
+
+  // Required extrusion speed over printer lifespan (g/hr)
+  const requiredSpeedGramsPerHour = lHours > 0 ? Math.round((breakEvenGrams / lHours) * 100) / 100 : 8.55;
+
+  // Expected print hours to break-even at realistic CoreXY speed
+  const hoursToBreakEven = avgSpeed > 0 ? Math.round((breakEvenGrams / avgSpeed) * 10) / 10 : 570;
+
+  // Usable cost factoring in ~12% waste & failed prints
+  const effectiveUsableCostPerGram = Math.round((rawCost * 1.12) * 100) / 100;
+
+  // Realized progress towards break-even
+  const safeCompletedGrams = Math.max(0, Number(completedGrams) || 0);
+  const safeCompletedHours = Math.max(0, Number(completedHours) || 0);
+  const progressGramsPct = Math.min(100, Math.round((safeCompletedGrams / breakEvenGrams) * 1000) / 10);
+  const progressHoursPct = Math.min(100, Math.round((safeCompletedHours / hoursToBreakEven) * 1000) / 10);
+  const gramsRemaining = Math.max(0, breakEvenGrams - safeCompletedGrams);
+  const capitalRecovered = Math.min(pCost, Math.round(safeCompletedGrams * grossProfitPerGram * 100) / 100);
+  const capitalRemaining = Math.max(0, pCost - capitalRecovered);
+  const isBrokenEven = safeCompletedGrams >= breakEvenGrams;
+  const pureProfitRunwayHours = Math.max(0, Math.round((lHours - hoursToBreakEven) * 10) / 10);
+
+  return {
+    printerCost: pCost,
+    lifespanHours: lHours,
+    spoolCostPerKg: sCost,
+    rawCostPerGram: Math.round(rawCost * 100) / 100,
+    effectiveUsableCostPerGram,
+    sellingRatePerGram: sellingRate,
+    grossProfitPerGram: Math.round(grossProfitPerGram * 100) / 100,
+    breakEvenGrams,
+    breakEvenKg,
+    requiredSpeedGramsPerHour,
+    avgSpeedGramsPerHour: avgSpeed,
+    hoursToBreakEven,
+    pureProfitRunwayHours,
+    completedGrams: safeCompletedGrams,
+    completedHours: safeCompletedHours,
+    progressGramsPct,
+    progressHoursPct,
+    gramsRemaining,
+    capitalRecovered,
+    capitalRemaining,
+    isBrokenEven
+  };
+}
+
+/**
  * Runs automated verification of all specification test cases.
  */
 export function runPricingEngineTests() {
   const results = [];
 
   // Test 1: 30g PLA, 40 min (0.667h), Pickup
-  // Raw: 25 + (30 * 1.80) + (0.667 * 12) = 25 + 54 + 8 = 87 EGP -> Rounded 90 EGP
+  // Raw: 25 + (30 * 3.00) + (0.667 * 12) = 25 + 90 + 8 = 123 EGP -> Rounded 125 EGP
   const t1 = calculateOrderQuote({
     items: [{ weightGrams: 30, printHours: 40 / 60, materialKey: "pla" }],
     deliveryMode: "pickup"
   });
   results.push({
     test: "Test 1: 30g PLA 40min Pickup",
-    expectedRaw: 87,
+    expectedRaw: 123,
     actualRaw: Math.round(t1.rawSubtotal),
-    expectedSubtotal: 90,
+    expectedSubtotal: 125,
     actualSubtotal: t1.manufacturingSubtotal,
-    passed: Math.round(t1.rawSubtotal) === 87 && t1.manufacturingSubtotal === 90
+    passed: Math.round(t1.rawSubtotal) === 123 && t1.manufacturingSubtotal === 125
   });
 
   // Test 2: 30g PLA, 7 hours, Pickup
-  // Raw: 25 + (30 * 1.80) + (7 * 12) = 25 + 54 + 84 = 163 EGP -> Rounded 165 EGP
+  // Raw: 25 + (30 * 3.00) + (7 * 12) = 25 + 90 + 84 = 199 EGP -> Rounded 200 EGP
   const t2 = calculateOrderQuote({
     items: [{ weightGrams: 30, printHours: 7, materialKey: "pla" }],
     deliveryMode: "pickup"
   });
   results.push({
     test: "Test 2: 30g PLA 7h Pickup",
-    expectedRaw: 163,
+    expectedRaw: 199,
     actualRaw: Math.round(t2.rawSubtotal),
-    expectedSubtotal: 165,
+    expectedSubtotal: 200,
     actualSubtotal: t2.manufacturingSubtotal,
-    passed: Math.round(t2.rawSubtotal) === 163 && t2.manufacturingSubtotal === 165
+    passed: Math.round(t2.rawSubtotal) === 199 && t2.manufacturingSubtotal === 200
   });
 
   // Test 3: 6g PLA micro-order, Pickup
-  // Raw: 25 + (6 * 1.80) + (0.2 * 12) = ~38.2 EGP -> Minimum 75 EGP applied
+  // Raw: 25 + (6 * 3.00) + (0.2 * 12) = ~45.4 EGP -> Minimum 75 EGP applied
   const t3 = calculateOrderQuote({
     items: [{ weightGrams: 6, printHours: 0.2, materialKey: "pla" }],
     deliveryMode: "pickup"
@@ -436,18 +539,18 @@ export function runPricingEngineTests() {
   });
 
   // Test 5: ElectraGo Referral Commission (5% of manufacturing subtotal)
+  // manufacturingSubtotal is 200 EGP. 5% = 10.00 EGP
   const t5 = calculateOrderQuote({
     items: [{ weightGrams: 30, printHours: 7, materialKey: "pla" }],
     deliveryMode: "shipping",
     shippingZoneKey: "alexandria",
     referralCode: "electrago"
   });
-  // manufacturingSubtotal is 165 EGP. 5% = 8.25 EGP
   results.push({
     test: "Test 5: ElectraGo Referral Commission",
-    expectedComm: 8.25,
+    expectedComm: 10.00,
     actualComm: t5.profitability.referralCommission,
-    passed: t5.profitability.referralCommission === 8.25
+    passed: t5.profitability.referralCommission === 10.00
   });
 
   return results;

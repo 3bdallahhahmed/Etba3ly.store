@@ -311,7 +311,7 @@ export default function AdminDashboard({
   const setMaterials = propSetMaterials || setInternalMaterials;
 
   const [isAddFilamentOpen, setIsAddFilamentOpen] = useState(false);
-  const [newFilament, setNewFilament] = useState({ name: '', selling_rate: 2.0, cost: 0.75 });
+  const [newFilament, setNewFilament] = useState({ name: '', selling_rate: 3.0, cost: 0.66 });
 
   const [colorsList, setColorsList] = useState(() => (config?.colors || 'White, Black, Silver, Red, Orange, Marble White, Sky Blue, Green').split(',').map(c => c.trim()).filter(Boolean));
   const [newColorInput, setNewColorInput] = useState('');
@@ -694,13 +694,13 @@ export default function AdminDashboard({
       ...materials,
       [key]: {
         name: nameTrimmed,
-        selling_rate: Number(newFilament.selling_rate) || 2.0,
-        cost: Number(newFilament.cost) || 0.75,
+        selling_rate: Number(newFilament.selling_rate) || 3.0,
+        cost: Number(newFilament.cost) || 0.66,
         in_stock: true
       }
     };
     setMaterials(updated);
-    setNewFilament({ name: '', selling_rate: 2.0, cost: 0.75 });
+    setNewFilament({ name: '', selling_rate: 3.0, cost: 0.66 });
     setIsAddFilamentOpen(false);
     addToast(`Added ${nameTrimmed}. Click Save to publish live.`, 'success');
   };
@@ -771,10 +771,12 @@ export default function AdminDashboard({
       let cloudErrorMsg = null;
 
       if (supabase) {
+        const studentRate = materials.pla?.selling_rate || 3;
         const { data, error } = await supabase.from('site_config').update({
           materials: materialsString,
           colors: colorsString,
-          why_text: cleanWhy
+          why_text: cleanWhy,
+          price_per_gram: studentRate
         }).eq('id', 1).select();
 
         if (error) {
@@ -782,13 +784,22 @@ export default function AdminDashboard({
         } else if (data && data.length > 0) {
           cloudSuccess = true;
         }
+
+        try {
+          await supabase.from('pricing_settings').upsert({
+            id: 'default',
+            ...pricingSettings,
+            updated_at: new Date().toISOString()
+          });
+        } catch (e) {}
       }
 
       setConfig(prev => ({
         ...prev,
         materials: materialsString,
         colors: colorsString,
-        why_text: cleanWhy
+        why_text: cleanWhy,
+        price_per_gram: materials.pla?.selling_rate || 3
       }));
       setMaterials(materials);
 
@@ -909,11 +920,11 @@ export default function AdminDashboard({
 
       const matKey = normalizeMaterialKey(o.material);
       const directMat = Object.values(materials).find(m => m && m.name && m.name.toLowerCase() === String(o.material || '').toLowerCase().trim());
-      const matCostRate = directMat?.cost || materials[matKey]?.cost || 0.65;
+      const matCostRate = directMat?.cost || materials[matKey]?.cost || 0.66;
       const materialCost = w * matCostRate;
-      const machineWearCost = h * (Number(pricingSettings.maintenance_hourly_rate) || 5);
-      const depreciationCost = h * (Number(pricingSettings.depreciation_hourly_rate) || 4.5);
-      const reserveCost = materialCost * (Number(pricingSettings.failed_print_reserve_pct) || 0.08);
+      const machineWearCost = h * (Number(pricingSettings.maintenance_hourly_rate) || 3.50);
+      const depreciationCost = h * (Number(pricingSettings.depreciation_hourly_rate) || 20.00);
+      const reserveCost = materialCost * (Number(pricingSettings.failed_print_reserve_pct) || 0.12);
       const directCost = materialCost + machineWearCost + depreciationCost + reserveCost;
 
       if (isPrinting) {
@@ -1940,7 +1951,7 @@ export default function AdminDashboard({
 
                   <div>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
-                      Electricity (EGP/hr - Default 0)
+                      Electricity (EGP/hr - 200W draw)
                     </label>
                     <input
                       type="number"
@@ -1960,6 +1971,69 @@ export default function AdminDashboard({
                       step="0.5"
                       value={pricingSettings.maintenance_hourly_rate}
                       onChange={e => setPricingSettings({ ...pricingSettings, maintenance_hourly_rate: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Printer Cost (EGP)
+                    </label>
+                    <input
+                      type="number"
+                      step="1000"
+                      value={pricingSettings.printer_cost || 40000}
+                      onChange={e => {
+                        const c = parseFloat(e.target.value) || 0;
+                        const l = pricingSettings.printer_lifespan_hours || 2000;
+                        setPricingSettings({
+                          ...pricingSettings,
+                          printer_cost: c,
+                          depreciation_hourly_rate: l > 0 ? Math.round((c / l) * 100) / 100 : pricingSettings.depreciation_hourly_rate
+                        });
+                      }}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Depreciation Allowance (EGP/hr)
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={pricingSettings.depreciation_hourly_rate || 20}
+                      onChange={e => setPricingSettings({ ...pricingSettings, depreciation_hourly_rate: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Filament Spool Cost (EGP / kg)
+                    </label>
+                    <input
+                      type="number"
+                      step="10"
+                      value={pricingSettings.spool_cost_per_kg || 660}
+                      onChange={e => {
+                        const sc = parseFloat(e.target.value) || 0;
+                        setPricingSettings({ ...pricingSettings, spool_cost_per_kg: sc });
+                      }}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Failed-Print Reserve (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={((Number(pricingSettings.failed_print_reserve_pct) ?? 0.12) * 100)}
+                      onChange={e => setPricingSettings({ ...pricingSettings, failed_print_reserve_pct: (parseFloat(e.target.value) || 0) / 100 })}
                       style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                     />
                   </div>

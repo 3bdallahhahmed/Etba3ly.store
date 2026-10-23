@@ -35,8 +35,8 @@ export default function ReviewInvoiceCard({
   const normKey = normalizeMaterialKey(materialKey || materialName || "pla");
   const mData =
     (materialRates && (materialRates[normKey] || materialRates[materialKey?.toLowerCase()])) ||
-    { selling_rate: parseFloat(config?.price_per_gram) || 2.0 };
-  const rate = Number(mData.selling_rate) || 2.0;
+    { selling_rate: parseFloat(config?.price_per_gram) || 3.0 };
+  const rate = Number(mData.selling_rate) || 3.0;
   const cleanMatLabel = (materialName || "PLA").replace(/\[.*?\]/g, "").trim();
 
   // Itemized breakdowns matching user invoice format
