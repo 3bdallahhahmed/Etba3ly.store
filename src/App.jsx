@@ -1,5 +1,7 @@
 import AdminDashboard from "./components/AdminDashboard";
 import AdminFinancialDashboard from "./components/AdminFinancialDashboard";
+import ServiceTierSelector, { SERVICE_TIERS } from "./components/ServiceTierSelector";
+import ReviewInvoiceCard from "./components/ReviewInvoiceCard";
 import {
   calculateOrderQuote,
   DEFAULT_PRICING_SETTINGS,
@@ -1192,6 +1194,8 @@ export default function App() {
   const [newGalleryFiles, setNewGalleryFiles] = useState([]);
 
   // 3D Slicer, Estimation & Hardware Dispatch State
+  const [selectedTier, setSelectedTier] = useState("standard");
+  const [enableSupports, setEnableSupports] = useState(true);
   const [orderInfill, setOrderInfill] = useState(20);
   const [orderLayerHeight, setOrderLayerHeight] = useState(0.20);
   const [orderNozzle, setOrderNozzle] = useState(0.40);
@@ -1943,6 +1947,8 @@ export default function App() {
       const fallbackName = hasLink && !hasFiles ? `${getPlatformFromUrl(cleanLink)?.name || 'Online'} 3D Model` : "Untitled Part";
 
       const dynamicTags = [
+        `[PROFILE:${selectedTier || "standard"}]`,
+        `[SUPPORTS:${enableSupports ? "yes" : "no"}]`,
         `[DELIVERY:${deliveryMode || "pickup"}]`,
         `[DEPOSIT:${depositRequired || 0}]`,
         `[BALANCE:${remainingBalance || 0}]`,
@@ -1994,7 +2000,8 @@ export default function App() {
         totalPrice: calculatedTotal,
         name: newOrder.name,
         material: finalMaterial,
-        color: finalColor
+        color: finalColor,
+        tier: selectedTier
       });
 
       setUploadProgress({ active: false, percent: 100, currentFile: "", fileIndex: 0, totalFiles: 0, loadedBytes: 0, totalBytes: 0, stage: "" });
@@ -2003,7 +2010,11 @@ export default function App() {
       setCopiedTrackingCode(false);
       setNewOrder({ name: newOrder.name, phone: newOrder.phone, email: newOrder.email, orderName: "", material: defMat, color: defCol, notes: "", fileName: "", fileLink: "" });
       setClientMetrics(null);
+      setSelectedTier("standard");
+      setEnableSupports(true);
       setOrderInfill(20);
+      setOrderLayerHeight(0.20);
+      setOrderNozzle(0.40);
       setFormErrors({});
       setSelectedFiles([]);
       fetchOrders();
@@ -3056,6 +3067,20 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Service Tier Selection (باقة الخدمة) */}
+                  <ServiceTierSelector
+                    selectedTier={selectedTier}
+                    onSelectTier={(tierKey) => setSelectedTier(tierKey)}
+                    orderInfill={orderInfill}
+                    setOrderInfill={setOrderInfill}
+                    orderLayerHeight={orderLayerHeight}
+                    setOrderLayerHeight={setOrderLayerHeight}
+                    orderNozzle={orderNozzle}
+                    setOrderNozzle={setOrderNozzle}
+                    enableSupports={enableSupports}
+                    setEnableSupports={setEnableSupports}
+                  />
+
                   <div style={{ marginBottom: 20 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <label>Notes / Special Instructions</label>
@@ -3196,7 +3221,15 @@ export default function App() {
                   {/* 3D STL Object Preview & Slicer Estimation */}
                   {Boolean(selectedFiles.find(f => f.name.toLowerCase().endsWith(".stl"))) && (
                     <div style={{ marginBottom: 24 }}>
-                      <label>3D Model & Build Plate Preview</label>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                        <label style={{ margin: 0 }}>3D Model & Build Plate Preview</label>
+                        {clientMetrics && (
+                          <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-full)", background: clientMetrics.fitsBed ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)", color: clientMetrics.fitsBed ? "var(--status-done)" : "#ef4444", fontWeight: 700, border: `1px solid ${clientMetrics.fitsBed ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
+                            {clientMetrics.fitsBed ? "Fits Centauri Bed (256x256mm)" : "Exceeds Bed Envelope"}
+                          </span>
+                        )}
+                      </div>
+
                       <STLViewer
                         file={selectedFiles.find(f => f.name.toLowerCase().endsWith(".stl"))}
                         color={newOrder.color}
@@ -3209,83 +3242,27 @@ export default function App() {
                         height="260px"
                       />
 
-                      {clientMetrics && (
-                        <div className="print-estimate-card">
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-                            <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--accent)" }}>
-                              Client Print Estimate
-                            </span>
-                            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-full)", background: clientMetrics.fitsBed ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)", color: clientMetrics.fitsBed ? "var(--status-done)" : "#ef4444", fontWeight: 700, border: `1px solid ${clientMetrics.fitsBed ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
-                              {clientMetrics.fitsBed ? "Fits Centauri Bed (256x256mm)" : "Exceeds Bed Envelope"}
-                            </span>
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 12 }}>
-                            <div>
-                              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Est. Weight</div>
-                              <div style={{ fontSize: 16, fontWeight: 800 }}>{(clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0)} g</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Est. Time</div>
-                              <div style={{ fontSize: 16, fontWeight: 800 }}>{clientMetrics.printTimeFormatted}</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Est. Price</div>
-                              {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) ? (
-                                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--accent)", lineHeight: 1.2, marginTop: 4 }}>
-                                  Review Required for Final Price
-                                </div>
-                              ) : (
-                                <div style={{ fontSize: 18, fontWeight: 900, color: "var(--accent)" }}>{clientMetrics.totalPrice.toFixed(2)} EGP</div>
-                              )}
-                            </div>
-                            {clientMetrics.metrics && (
-                              <div>
-                                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Dimensions</div>
-                                <div style={{ fontSize: 12, fontWeight: 700 }}>{clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm</div>
-                              </div>
-                            )}
-                            {clientMetrics.filamentLengthMeters && (
-                              <div>
-                                <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Filament & Layers</div>
-                                <div style={{ fontSize: 12, fontWeight: 700 }}>{clientMetrics.filamentLengthMeters}m &bull; {clientMetrics.numLayers} L</div>
-                              </div>
-                            )}
-                          </div>
-                          {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) && (
-                            <div style={{
-                              marginTop: 14,
-                              padding: "12px 16px",
-                              background: "rgba(255, 128, 0, 0.08)",
-                              border: "1px solid rgba(255, 128, 0, 0.25)",
-                              borderRadius: "var(--radius-sm)",
-                              fontSize: 12.5,
-                              lineHeight: 1.5,
-                              color: "var(--text-primary)"
-                            }}>
-                              <div style={{ fontWeight: 800, color: "var(--accent)", marginBottom: 4 }}>
-                                Operator Review Required for Accurate Pricing
-                              </div>
-                              <div style={{ color: "var(--text-secondary)" }}>
-                                Due to the volume and geometry of this model, our workshop engineers will review your 3D design to ensure optimal print orientation, structural tolerances, and confirm accurate final pricing.
-                              </div>
-                            </div>
+                      {clientMetrics && clientMetrics.metrics && (
+                        <div style={{ marginTop: 8, marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "var(--text-secondary)", padding: "8px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)", flexWrap: "wrap", gap: 8 }}>
+                          <span>الأبعاد (Dimensions): <strong>{clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm</strong></span>
+                          {clientMetrics.filamentLengthMeters && (
+                            <span>طول الفتيل: <strong>{clientMetrics.filamentLengthMeters}m</strong></span>
                           )}
                         </div>
                       )}
-                      <div style={{
-                        marginTop: 10,
-                        padding: "10px 14px",
-                        fontSize: 11,
-                        lineHeight: 1.5,
-                        color: "var(--text-tertiary)",
-                        background: "rgba(128,128,128,0.06)",
-                        borderRadius: "var(--radius-sm)",
-                        border: "1px solid rgba(128,128,128,0.12)"
-                      }}>
-                        * This is an automated preliminary estimate based on uploaded 3D geometry.
-                        Final weight, print time, and price may be adjusted based on machine orientation,
-                        support structures, and slicer tolerances confirmed by our workshop team.
-                      </div>
+
+                      {/* Live Review Invoice Card matching Image 2 */}
+                      <ReviewInvoiceCard
+                        clientMetrics={clientMetrics}
+                        materialKey={newOrder.material || "pla"}
+                        materialName={newOrder.material || "PLA"}
+                        serviceTier={selectedTier}
+                        config={config}
+                        materialRates={materialRates}
+                        enableSupports={enableSupports}
+                        orderData={newOrder}
+                        showDepositInfo={false}
+                      />
                     </div>
                   )}
 
@@ -3313,7 +3290,7 @@ export default function App() {
               {orderStep === 3 && (
                 <div className="animate-in">
                   <h3 style={{ marginBottom: 16 }}>Order Summary</h3>
-                  <div className="review-summary-card">
+                  <div className="review-summary-card" style={{ marginBottom: 20 }}>
                     <div className="review-item">
                       <span className="review-item-label">Client Name</span>
                       <span className="review-item-value">{newOrder.name}</span>
@@ -3330,6 +3307,12 @@ export default function App() {
                     <div className="review-item">
                       <span className="review-item-label">Project</span>
                       <span className="review-item-value">{newOrder.orderName || "Untitled"}</span>
+                    </div>
+                    <div className="review-item">
+                      <span className="review-item-label">Service Tier (باقة الخدمة)</span>
+                      <span className="review-item-value" style={{ fontWeight: 800, color: "var(--accent)" }}>
+                        {selectedTier === "economy" ? "اقتصادي (Draft 0.28mm)" : selectedTier === "professional" ? "احترافي (Fine 0.12mm)" : "قياسي (Standard 0.20mm)"}
+                      </span>
                     </div>
                     <div className="review-item">
                       <span className="review-item-label">Material & Color</span>
@@ -3352,107 +3335,21 @@ export default function App() {
                         {!selectedFiles.length && !newOrder.fileLink && "No file or link"}
                       </span>
                     </div>
+                  </div>
 
-                    {clientMetrics ? (
-                      <>
-                        <div style={{ margin: "6px 0", borderTop: "1px solid var(--border-glass)" }}></div>
-                        <div className="review-item">
-                          <span className="review-item-label">Est. Weight & Time</span>
-                          <span className="review-item-value">
-                            ~{(clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0)} g &bull; ~{clientMetrics.printTimeFormatted}
-                          </span>
-                        </div>
-                        {clientMetrics.metrics && (
-                          <div className="review-item">
-                            <span className="review-item-label">Dimensions</span>
-                            <span className="review-item-value">
-                              {clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm
-                            </span>
-                          </div>
-                        )}
-                        <div className="review-item" style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid var(--border-glass)" }}>
-                          <span className="review-item-label" style={{ fontSize: 15, fontWeight: 700 }}>Est. Total</span>
-                          {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) ? (
-                            <span style={{ fontSize: 15, fontWeight: 800, color: "var(--accent)", textAlign: "right" }}>
-                              Review Required for Final Price
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: 20, fontWeight: 900, color: "var(--accent)" }}>
-                              {clientMetrics.totalPrice.toFixed(2)} EGP
-                            </span>
-                          )}
-                        </div>
-                        {clientMetrics.totalPrice > (parseFloat(config.price_review_threshold) || 300) && (
-                          <div style={{
-                            marginTop: 10,
-                            padding: "10px 14px",
-                            background: "rgba(255, 128, 0, 0.08)",
-                            border: "1px solid rgba(255, 128, 0, 0.25)",
-                            borderRadius: "var(--radius-sm)",
-                            fontSize: 12,
-                            color: "var(--text-secondary)",
-                            lineHeight: 1.4
-                          }}>
-                            Our workshop team will review the 3D model for accurate pricing and confirm the final quote before printing begins.
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        {/* Dynamic Itemized Manufacturing Quote */}
-                        <div style={{ margin: "8px 0", borderTop: "1px solid var(--border-glass)" }}></div>
-                        {(() => {
-                          const w = clientMetrics ? (clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0) : 0;
-                          const h = clientMetrics && clientMetrics.printingTimeSeconds ? (clientMetrics.printingTimeSeconds / 3600) : (w > 0 ? (w / 35) : 0.2);
-                          const q = calculateOrderQuote({
-                            items: [{ weightGrams: w, printHours: h, materialKey: newOrder.material || 'pla' }],
-                            deliveryMode: newOrder.deliveryMode || 'pickup',
-                            customMaterials: materialRates
-                          });
-                          return (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
-                              <div className="review-item">
-                                <span className="review-item-label">Material Charge</span>
-                                <span className="review-item-value">{q.materialCharge.toFixed(2)} EGP</span>
-                              </div>
-                              <div className="review-item">
-                                <span className="review-item-label">Setup Fee (Single Order)</span>
-                                <span className="review-item-value">{q.setupFee.toFixed(2)} EGP</span>
-                              </div>
-                              <div className="review-item">
-                                <span className="review-item-label">Print Time Charge</span>
-                                <span className="review-item-value">{q.timeCharge.toFixed(2)} EGP</span>
-                              </div>
-                              {q.minimumApplied && (
-                                <div className="review-item" style={{ color: "var(--accent)" }}>
-                                  <span className="review-item-label">Minimum Order Applied</span>
-                                  <span className="review-item-value">{q.minimum} EGP</span>
-                                </div>
-                              )}
-                              <div className="review-item" style={{ fontWeight: 600 }}>
-                                <span className="review-item-label">Manufacturing Subtotal</span>
-                                <span className="review-item-value">{q.manufacturingSubtotal.toFixed(2)} EGP</span>
-                              </div>
-                              <div style={{ margin: "4px 0", borderTop: "1px solid var(--border-glass)" }}></div>
-                              <div className="review-item" style={{ fontSize: 13 }}>
-                                <span className="review-item-label">50% Deposit Required</span>
-                                <span className="review-item-value" style={{ color: "var(--status-done)", fontWeight: 700 }}>{q.depositRequired.toFixed(2)} EGP</span>
-                              </div>
-                              <div className="review-item" style={{ fontSize: 13 }}>
-                                <span className="review-item-label">Remaining Balance</span>
-                                <span className="review-item-value" style={{ color: "var(--text-secondary)" }}>{q.remainingBalance.toFixed(2)} EGP</span>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                        <div className="review-item" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border-glass)" }}>
-                          <span className="review-item-label" style={{ fontSize: 15, fontWeight: 700 }}>Final Customer Price</span>
-                          <span style={{ fontSize: 15, fontWeight: 800, color: "var(--accent)" }}>
-                            Calculated upon slicing ({config.price_per_gram} EGP/g)
-                          </span>
-                        </div>
-                      </>
-                    )}
+                  {/* تفاصيل التسعير (Invoice Breakdown matching Image 2) */}
+                  <div style={{ marginBottom: 24 }}>
+                    <ReviewInvoiceCard
+                      clientMetrics={clientMetrics}
+                      materialKey={newOrder.material || "pla"}
+                      materialName={newOrder.material || "PLA"}
+                      serviceTier={selectedTier}
+                      config={config}
+                      materialRates={materialRates}
+                      enableSupports={enableSupports}
+                      orderData={newOrder}
+                      showDepositInfo={true}
+                    />
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
                     <button className="btn btn-glass" onClick={() => setOrderStep(2)}>Back</button>
@@ -3494,6 +3391,14 @@ export default function App() {
                         <span className="review-item-label">Part Name</span>
                         <span className="review-item-value">{lastSubmittedQuote.orderName}</span>
                       </div>
+                      {lastSubmittedQuote.tier && (
+                        <div className="review-item">
+                          <span className="review-item-label">Service Tier</span>
+                          <span className="review-item-value" style={{ fontWeight: 700, color: "var(--accent)" }}>
+                            {lastSubmittedQuote.tier === "economy" ? "اقتصادي (Draft 0.28mm)" : lastSubmittedQuote.tier === "professional" ? "احترافي (Fine 0.12mm)" : "قياسي (Standard 0.20mm)"}
+                          </span>
+                        </div>
+                      )}
                       <div className="review-item">
                         <span className="review-item-label">Material & Color</span>
                         <span className="review-item-value" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
