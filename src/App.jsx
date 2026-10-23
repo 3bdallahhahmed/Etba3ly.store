@@ -1056,7 +1056,12 @@ export default function App() {
   const [materialRates, setMaterialRates] = useState(() => {
     try {
       const cached = localStorage.getItem('etba3ly_material_rates');
-      if (cached) return { ...DEFAULT_MATERIAL_RATES, ...JSON.parse(cached) };
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.pla && Number(parsed.pla.selling_rate) <= 2.0) parsed.pla.selling_rate = 3.5;
+        if (parsed.pla_plus && Number(parsed.pla_plus.selling_rate) <= 2.0) parsed.pla_plus.selling_rate = 3.5;
+        return { ...DEFAULT_MATERIAL_RATES, ...parsed };
+      }
     } catch {}
     return { ...DEFAULT_MATERIAL_RATES };
   });
@@ -1566,7 +1571,14 @@ export default function App() {
 
         setConfig(finalConfig);
         if (data.materials || data.why_text) {
-          const activeRates = parseFilamentCatalog(data.materials, data.why_text);
+          const effectiveStudentRate = parseFloat(finalConfig.price_per_gram) || 3.5;
+          const activeRates = parseFilamentCatalog(data.materials, data.why_text, effectiveStudentRate);
+          if (activeRates.pla && (Number(activeRates.pla.selling_rate) <= 2.0 || Number(activeRates.pla.selling_rate) < effectiveStudentRate)) {
+            activeRates.pla.selling_rate = effectiveStudentRate;
+          }
+          if (activeRates.pla_plus && (Number(activeRates.pla_plus.selling_rate) <= 2.0 || Number(activeRates.pla_plus.selling_rate) < effectiveStudentRate)) {
+            activeRates.pla_plus.selling_rate = effectiveStudentRate;
+          }
           setMaterialRates(prev => ({ ...prev, ...activeRates }));
           try { localStorage.setItem('etba3ly_material_rates', JSON.stringify(activeRates)); } catch (e) {}
         }

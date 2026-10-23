@@ -302,7 +302,12 @@ export default function AdminDashboard({
   const [internalMaterials, setInternalMaterials] = useState(() => {
     try {
       const cached = localStorage.getItem('etba3ly_material_rates');
-      if (cached) return { ...DEFAULT_MATERIAL_RATES, ...JSON.parse(cached) };
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.pla && Number(parsed.pla.selling_rate) <= 2.0) parsed.pla.selling_rate = 3.5;
+        if (parsed.pla_plus && Number(parsed.pla_plus.selling_rate) <= 2.0) parsed.pla_plus.selling_rate = 3.5;
+        return { ...DEFAULT_MATERIAL_RATES, ...parsed };
+      }
     } catch {}
     return { ...DEFAULT_MATERIAL_RATES };
   });
@@ -354,22 +359,44 @@ export default function AdminDashboard({
     setSavingCMS(true);
     try {
       const cleanWhyText = (cmsData.why_text || "").replace(/\s*<!--RATES_CATALOG:.*?-->/s, "").trim();
+      const newRate = parseFloat(cmsData.price_per_gram) || 3.5;
       const updatePayload = {
         hero_title: cmsData.hero_title,
         hero_subtitle: cmsData.hero_subtitle,
         why_title: cmsData.why_title,
         why_text: cleanWhyText,
-        price_per_gram: parseFloat(cmsData.price_per_gram) || 3.5,
+        price_per_gram: newRate,
         whatsapp_number: (cmsData.whatsapp_number || "").trim()
       };
+
+      // Synchronize materials so PLA & PLA+ match configured student rate
+      const updatedMaterials = { ...materials };
+      if (updatedMaterials.pla) {
+        updatedMaterials.pla = { ...updatedMaterials.pla, selling_rate: newRate };
+      } else {
+        updatedMaterials.pla = { name: "PLA", selling_rate: newRate, cost: 0.66, in_stock: true };
+      }
+      if (updatedMaterials.pla_plus) {
+        updatedMaterials.pla_plus = { ...updatedMaterials.pla_plus, selling_rate: newRate };
+      } else {
+        updatedMaterials.pla_plus = { name: "PLA+", selling_rate: newRate, cost: 0.70, in_stock: true };
+      }
+
+      const materialsString = serializeFilamentCatalog(updatedMaterials);
+      updatePayload.materials = materialsString;
 
       if (supabase) {
         const { error } = await supabase.from('site_config').update(updatePayload).eq('id', 1);
         if (error) throw error;
       }
 
+      setMaterials(updatedMaterials);
+      try {
+        localStorage.setItem('etba3ly_material_rates', JSON.stringify(updatedMaterials));
+      } catch (err) {}
+
       setConfig(prev => ({ ...prev, ...updatePayload }));
-      addToast('Website content updated and live!', 'success');
+      addToast('Website content and student rates updated live!', 'success');
     } catch (err) {
       console.error(err);
       addToast('Failed to save website content: ' + (err.message || err), 'error');
@@ -408,12 +435,17 @@ export default function AdminDashboard({
             localStorage.setItem('etba3ly_pricing_settings', JSON.stringify(sData));
           }
           const { data: mData } = await supabase.from('material_rates').select('*');
+          const effectiveStudentRate = parseFloat(config?.price_per_gram) || 3.5;
           if (isMounted && mData && mData.length > 0) {
             const mapped = {};
             mData.forEach(m => {
+              let sRate = Number(m.selling_rate_per_gram);
+              if ((m.material_key === 'pla' || m.material_key === 'pla_plus') && (sRate <= 2.0 || sRate < effectiveStudentRate)) {
+                sRate = effectiveStudentRate;
+              }
               mapped[m.material_key] = {
                 name: m.display_name,
-                selling_rate: Number(m.selling_rate_per_gram),
+                selling_rate: sRate,
                 cost: Number(m.cost_per_gram),
                 in_stock: m.is_active !== false
               };
@@ -424,8 +456,15 @@ export default function AdminDashboard({
           }
         }
         if (config && (config.materials || config.why_text)) {
-          const mapped = parseFilamentCatalog(config.materials, config.why_text);
+          const effectiveStudentRate = parseFloat(config?.price_per_gram) || 3.5;
+          const mapped = parseFilamentCatalog(config.materials, config.why_text, effectiveStudentRate);
           if (isMounted && mapped && Object.keys(mapped).length > 0) {
+            if (mapped.pla && (mapped.pla.selling_rate <= 2.0 || mapped.pla.selling_rate < effectiveStudentRate)) {
+              mapped.pla.selling_rate = effectiveStudentRate;
+            }
+            if (mapped.pla_plus && (mapped.pla_plus.selling_rate <= 2.0 || mapped.pla_plus.selling_rate < effectiveStudentRate)) {
+              mapped.pla_plus.selling_rate = effectiveStudentRate;
+            }
             setMaterials(prev => ({ ...prev, ...mapped }));
           }
         }
@@ -771,7 +810,7 @@ export default function AdminDashboard({
       let cloudErrorMsg = null;
 
       if (supabase) {
-        const studentRate = materials.pla?.selling_rate || 3;
+        const studentRate = materials.pla?.selling_rate || parseFloat(cmsData.price_per_gram) || 3.5;
         const { data, error } = await supabase.from('site_config').update({
           materials: materialsString,
           colors: colorsString,
@@ -794,13 +833,15 @@ export default function AdminDashboard({
         } catch (e) {}
       }
 
+      const activeStudentRate = materials.pla?.selling_rate || parseFloat(cmsData.price_per_gram) || 3.5;
       setConfig(prev => ({
         ...prev,
         materials: materialsString,
         colors: colorsString,
         why_text: cleanWhy,
-        price_per_gram: materials.pla?.selling_rate || 3
+        price_per_gram: activeStudentRate
       }));
+      setCmsData(prev => ({ ...prev, price_per_gram: activeStudentRate }));
       setMaterials(materials);
 
       if (cloudSuccess) {
@@ -1896,148 +1937,7 @@ export default function AdminDashboard({
                   Dynamic Pricing Configuration
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
-                      Setup Fee (EGP)
-                    </label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={pricingSettings.setup_fee}
-                      onChange={e => setPricingSettings({ ...pricingSettings, setup_fee: parseFloat(e.target.value) || 0 })}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
-                      Printing Hourly Rate (EGP/hr)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={pricingSettings.printing_hourly_rate}
-                      onChange={e => setPricingSettings({ ...pricingSettings, printing_hourly_rate: parseFloat(e.target.value) || 0 })}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
-                      Pickup Minimum (EGP)
-                    </label>
-                    <input
-                      type="number"
-                      step="5"
-                      value={pricingSettings.pickup_minimum}
-                      onChange={e => setPricingSettings({ ...pricingSettings, pickup_minimum: parseFloat(e.target.value) || 0 })}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
-                      Shipping Minimum (EGP)
-                    </label>
-                    <input
-                      type="number"
-                      step="5"
-                      value={pricingSettings.shipping_minimum}
-                      onChange={e => setPricingSettings({ ...pricingSettings, shipping_minimum: parseFloat(e.target.value) || 0 })}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
-                      Electricity (EGP/hr - 200W draw)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={pricingSettings.electricity_hourly_rate}
-                      onChange={e => setPricingSettings({ ...pricingSettings, electricity_hourly_rate: parseFloat(e.target.value) || 0 })}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
-                      Wear Burden (EGP/hr)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={pricingSettings.maintenance_hourly_rate}
-                      onChange={e => setPricingSettings({ ...pricingSettings, maintenance_hourly_rate: parseFloat(e.target.value) || 0 })}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
-                      Printer Cost (EGP)
-                    </label>
-                    <input
-                      type="number"
-                      step="1000"
-                      value={pricingSettings.printer_cost || 40000}
-                      onChange={e => {
-                        const c = parseFloat(e.target.value) || 0;
-                        const l = pricingSettings.printer_lifespan_hours || 2000;
-                        setPricingSettings({
-                          ...pricingSettings,
-                          printer_cost: c,
-                          depreciation_hourly_rate: l > 0 ? Math.round((c / l) * 100) / 100 : pricingSettings.depreciation_hourly_rate
-                        });
-                      }}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
-                      Depreciation Allowance (EGP/hr)
-                    </label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={pricingSettings.depreciation_hourly_rate || 20}
-                      onChange={e => setPricingSettings({ ...pricingSettings, depreciation_hourly_rate: parseFloat(e.target.value) || 0 })}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
-                      Filament Spool Cost (EGP / kg)
-                    </label>
-                    <input
-                      type="number"
-                      step="10"
-                      value={pricingSettings.spool_cost_per_kg || 660}
-                      onChange={e => {
-                        const sc = parseFloat(e.target.value) || 0;
-                        setPricingSettings({ ...pricingSettings, spool_cost_per_kg: sc });
-                      }}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
-                      Failed-Print Reserve (%)
-                    </label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={((Number(pricingSettings.failed_print_reserve_pct) ?? 0.12) * 100)}
-                      onChange={e => setPricingSettings({ ...pricingSettings, failed_print_reserve_pct: (parseFloat(e.target.value) || 0) / 100 })}
-                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
-                    />
-                  </div>
-
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
                   <div>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
                       Micro-Order Threshold (Grams)
@@ -2049,6 +1949,9 @@ export default function AdminDashboard({
                       onChange={e => setPricingSettings({ ...pricingSettings, micro_order_weight_threshold: parseFloat(e.target.value) || 17 })}
                       style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                     />
+                    <div style={{ fontSize: 11, color: theme.textTertiary, marginTop: 4 }}>
+                      Orders below this weight activate the 50 EGP flat price.
+                    </div>
                   </div>
 
                   <div>
@@ -2062,8 +1965,167 @@ export default function AdminDashboard({
                       onChange={e => setPricingSettings({ ...pricingSettings, micro_order_flat_price: parseFloat(e.target.value) || 50 })}
                       style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                     />
+                    <div style={{ fontSize: 11, color: theme.textTertiary, marginTop: 4 }}>
+                      Fixed flat rate applied for prints under 17g.
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Campus Pickup Minimum (EGP)
+                    </label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={pricingSettings.pickup_minimum}
+                      onChange={e => setPricingSettings({ ...pricingSettings, pickup_minimum: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                    <div style={{ fontSize: 11, color: theme.textTertiary, marginTop: 4 }}>
+                      Baseline minimum for on-campus student pickup.
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Shipping Minimum (EGP)
+                    </label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={pricingSettings.shipping_minimum}
+                      onChange={e => setPricingSettings({ ...pricingSettings, shipping_minimum: parseFloat(e.target.value) || 0 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                    <div style={{ fontSize: 11, color: theme.textTertiary, marginTop: 4 }}>
+                      Courier shipping minimum order total.
+                    </div>
                   </div>
                 </div>
+
+                <details style={{
+                  background: theme.canvas,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 8,
+                  padding: '12px 16px'
+                }}>
+                  <summary style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, cursor: 'pointer', userSelect: 'none' }}>
+                    Advanced Machine Accounting & Reserves (Optional)
+                  </summary>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginTop: 14 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                        Setup Fee (EGP)
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        value={pricingSettings.setup_fee}
+                        onChange={e => setPricingSettings({ ...pricingSettings, setup_fee: parseFloat(e.target.value) || 0 })}
+                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                        Printing Hourly Rate (EGP/hr)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={pricingSettings.printing_hourly_rate}
+                        onChange={e => setPricingSettings({ ...pricingSettings, printing_hourly_rate: parseFloat(e.target.value) || 0 })}
+                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                        Electricity (EGP/hr - 200W draw)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={pricingSettings.electricity_hourly_rate}
+                        onChange={e => setPricingSettings({ ...pricingSettings, electricity_hourly_rate: parseFloat(e.target.value) || 0 })}
+                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                        Wear Burden (EGP/hr)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={pricingSettings.maintenance_hourly_rate}
+                        onChange={e => setPricingSettings({ ...pricingSettings, maintenance_hourly_rate: parseFloat(e.target.value) || 0 })}
+                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                        Printer Cost (EGP)
+                      </label>
+                      <input
+                        type="number"
+                        step="1000"
+                        value={pricingSettings.printer_cost || 40000}
+                        onChange={e => {
+                          const c = parseFloat(e.target.value) || 0;
+                          const l = pricingSettings.printer_lifespan_hours || 2000;
+                          setPricingSettings({
+                            ...pricingSettings,
+                            printer_cost: c,
+                            depreciation_hourly_rate: l > 0 ? Math.round((c / l) * 100) / 100 : pricingSettings.depreciation_hourly_rate
+                          });
+                        }}
+                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                        Depreciation Allowance (EGP/hr)
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        value={pricingSettings.depreciation_hourly_rate || 20}
+                        onChange={e => setPricingSettings({ ...pricingSettings, depreciation_hourly_rate: parseFloat(e.target.value) || 0 })}
+                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                        Filament Spool Cost (EGP / kg)
+                      </label>
+                      <input
+                        type="number"
+                        step="10"
+                        value={pricingSettings.spool_cost_per_kg || 660}
+                        onChange={e => setPricingSettings({ ...pricingSettings, spool_cost_per_kg: parseFloat(e.target.value) || 0 })}
+                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                        Failed-Print Reserve (%)
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        value={((Number(pricingSettings.failed_print_reserve_pct) ?? 0.12) * 100)}
+                        onChange={e => setPricingSettings({ ...pricingSettings, failed_print_reserve_pct: (parseFloat(e.target.value) || 0) / 100 })}
+                        style={{ width: '100%', padding: '6px 10px', borderRadius: 6, background: theme.surface, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 12 }}
+                      />
+                    </div>
+                  </div>
+                </details>
 
                 {/* Materials Table */}
                 <div style={{ marginTop: 12 }}>

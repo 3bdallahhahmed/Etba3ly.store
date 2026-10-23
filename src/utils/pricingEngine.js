@@ -42,7 +42,7 @@ export const DEFAULT_PRICING_SETTINGS = {
 
 export const DEFAULT_MATERIAL_RATES = {
   pla: { name: "PLA", selling_rate: 3.50, cost: 0.66, in_stock: true },
-  pla_plus: { name: "PLA+", selling_rate: 3.75, cost: 0.75, in_stock: true },
+  pla_plus: { name: "PLA+", selling_rate: 3.50, cost: 0.70, in_stock: true },
   petg: { name: "PETG", selling_rate: 4.00, cost: 0.78, in_stock: true },
   abs: { name: "ABS", selling_rate: 4.00, cost: 0.80, in_stock: true },
   tpu: { name: "TPU", selling_rate: 4.50, cost: 0.95, in_stock: true },
@@ -99,7 +99,7 @@ export function normalizeMaterialKey(rawName) {
  * Parses filaments and rates catalog from database config.
  * Supports HTML comment stash (<!--RATES_CATALOG:...-->), raw JSON, or comma-separated names.
  */
-export function parseFilamentCatalog(rawMaterials, rawWhyText = '') {
+export function parseFilamentCatalog(rawMaterials, rawWhyText = '', studentRate = 3.5) {
   // 1. Try why_text comment stash
   if (rawWhyText) {
     const match = rawWhyText.match(/<!--RATES_CATALOG:(.*?)-->/s);
@@ -109,9 +109,13 @@ export function parseFilamentCatalog(rawMaterials, rawWhyText = '') {
         if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
           const normalized = {};
           Object.entries(parsed).forEach(([k, v]) => {
+            let sellingRate = Number(v.selling_rate) || studentRate || 3.5;
+            if ((k === 'pla' || k === 'pla_plus') && sellingRate <= 2.0) {
+              sellingRate = Math.max(sellingRate, studentRate || 3.5);
+            }
             normalized[k] = {
               name: v.name || k,
-              selling_rate: Number(v.selling_rate) || 3.5,
+              selling_rate: sellingRate,
               cost: Number(v.cost) || 0.66,
               in_stock: v.in_stock !== false
             };
@@ -151,9 +155,13 @@ export function parseFilamentCatalog(rawMaterials, rawWhyText = '') {
         const isStandard = ['pla', 'pla_plus', 'petg', 'abs', 'tpu', 'carbon_fiber'].includes(normKey);
         const key = isStandard ? normKey : cleanName.toLowerCase().replace(/[^a-z0-9]/g, '_');
         const def = DEFAULT_MATERIAL_RATES[key] || DEFAULT_MATERIAL_RATES[normKey] || DEFAULT_MATERIAL_RATES.pla;
+        let parsedRate = rateMatch ? parseFloat(rateMatch[1]) : (def.selling_rate || studentRate || 3.5);
+        if ((key === 'pla' || key === 'pla_plus' || normKey === 'pla' || normKey === 'pla_plus') && parsedRate <= 2.0) {
+          parsedRate = Math.max(parsedRate, studentRate || 3.5);
+        }
         result[key] = {
           name: cleanName,
-          selling_rate: rateMatch ? parseFloat(rateMatch[1]) : (def.selling_rate || 3.5),
+          selling_rate: parsedRate,
           cost: costMatch ? parseFloat(costMatch[1]) : (def.cost || 0.66),
           in_stock: !isRestocking
         };

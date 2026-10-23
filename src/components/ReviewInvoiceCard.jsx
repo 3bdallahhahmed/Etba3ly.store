@@ -33,10 +33,14 @@ export default function ReviewInvoiceCard({
 
   // Rate calculations
   const normKey = normalizeMaterialKey(materialKey || materialName || "pla");
+  const configuredRate = parseFloat(config?.price_per_gram) || 3.5;
   const mData =
     (materialRates && (materialRates[normKey] || materialRates[materialKey?.toLowerCase()])) ||
-    { selling_rate: parseFloat(config?.price_per_gram) || 3.5 };
-  const rate = Number(mData.selling_rate) || 3.5;
+    { selling_rate: configuredRate };
+  let rate = Number(mData.selling_rate) || configuredRate;
+  if ((normKey === "pla" || normKey === "pla_plus") && (rate < configuredRate || rate <= 2.0)) {
+    rate = configuredRate;
+  }
   const cleanMatLabel = (materialName || "PLA").replace(/\[.*?\]/g, "").trim();
 
   // Micro-order rule: Under 17g is flat 50 EGP. 17g and above does NOT activate (normal 3.5/g)
@@ -44,38 +48,12 @@ export default function ReviewInvoiceCard({
   const microFlatPrice = parseFloat(config?.micro_order_flat_price) || 50.0;
   const isMicroOrder = hasMetrics && weight > 0 && weight < microThreshold;
 
-  // Itemized breakdowns matching user invoice format
-  const supportWeight = hasMetrics && enableSupports
-    ? Math.max(0.15, Math.round(weight * 0.045 * 100) / 100)
-    : 0;
-
-  const supportCost = Math.round(supportWeight * rate * 100) / 100;
-  const supportRemovalCost = hasMetrics && enableSupports ? (serviceTier === "professional" ? 10.0 : 5.0) : 0;
-  const materialCost = Math.round(weight * rate * 100) / 100;
-
-  const minimumPrice = isMicroOrder ? microFlatPrice : (parseFloat(config?.pickup_minimum) || 50.0);
-  
-  // Base raw calculated total
-  const estimatedTimeCost = Math.round(hours * (parseFloat(config?.printing_hourly_rate) || 0.0) * 100) / 100;
-  const setupFee = parseFloat(config?.setup_fee) || 0.0;
-  const rawSubtotal = isMicroOrder
-    ? microFlatPrice
-    : (materialCost + estimatedTimeCost + setupFee + supportCost + supportRemovalCost);
-  
-  const totalPrice = hasMetrics
+  // Supports and post-print cleaning are fully included in the 3.50 EGP/g rate
+  const finalTotal = hasMetrics
     ? (isMicroOrder
         ? microFlatPrice
-        : Math.max(minimumPrice, Math.ceil(clientMetrics.totalPrice ? Math.max(clientMetrics.totalPrice, rawSubtotal) : rawSubtotal)))
+        : Math.ceil(weight * rate))
     : microFlatPrice;
-
-  // Print time & machine cost smoothly balances the itemized sum so total matches exactly
-  const timeCost = Math.max(
-    0,
-    Math.round((totalPrice - materialCost - supportCost - supportRemovalCost) * 100) / 100
-  );
-
-  // Recalculate true total to match sum
-  const finalTotal = isMicroOrder ? microFlatPrice : Math.round(materialCost + timeCost + supportCost + supportRemovalCost);
 
   // Deposit calculation (50%)
   const depositRequired = Math.ceil(finalTotal * 0.5);
@@ -341,7 +319,7 @@ export default function ReviewInvoiceCard({
 
       {/* Itemized Pricing Rows */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {/* Row 1: Material Cost */}
+        {/* Row 1: Material & 3D Printing */}
         <div
           style={{
             display: "flex",
@@ -352,72 +330,45 @@ export default function ReviewInvoiceCard({
           }}
         >
           <span style={{ fontWeight: 600 }}>
-            Material Cost ({cleanMatLabel} @ {rate.toFixed(2)} EGP/g)
+            {isMicroOrder
+              ? `Micro-Order Base Rate (< ${microThreshold}g)`
+              : `Material & 3D Printing (${cleanMatLabel} @ ${rate.toFixed(2)} EGP/g)`}
           </span>
           <span style={{ fontWeight: 700, color: "#ffffff" }}>
-            {hasMetrics ? `${materialCost.toFixed(2)} EGP` : `${rate.toFixed(2)} EGP/g`}
+            {hasMetrics ? `${finalTotal} EGP` : `${rate.toFixed(2)} EGP/g`}
           </span>
         </div>
 
-        {/* Row 2: Print Time Cost */}
+        {/* Row 2: Support Material & Post-Print Cleanup (Included) */}
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            fontSize: 14.5,
-            color: "#e2e8f0"
+            fontSize: 14,
+            color: "#cbd5e1"
           }}
         >
-          <span style={{ fontWeight: 600 }}>
-            {isMicroOrder ? "Micro-Order Adjustment (< 17g)" : "Machine Print & Prep"}
+          <span style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+            Support Material & Post-Print Cleanup
           </span>
-          <span style={{ fontWeight: 700, color: "#ffffff" }}>
-            {hasMetrics ? `${timeCost.toFixed(2)} EGP` : "--"}
+          <span
+            style={{
+              fontWeight: 700,
+              fontSize: 12.5,
+              padding: "2px 8px",
+              borderRadius: 6,
+              background: "rgba(16, 185, 129, 0.15)",
+              color: "#34d399",
+              border: "1px solid rgba(16, 185, 129, 0.25)"
+            }}
+          >
+            Included
           </span>
         </div>
 
         {/* Subtle Divider Line */}
         <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.08)", margin: "4px 0" }} />
-
-        {/* Row 3: Support Material Cost */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            fontSize: 14.5,
-            color: "#cbd5e1"
-          }}
-        >
-          <span style={{ fontWeight: 500 }}>
-            {hasMetrics && enableSupports
-              ? `Estimated Supports Material (${supportWeight.toFixed(2)}g)`
-              : "Estimated Supports Material"}
-          </span>
-          <span style={{ fontWeight: 700, color: "#cbd5e1" }}>
-            {hasMetrics && enableSupports ? `${supportCost.toFixed(2)} EGP` : "0.00 EGP"}
-          </span>
-        </div>
-
-        {/* Row 4: Support Removal & Cleanup */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            fontSize: 14.5,
-            color: "#cbd5e1"
-          }}
-        >
-          <span style={{ fontWeight: 500 }}>Support Removal & Cleaning</span>
-          <span style={{ fontWeight: 700, color: "#cbd5e1" }}>
-            {hasMetrics && enableSupports ? `${supportRemovalCost.toFixed(2)} EGP` : "0.00 EGP"}
-          </span>
-        </div>
-
-        {/* Subtle Divider Line */}
-        <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.08)", margin: "6px 0" }} />
 
         {/* Row 5: Total Row (Prominent Orange) */}
         <div

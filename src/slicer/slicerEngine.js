@@ -361,9 +361,21 @@ export function estimatePrintMetrics(geometry, settings = {}) {
   const rawWeightGrams = extrudedPlasticCm3 * density;
   const weightGrams = Math.max(0.1, Math.round(rawWeightGrams * 100) / 100);
   const printHoursExact = (metrics.volumeCm3 * 1000) > 0 ? Math.max(0.2, (rawWeightGrams / 35)) : 0.2;
+  const customMaterials = settings.materialRates ? { ...settings.materialRates } : {};
+  const activeMatKey = (settings.materialKey || settings.material || 'pla').toLowerCase();
+  if (settings.pricePerGram) {
+    customMaterials[activeMatKey] = {
+      ...(customMaterials[activeMatKey] || {}),
+      name: customMaterials[activeMatKey]?.name || activeMatKey.toUpperCase(),
+      selling_rate: Number(settings.pricePerGram) || 3.5,
+      cost: customMaterials[activeMatKey]?.cost || 0.66
+    };
+  }
   const quote = calculateOrderQuote({
-    items: [{ weightGrams, printHours: printHoursExact, materialKey: settings.material || 'pla' }],
-    deliveryMode: settings.deliveryMode || 'pickup'
+    items: [{ weightGrams, printHours: printHoursExact, materialKey: activeMatKey }],
+    deliveryMode: settings.deliveryMode || 'pickup',
+    customMaterials,
+    customSettings: settings.pricingSettings || {}
   });
   const totalPrice = quote.customerTotal;
 
