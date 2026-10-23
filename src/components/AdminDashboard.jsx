@@ -142,6 +142,47 @@ function getOrderPrintHours(order) {
   return w > 0 ? Number((w / 35).toFixed(1)) : 0.5;
 }
 
+function getOrderPaymentInfo(order) {
+  if (!order) return { status: 'unpaid', paidAmount: 0 };
+
+  // 1. Direct database column support
+  if (order.payment_status) {
+    const s = String(order.payment_status).toLowerCase().trim();
+    if (['paid', 'partial', 'unpaid'].includes(s)) {
+      const orderTotal = Number(order.totalprice || 0);
+      const paid = order.paid_amount !== undefined && order.paid_amount !== null && !isNaN(order.paid_amount)
+        ? Number(order.paid_amount)
+        : (s === 'paid' ? orderTotal : (s === 'partial' ? getOrderDeposit(order) : 0));
+      return { status: s, paidAmount: paid };
+    }
+  }
+
+  // 2. Embedded tag in notes: [PAYMENT:paid:150] or [PAYMENT:partial] or [PAYMENT:unpaid]
+  const notes = order.notes || '';
+  const match = notes.match(/\[PAYMENT:([^:\]]+)(?::([^\]]+))?\]/i);
+  if (match) {
+    const s = match[1].toLowerCase().trim();
+    const cleanStatus = ['paid', 'partial', 'unpaid'].includes(s) ? s : 'unpaid';
+    const amt = match[2] ? parseFloat(match[2]) : (cleanStatus === 'paid' ? Number(order.totalprice || 0) : (cleanStatus === 'partial' ? getOrderDeposit(order) : 0));
+    return { status: cleanStatus, paidAmount: isNaN(amt) ? 0 : amt };
+  }
+
+  // 3. Fallback to deposit_paid column
+  const depositPaid = Number(order.deposit_paid || 0);
+  const total = Number(order.totalprice || 0);
+  if (depositPaid >= total && total > 0) return { status: 'paid', paidAmount: depositPaid };
+  if (depositPaid > 0) return { status: 'partial', paidAmount: depositPaid };
+
+  return { status: 'unpaid', paidAmount: 0 };
+}
+
+function setOrderPaymentInNotes(notes, status, paidAmount = 0) {
+  const clean = (notes || '').replace(/\[PAYMENT:[^\]]+\]/gi, '').trim();
+  const amt = parseFloat(paidAmount) || 0;
+  const tag = `[PAYMENT:${status}:${amt}]`;
+  return clean ? `${clean} ${tag}` : tag;
+}
+
 export default function AdminDashboard({
   orders = [],
   setOrders = () => {},
@@ -518,6 +559,72 @@ export default function AdminDashboard({
     }
   };
 
+  const handleUpdatePaymentStatus = async (orderId, targetStatus) => {
+    const targetOrder = orders.find(o => o.id === orderId) || selectedOrder;
+    if (!targetOrder) return;
+
+    const validStatus = ['paid', 'partial', 'unpaid'].includes(targetStatus) ? targetStatus : 'unpaid';
+    const totalPrice = Number(targetOrder.totalprice || 0);
+    const depositReq = getOrderDeposit(targetOrder) || Math.ceil(totalPrice * 0.5);
+
+    let paidAmount = 0;
+    if (validStatus === 'paid') {
+      paidAmount = totalPrice;
+    } else if (validStatus === 'partial') {
+      paidAmount = depositReq;
+    } else {
+      paidAmount = 0;
+    }
+
+    const remainingBalance = Math.max(0, totalPrice - paidAmount);
+    const updatedNotes = setOrderPaymentInNotes(targetOrder.notes, validStatus, paidAmount);
+
+    const updatedOrderFields = {
+      payment_status: validStatus,
+      paid_amount: paidAmount,
+      deposit_paid: paidAmount,
+      remaining_balance: remainingBalance,
+      notes: updatedNotes
+    };
+
+    // Immediate optimistic state update
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updatedOrderFields } : o));
+    setSelectedOrder(prev => (prev && prev.id === orderId ? { ...prev, ...updatedOrderFields } : prev));
+
+    try {
+      if (supabase) {
+        // Primary update including all columns
+        const { error: fullError } = await supabase.from('orders').update({
+          payment_status: validStatus,
+          paid_amount: paidAmount,
+          deposit_paid: paidAmount,
+          remaining_balance: remainingBalance,
+          notes: updatedNotes
+        }).eq('id', orderId);
+
+        if (fullError) {
+          // Schema fallback if custom payment_status column does not exist
+          console.warn('Payment update falling back to core columns:', fullError.message);
+          const { error: coreError } = await supabase.from('orders').update({
+            deposit_paid: paidAmount,
+            remaining_balance: remainingBalance,
+            notes: updatedNotes
+          }).eq('id', orderId);
+
+          if (coreError) {
+            await supabase.from('orders').update({ notes: updatedNotes }).eq('id', orderId);
+          }
+        }
+      }
+      const labelMap = { paid: 'Paid', partial: 'Partially Paid', unpaid: 'Unpaid' };
+      addToast(`Payment marked as ${labelMap[validStatus]}`, 'success');
+    } catch (err) {
+      console.error('Payment update error:', err);
+      addToast('Failed to update payment status', 'error');
+      fetchOrders();
+    }
+  };
+
   const handleAddFilament = (e) => {
     if (e) e.preventDefault();
     const nameTrimmed = (newFilament.name || '').trim();
@@ -809,10 +916,32 @@ export default function AdminDashboard({
     };
   }, [orders, pricingSettings, materials]);
 
+  // 4 Apple Top Metric Counters
+  const orderCounts = useMemo(() => {
+    let total = orders.length;
+    let queued = 0;
+    let printing = 0;
+    let completed = 0;
+    orders.forEach(o => {
+      const s = (o.status || '').toLowerCase().trim();
+      if (s === 'queued') queued++;
+      else if (s === 'printing') printing++;
+      else if (s === 'done' || s === 'completed' || s === 'delivered') completed++;
+    });
+    return { total, queued, printing, completed };
+  }, [orders]);
+
   // Filtered Orders
   const filteredOrders = useMemo(() => {
     return orders.filter(o => {
-      if (statusFilter !== 'all' && o.status !== statusFilter) return false;
+      if (statusFilter !== 'all') {
+        const s = (o.status || '').toLowerCase().trim();
+        if (statusFilter === 'done') {
+          if (s !== 'done' && s !== 'completed' && s !== 'delivered') return false;
+        } else if (s !== statusFilter) {
+          return false;
+        }
+      }
       const p = getPrinterFromNotes(o.notes);
       if (printerFilter !== 'all') {
         if (printerFilter === 'CC Abdalla' && p !== 'CC Abdalla') return false;
@@ -997,7 +1126,79 @@ export default function AdminDashboard({
 
             {/* Orders specific filters */}
             {activeNav === 'orders' && (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* 4 Small Apple Metric Boxes */}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {[
+                    { id: 'total', label: 'Total', count: orderCounts.total, filter: 'all' },
+                    { id: 'queued', label: 'Queued', count: orderCounts.queued, filter: 'queued', dot: '#2997ff' },
+                    { id: 'printing', label: 'Printing', count: orderCounts.printing, filter: 'printing', dot: theme.statusOrange },
+                    { id: 'completed', label: 'Completed', count: orderCounts.completed, filter: 'done', dot: theme.statusGreen }
+                  ].map(box => {
+                    const isActive = box.filter === 'all'
+                      ? statusFilter === 'all'
+                      : statusFilter === box.filter;
+                    return (
+                      <button
+                        key={box.id}
+                        type="button"
+                        onClick={() => setStatusFilter(prev => (prev === box.filter && box.filter !== 'all' ? 'all' : box.filter))}
+                        title={`Filter by ${box.label} orders`}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '5px 10px',
+                          borderRadius: 8,
+                          background: isActive
+                            ? (isAppleDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)')
+                            : theme.surface,
+                          border: `1px solid ${isActive ? (isAppleDark ? 'rgba(255, 255, 255, 0.35)' : 'rgba(0, 0, 0, 0.3)') : theme.border}`,
+                          color: theme.text,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          outline: 'none',
+                          boxShadow: isActive ? (isAppleDark ? '0 1px 4px rgba(0,0,0,0.4)' : '0 1px 3px rgba(0,0,0,0.06)') : 'none',
+                          userSelect: 'none'
+                        }}
+                      >
+                        {box.dot && (
+                          <span style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            background: box.dot,
+                            flexShrink: 0
+                          }} />
+                        )}
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          letterSpacing: '0.04em',
+                          textTransform: 'uppercase',
+                          color: isActive ? theme.text : theme.textSecondary
+                        }}>
+                          {box.label}
+                        </span>
+                        <span style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: isActive ? (isAppleDark ? '#ffffff' : '#000000') : theme.text,
+                          background: isActive
+                            ? (isAppleDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)')
+                            : (isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)'),
+                          padding: '1px 6px',
+                          borderRadius: 980,
+                          minWidth: 16,
+                          textAlign: 'center'
+                        }}>
+                          {box.count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {/* Search */}
                 <div style={{
                   position: 'relative',
@@ -1021,7 +1222,7 @@ export default function AdminDashboard({
                       fontSize: 13,
                       paddingLeft: 8,
                       outline: 'none',
-                      width: 180
+                      width: 170
                     }}
                   />
                 </div>
@@ -1132,6 +1333,7 @@ export default function AdminDashboard({
                       const isLocked = order.status === 'approved' || order.status === 'printing' || order.status === 'done' || order.totalprice !== null;
                       const weight = Number(order.weightgrams) || 0;
                       const price = Number(order.totalprice) || 0;
+                      const paymentInfo = getOrderPaymentInfo(order);
 
                       let statusColor = theme.textSecondary;
                       if (order.status === 'printing') statusColor = theme.statusOrange;
@@ -1178,11 +1380,30 @@ export default function AdminDashboard({
                             </span>
                           </td>
 
-                          {/* Price */}
+                          {/* Price & Payment */}
                           <td style={{ padding: '14px 18px' }}>
                             <div style={{ fontWeight: 600, color: theme.text }}>{price.toFixed(2)} EGP</div>
-                            <div style={{ fontSize: 10, fontWeight: 600, color: isLocked ? theme.statusGreen : theme.statusOrange, marginTop: 2 }}>
-                              {isLocked ? 'Price Locked' : 'Draft'}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                              <span style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                padding: '1px 6px',
+                                borderRadius: 4,
+                                background: paymentInfo.status === 'paid'
+                                  ? (isAppleDark ? 'rgba(48, 209, 88, 0.15)' : 'rgba(52, 199, 89, 0.12)')
+                                  : paymentInfo.status === 'partial'
+                                  ? (isAppleDark ? 'rgba(255, 159, 10, 0.15)' : 'rgba(255, 149, 0, 0.12)')
+                                  : (isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)'),
+                                color: paymentInfo.status === 'paid'
+                                  ? theme.statusGreen
+                                  : paymentInfo.status === 'partial'
+                                  ? theme.statusOrange
+                                  : theme.textSecondary,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.03em'
+                              }}>
+                                {paymentInfo.status === 'paid' ? 'Paid' : paymentInfo.status === 'partial' ? 'Partial' : 'Unpaid'}
+                              </span>
                             </div>
                           </td>
 
@@ -2270,26 +2491,153 @@ export default function AdminDashboard({
               )}
 
               {/* Tab 3: Payment */}
-              {inspectorTab === 'payment' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
-                    <span style={{ color: theme.textSecondary }}>Total Customer Price</span>
-                    <strong style={{ color: theme.text }}>{Number(selectedOrder.totalprice || 0).toFixed(2)} EGP</strong>
+              {inspectorTab === 'payment' && (() => {
+                const paymentInfo = getOrderPaymentInfo(selectedOrder);
+                const totalPrice = Number(selectedOrder.totalprice || 0);
+                const depositReq = getOrderDeposit(selectedOrder) || Math.ceil(totalPrice * 0.5);
+                const paidAmount = paymentInfo.status === 'paid'
+                  ? totalPrice
+                  : paymentInfo.status === 'partial'
+                  ? (paymentInfo.paidAmount > 0 ? paymentInfo.paidAmount : depositReq)
+                  : 0;
+                const remainingDue = Math.max(0, totalPrice - paidAmount);
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontSize: 13 }}>
+                    {/* Apple Segmented Payment Selector */}
+                    <div>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 8
+                      }}>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: theme.textSecondary,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em'
+                        }}>
+                          Payment Status
+                        </span>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: '2px 8px',
+                          borderRadius: 980,
+                          background: paymentInfo.status === 'paid'
+                            ? (isAppleDark ? 'rgba(48, 209, 88, 0.15)' : 'rgba(52, 199, 89, 0.12)')
+                            : paymentInfo.status === 'partial'
+                            ? (isAppleDark ? 'rgba(255, 159, 10, 0.15)' : 'rgba(255, 149, 0, 0.12)')
+                            : (isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)'),
+                          color: paymentInfo.status === 'paid'
+                            ? theme.statusGreen
+                            : paymentInfo.status === 'partial'
+                            ? theme.statusOrange
+                            : theme.textSecondary,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.03em'
+                        }}>
+                          {paymentInfo.status === 'paid' ? 'Paid' : paymentInfo.status === 'partial' ? 'Partially Paid' : 'Unpaid'}
+                        </span>
+                      </div>
+
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr 1fr',
+                        gap: 3,
+                        background: isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+                        padding: 3,
+                        borderRadius: 9,
+                        border: `1px solid ${theme.borderSubtle}`
+                      }}>
+                        {[
+                          { id: 'unpaid', label: 'Unpaid', dot: theme.textSecondary },
+                          { id: 'partial', label: 'Partially Paid', dot: theme.statusOrange },
+                          { id: 'paid', label: 'Paid', dot: theme.statusGreen }
+                        ].map(segment => {
+                          const isActive = paymentInfo.status === segment.id;
+                          return (
+                            <button
+                              key={segment.id}
+                              type="button"
+                              onClick={() => handleUpdatePaymentStatus(selectedOrder.id, segment.id)}
+                              style={{
+                                padding: '7px 4px',
+                                borderRadius: 7,
+                                border: 'none',
+                                fontSize: 11.5,
+                                fontWeight: isActive ? 600 : 500,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 5,
+                                transition: 'all 0.15s ease',
+                                background: isActive ? theme.surface : 'transparent',
+                                color: isActive ? theme.text : theme.textSecondary,
+                                boxShadow: isActive
+                                  ? (isAppleDark ? '0 1px 3px rgba(0,0,0,0.5)' : '0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06)')
+                                  : 'none',
+                                outline: 'none',
+                                userSelect: 'none'
+                              }}
+                            >
+                              <span style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: '50%',
+                                background: segment.dot,
+                                flexShrink: 0
+                              }} />
+                              <span>{segment.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Financial Snapshot */}
+                    <div style={{
+                      background: isAppleDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                      borderRadius: 10,
+                      border: `1px solid ${theme.borderSubtle}`,
+                      padding: '14px 16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                        <span style={{ color: theme.textSecondary }}>Total Customer Price</span>
+                        <strong style={{ color: theme.text }}>{totalPrice.toFixed(2)} EGP</strong>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                        <span style={{ color: theme.textSecondary }}>50% Deposit Due</span>
+                        <strong style={{ color: theme.text }}>{depositReq.toFixed(2)} EGP</strong>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                        <span style={{ color: theme.textSecondary }}>Collected Amount</span>
+                        <strong style={{ color: paidAmount > 0 ? theme.statusGreen : theme.textSecondary }}>
+                          {paidAmount.toFixed(2)} EGP
+                        </strong>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 2 }}>
+                        <span style={{ color: theme.textSecondary }}>Remaining on Collection</span>
+                        <strong style={{
+                          color: remainingDue > 0 ? (paymentInfo.status === 'partial' ? theme.statusOrange : theme.text) : theme.statusGreen,
+                          fontSize: 14
+                        }}>
+                          {remainingDue.toFixed(2)} EGP
+                        </strong>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
-                    <span style={{ color: theme.textSecondary }}>50% Deposit Due</span>
-                    <strong style={{ color: theme.statusOrange }}>
-                      {Math.ceil(Number(selectedOrder.totalprice || 0) * 0.5)} EGP
-                    </strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: theme.textSecondary }}>Remaining on Collection</span>
-                    <strong style={{ color: theme.text }}>
-                      {(Number(selectedOrder.totalprice || 0) - Math.ceil(Number(selectedOrder.totalprice || 0) * 0.5)).toFixed(2)} EGP
-                    </strong>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
 
             {/* Bottom Sheet Actions */}
