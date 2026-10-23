@@ -1148,6 +1148,34 @@ export default function AdminFinancialDashboard({
                   style={{ width: '100%' }}
                 />
               </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Micro-Order Threshold (Grams)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={settings.micro_order_weight_threshold || 17}
+                  onChange={e => setSettings({ ...settings, micro_order_weight_threshold: parseFloat(e.target.value) || 17 })}
+                  className="input-field"
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Micro-Order Flat Price (EGP)
+                </label>
+                <input
+                  type="number"
+                  step="5"
+                  value={settings.micro_order_flat_price || 50}
+                  onChange={e => setSettings({ ...settings, micro_order_flat_price: parseFloat(e.target.value) || 50 })}
+                  className="input-field"
+                  style={{ width: '100%' }}
+                />
+              </div>
             </div>
           </div>
 

@@ -331,7 +331,7 @@ export default function AdminDashboard({
     hero_subtitle: config?.hero_subtitle || "Upload your 3D design, pick your material, and we'll print it for you - fast, affordable, and right here on campus.",
     why_title: config?.why_title || "Why Print With Us?",
     why_text: (config?.why_text || "").replace(/\s*<!--RATES_CATALOG:.*?-->/s, '').trim() || "We're students who love making things. Our setup is tuned for speed and precision, so you get your parts fast without breaking the bank. PLA, PETG, ABS, Carbon Fiber, TPU -- we've got what you need.",
-    price_per_gram: config?.price_per_gram || 3,
+    price_per_gram: config?.price_per_gram || 3.5,
     whatsapp_number: config?.whatsapp_number || ""
   });
   const [savingCMS, setSavingCMS] = useState(false);
@@ -343,7 +343,7 @@ export default function AdminDashboard({
         hero_subtitle: config.hero_subtitle || "Upload your 3D design, pick your material, and we'll print it for you - fast, affordable, and right here on campus.",
         why_title: config.why_title || "Why Print With Us?",
         why_text: (config.why_text || "").replace(/\s*<!--RATES_CATALOG:.*?-->/s, '').trim(),
-        price_per_gram: config.price_per_gram || 3,
+        price_per_gram: config.price_per_gram || 3.5,
         whatsapp_number: config.whatsapp_number || ""
       });
     }
@@ -359,7 +359,7 @@ export default function AdminDashboard({
         hero_subtitle: cmsData.hero_subtitle,
         why_title: cmsData.why_title,
         why_text: cleanWhyText,
-        price_per_gram: parseFloat(cmsData.price_per_gram) || 3,
+        price_per_gram: parseFloat(cmsData.price_per_gram) || 3.5,
         whatsapp_number: (cmsData.whatsapp_number || "").trim()
       };
 
@@ -2034,6 +2034,32 @@ export default function AdminDashboard({
                       step="1"
                       value={((Number(pricingSettings.failed_print_reserve_pct) ?? 0.12) * 100)}
                       onChange={e => setPricingSettings({ ...pricingSettings, failed_print_reserve_pct: (parseFloat(e.target.value) || 0) / 100 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Micro-Order Threshold (Grams)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={pricingSettings.micro_order_weight_threshold || 17}
+                      onChange={e => setPricingSettings({ ...pricingSettings, micro_order_weight_threshold: parseFloat(e.target.value) || 17 })}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Micro-Order Flat Price (EGP)
+                    </label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={pricingSettings.micro_order_flat_price || 50}
+                      onChange={e => setPricingSettings({ ...pricingSettings, micro_order_flat_price: parseFloat(e.target.value) || 50 })}
                       style={{ width: '100%', padding: '7px 10px', borderRadius: 6, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                     />
                   </div>

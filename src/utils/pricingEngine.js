@@ -11,11 +11,15 @@ export const DEFAULT_PRICING_SETTINGS = {
   spool_cost_per_kg: 660.00,       // Standard 1kg filament spool cost (EGP)
   avg_print_speed_g_per_hr: 30.00, // CoreXY extrusion speed average (25-45 g/hr)
 
+  // Micro-order rule: Under 17g is flat 50 EGP. 17g+ does not activate (normal 3.5/g)
+  micro_order_weight_threshold: 17.00, // Grams threshold
+  micro_order_flat_price: 50.00,       // Flat price (EGP) for orders under 17g
+
   // Order pricing parameters
-  setup_fee: 25.00,
-  printing_hourly_rate: 12.00,
-  pickup_minimum: 75.00,
-  shipping_minimum: 150.00,
+  setup_fee: 0.00,                 // 0 by default so normal 3.5/g is exact
+  printing_hourly_rate: 0.00,      // 0 by default so normal 3.5/g is exact
+  pickup_minimum: 50.00,           // 50 EGP campus pickup baseline
+  shipping_minimum: 150.00,        // 150 EGP minimum for courier shipping
   packaging_fee: 25.00,
   actual_packaging_cost: 10.00,
 
@@ -37,12 +41,12 @@ export const DEFAULT_PRICING_SETTINGS = {
 };
 
 export const DEFAULT_MATERIAL_RATES = {
-  pla: { name: "PLA", selling_rate: 3.00, cost: 0.66, in_stock: true },
-  pla_plus: { name: "PLA+", selling_rate: 3.25, cost: 0.75, in_stock: true },
-  petg: { name: "PETG", selling_rate: 3.50, cost: 0.78, in_stock: true },
-  abs: { name: "ABS", selling_rate: 3.60, cost: 0.80, in_stock: true },
-  tpu: { name: "TPU", selling_rate: 4.20, cost: 0.95, in_stock: true },
-  carbon_fiber: { name: "Carbon Fiber", selling_rate: 5.00, cost: 1.35, in_stock: true }
+  pla: { name: "PLA", selling_rate: 3.50, cost: 0.66, in_stock: true },
+  pla_plus: { name: "PLA+", selling_rate: 3.75, cost: 0.75, in_stock: true },
+  petg: { name: "PETG", selling_rate: 4.00, cost: 0.78, in_stock: true },
+  abs: { name: "ABS", selling_rate: 4.00, cost: 0.80, in_stock: true },
+  tpu: { name: "TPU", selling_rate: 4.50, cost: 0.95, in_stock: true },
+  carbon_fiber: { name: "Carbon Fiber", selling_rate: 5.50, cost: 1.35, in_stock: true }
 };
 
 export const DEFAULT_SHIPPING_ZONES = {
@@ -107,7 +111,7 @@ export function parseFilamentCatalog(rawMaterials, rawWhyText = '') {
           Object.entries(parsed).forEach(([k, v]) => {
             normalized[k] = {
               name: v.name || k,
-              selling_rate: Number(v.selling_rate) || 3.0,
+              selling_rate: Number(v.selling_rate) || 3.5,
               cost: Number(v.cost) || 0.66,
               in_stock: v.in_stock !== false
             };
@@ -149,7 +153,7 @@ export function parseFilamentCatalog(rawMaterials, rawWhyText = '') {
         const def = DEFAULT_MATERIAL_RATES[key] || DEFAULT_MATERIAL_RATES[normKey] || DEFAULT_MATERIAL_RATES.pla;
         result[key] = {
           name: cleanName,
-          selling_rate: rateMatch ? parseFloat(rateMatch[1]) : (def.selling_rate || 3.0),
+          selling_rate: rateMatch ? parseFloat(rateMatch[1]) : (def.selling_rate || 3.5),
           cost: costMatch ? parseFloat(costMatch[1]) : (def.cost || 0.66),
           in_stock: !isRestocking
         };
@@ -232,18 +236,33 @@ export function calculateOrderQuote({
     rawMaterialCost += w * mData.cost;
   });
 
-  const setupFee = Number(cfg.setup_fee) || 25;
-  const hourlyRate = Number(cfg.printing_hourly_rate) || 12;
+  const microThreshold = Number(cfg.micro_order_weight_threshold) || 17.0;
+  const microFlatPrice = Number(cfg.micro_order_flat_price) || 50.0;
+  const isMicroOrder = totalWeightG > 0 && totalWeightG < microThreshold;
+
+  const setupFee = Number(cfg.setup_fee) || 0;
+  const hourlyRate = Number(cfg.printing_hourly_rate) || 0;
   const timeCharge = totalPrintHours * hourlyRate;
 
-  const rawSubtotal = setupFee + materialCharge + timeCharge;
-
-  const pickupMin = Number(cfg.pickup_minimum) || 75;
+  const pickupMin = isMicroOrder ? microFlatPrice : (Number(cfg.pickup_minimum) || 50);
   const shippingMin = Number(cfg.shipping_minimum) || 150;
   const minimum = deliveryMode === "shipping" ? shippingMin : pickupMin;
 
-  const minimumApplied = rawSubtotal < minimum;
-  const manufacturingSubtotal = Math.ceil(Math.max(rawSubtotal, minimum) / 5) * 5;
+  let rawSubtotal;
+  let minimumApplied = false;
+  let manufacturingSubtotal;
+
+  if (isMicroOrder) {
+    // Under 17g: Fixed 50 EGP flat rate activates
+    rawSubtotal = microFlatPrice;
+    manufacturingSubtotal = microFlatPrice;
+    minimumApplied = true;
+  } else {
+    // 17g and above: Flat rate does NOT activate; normal rate (3.5/g) applies
+    rawSubtotal = setupFee + materialCharge + timeCharge;
+    minimumApplied = rawSubtotal < minimum;
+    manufacturingSubtotal = Math.ceil(Math.max(rawSubtotal, minimum) / 5) * 5;
+  }
 
   // Packaging and Shipping Fees
   const packagingFee = deliveryMode === "shipping" ? (Number(cfg.packaging_fee) || 25) : 0;
@@ -255,7 +274,9 @@ export function calculateOrderQuote({
     shippingFee = zone.cost;
   }
 
-  const customerTotal = manufacturingSubtotal + packagingFee + shippingFee;
+  const customerTotal = deliveryMode === "shipping" && !isMicroOrder
+    ? Math.max(Number(cfg.shipping_minimum) || 150, manufacturingSubtotal + packagingFee + shippingFee)
+    : manufacturingSubtotal + packagingFee + shippingFee;
 
   // Deposit: 50% of manufacturing subtotal
   const depositPct = Number(cfg.deposit_percentage) || 0.50;
@@ -304,6 +325,9 @@ export function calculateOrderQuote({
     totalPrintHours: Math.round(totalPrintHours * 100) / 100,
 
     // Customer Price Breakdown
+    isMicroOrder,
+    microFlatPrice,
+    microThreshold,
     setupFee,
     materialCharge: Math.round(materialCharge * 100) / 100,
     timeCharge: Math.round(timeCharge * 100) / 100,
@@ -394,17 +418,18 @@ export function calculatePartnerDistributions(distributableProfit, customSetting
  * - Printer cost: 40,000 EGP
  * - Design lifespan: 2,000 operational hours
  * - Spool cost: 660 EGP / 1,000g spool = 0.66 EGP/g
- * - Selling price: 3.00 EGP/g (PLA)
- * - Gross profit margin: 2.34 EGP/g
- * - Break-even volume: 40,000 / 2.34 = 17,094 grams (~17.1 kg)
- * - Required extrusion speed: 17,094 / 2,000 hrs = 8.55 g/hr
- * - Payoff time at CoreXY speed (30 g/hr): ~570 hours
- * - Pure profit runway: 1,430+ hours
+ * - Selling price: 3.50 EGP/g (PLA)
+ * - Gross profit margin: 2.84 EGP/g (81.1%)
+ * - Break-even volume: 40,000 / 2.84 = 14,085 grams (~14.1 kg)
+ * - Required extrusion speed: 14,085 / 2,000 hrs = 7.04 g/hr
+ * - Payoff time at CoreXY speed (30 g/hr): ~470 hours
+ * - Pure profit runway: 1,530+ hours
+ * - Micro-order tier (< 17g): Flat 50 EGP
  */
 export function calculateBreakEvenMetrics({
   printerCost = 40000,
   lifespanHours = 2000,
-  sellingRatePerGram = 3.00,
+  sellingRatePerGram = 3.50,
   spoolCostPerKg = 660,
   rawCostPerGram = null,
   avgSpeedGramsPerHour = 30,
@@ -417,7 +442,7 @@ export function calculateBreakEvenMetrics({
   const rawCost = rawCostPerGram !== null && rawCostPerGram !== undefined && !isNaN(Number(rawCostPerGram))
     ? Number(rawCostPerGram)
     : (sCost / 1000);
-  const sellingRate = Number(sellingRatePerGram) || 3.00;
+  const sellingRate = Number(sellingRatePerGram) || 3.50;
   const avgSpeed = Number(avgSpeedGramsPerHour) || 30;
 
   // Gross profit per gram
@@ -428,10 +453,10 @@ export function calculateBreakEvenMetrics({
   const breakEvenKg = Math.round((breakEvenGrams / 1000) * 10) / 10;
 
   // Required extrusion speed over printer lifespan (g/hr)
-  const requiredSpeedGramsPerHour = lHours > 0 ? Math.round((breakEvenGrams / lHours) * 100) / 100 : 8.55;
+  const requiredSpeedGramsPerHour = lHours > 0 ? Math.round((breakEvenGrams / lHours) * 100) / 100 : 7.04;
 
   // Expected print hours to break-even at realistic CoreXY speed
-  const hoursToBreakEven = avgSpeed > 0 ? Math.round((breakEvenGrams / avgSpeed) * 10) / 10 : 570;
+  const hoursToBreakEven = avgSpeed > 0 ? Math.round((breakEvenGrams / avgSpeed) * 10) / 10 : 470;
 
   // Usable cost factoring in ~12% waste & failed prints
   const effectiveUsableCostPerGram = Math.round((rawCost * 1.12) * 100) / 100;
@@ -478,79 +503,84 @@ export function calculateBreakEvenMetrics({
 export function runPricingEngineTests() {
   const results = [];
 
-  // Test 1: 30g PLA, 40 min (0.667h), Pickup
-  // Raw: 25 + (30 * 3.00) + (0.667 * 12) = 25 + 90 + 8 = 123 EGP -> Rounded 125 EGP
+  // Test 1: 30g PLA Pickup -> >= 17g, does NOT activate micro flat rate. Normal 3.5/g: 30 * 3.5 = 105 EGP
   const t1 = calculateOrderQuote({
-    items: [{ weightGrams: 30, printHours: 40 / 60, materialKey: "pla" }],
+    items: [{ weightGrams: 30, printHours: 1.0, materialKey: "pla" }],
     deliveryMode: "pickup"
   });
   results.push({
-    test: "Test 1: 30g PLA 40min Pickup",
-    expectedRaw: 123,
-    actualRaw: Math.round(t1.rawSubtotal),
-    expectedSubtotal: 125,
+    test: "Test 1: 30g PLA Normal Rate (3.5 EGP/g)",
+    expectedSubtotal: 105,
     actualSubtotal: t1.manufacturingSubtotal,
-    passed: Math.round(t1.rawSubtotal) === 123 && t1.manufacturingSubtotal === 125
+    isMicroOrder: t1.isMicroOrder,
+    passed: t1.manufacturingSubtotal === 105 && t1.isMicroOrder === false
   });
 
-  // Test 2: 30g PLA, 7 hours, Pickup
-  // Raw: 25 + (30 * 3.00) + (7 * 12) = 25 + 90 + 84 = 199 EGP -> Rounded 200 EGP
+  // Test 2: 17g PLA Pickup -> exactly at 17g threshold. Micro 50 EGP does NOT activate: 17 * 3.5 = 59.5 -> rounded 60 EGP
   const t2 = calculateOrderQuote({
-    items: [{ weightGrams: 30, printHours: 7, materialKey: "pla" }],
+    items: [{ weightGrams: 17, printHours: 0.5, materialKey: "pla" }],
     deliveryMode: "pickup"
   });
   results.push({
-    test: "Test 2: 30g PLA 7h Pickup",
-    expectedRaw: 199,
-    actualRaw: Math.round(t2.rawSubtotal),
-    expectedSubtotal: 200,
+    test: "Test 2: 17g PLA Threshold (does not activate 50 EGP)",
+    expectedSubtotal: 60,
     actualSubtotal: t2.manufacturingSubtotal,
-    passed: Math.round(t2.rawSubtotal) === 199 && t2.manufacturingSubtotal === 200
+    isMicroOrder: t2.isMicroOrder,
+    passed: t2.manufacturingSubtotal === 60 && t2.isMicroOrder === false
   });
 
-  // Test 3: 6g PLA micro-order, Pickup
-  // Raw: 25 + (6 * 3.00) + (0.2 * 12) = ~45.4 EGP -> Minimum 75 EGP applied
+  // Test 3: 6g PLA micro-order, Pickup -> < 17g, flat 50 EGP activates
   const t3 = calculateOrderQuote({
     items: [{ weightGrams: 6, printHours: 0.2, materialKey: "pla" }],
     deliveryMode: "pickup"
   });
   results.push({
-    test: "Test 3: 6g PLA Pickup Minimum",
-    expectedSubtotal: 75,
+    test: "Test 3: 6g PLA Micro Order Flat Rate (< 17g = 50 EGP)",
+    expectedSubtotal: 50,
     actualSubtotal: t3.manufacturingSubtotal,
-    minimumApplied: t3.minimumApplied,
-    passed: t3.manufacturingSubtotal === 75 && t3.minimumApplied === true
+    isMicroOrder: t3.isMicroOrder,
+    passed: t3.manufacturingSubtotal === 50 && t3.isMicroOrder === true
   });
 
-  // Test 4: Nationwide Shipping Order (6g PLA)
-  // Minimum: 150 EGP + 25 EGP packaging + 55 EGP shipping (Alexandria) = 230 EGP total
+  // Test 4: 16.5g PLA micro-order, Pickup -> < 17g, flat 50 EGP activates
   const t4 = calculateOrderQuote({
+    items: [{ weightGrams: 16.5, printHours: 0.5, materialKey: "pla" }],
+    deliveryMode: "pickup"
+  });
+  results.push({
+    test: "Test 4: 16.5g PLA Micro Order (< 17g = 50 EGP)",
+    expectedSubtotal: 50,
+    actualSubtotal: t4.manufacturingSubtotal,
+    isMicroOrder: t4.isMicroOrder,
+    passed: t4.manufacturingSubtotal === 50 && t4.isMicroOrder === true
+  });
+
+  // Test 5: 6g PLA Nationwide Shipping (Alexandria) -> 50 EGP manufacturing + 25 packaging + 55 shipping = 130 EGP
+  const t5 = calculateOrderQuote({
     items: [{ weightGrams: 6, printHours: 0.2, materialKey: "pla" }],
     deliveryMode: "shipping",
     shippingZoneKey: "alexandria"
   });
   results.push({
-    test: "Test 4: Nationwide Shipping Order",
-    expectedSubtotal: 150,
-    actualSubtotal: t4.manufacturingSubtotal,
-    expectedTotal: 230,
-    actualTotal: t4.customerTotal,
-    passed: t4.manufacturingSubtotal === 150 && t4.customerTotal === 230
+    test: "Test 5: 6g PLA Micro Shipping Order",
+    expectedSubtotal: 50,
+    actualSubtotal: t5.manufacturingSubtotal,
+    expectedTotal: 130,
+    actualTotal: t5.customerTotal,
+    passed: t5.manufacturingSubtotal === 50 && t5.customerTotal === 130
   });
 
-  // Test 5: ElectraGo Referral Commission (5% of manufacturing subtotal)
-  // manufacturingSubtotal is 200 EGP. 5% = 10.00 EGP
-  const t5 = calculateOrderQuote({
-    items: [{ weightGrams: 30, printHours: 7, materialKey: "pla" }],
-    deliveryMode: "shipping",
-    shippingZoneKey: "alexandria",
+  // Test 6: 20g PLA ElectraGo Referral Commission (5% of 70 EGP = 3.50 EGP)
+  const t6 = calculateOrderQuote({
+    items: [{ weightGrams: 20, printHours: 0.6, materialKey: "pla" }],
+    deliveryMode: "pickup",
     referralCode: "electrago"
   });
   results.push({
-    test: "Test 5: ElectraGo Referral Commission",
-    expectedComm: 10.00,
-    actualComm: t5.profitability.referralCommission,
-    passed: t5.profitability.referralCommission === 10.00
+    test: "Test 6: 20g PLA ElectraGo Referral Commission",
+    expectedComm: 3.50,
+    actualComm: t6.profitability.referralCommission,
+    passed: t6.profitability.referralCommission === 3.50
   });
 
   return results;

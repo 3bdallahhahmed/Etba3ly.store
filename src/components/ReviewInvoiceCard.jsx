@@ -35,9 +35,14 @@ export default function ReviewInvoiceCard({
   const normKey = normalizeMaterialKey(materialKey || materialName || "pla");
   const mData =
     (materialRates && (materialRates[normKey] || materialRates[materialKey?.toLowerCase()])) ||
-    { selling_rate: parseFloat(config?.price_per_gram) || 3.0 };
-  const rate = Number(mData.selling_rate) || 3.0;
+    { selling_rate: parseFloat(config?.price_per_gram) || 3.5 };
+  const rate = Number(mData.selling_rate) || 3.5;
   const cleanMatLabel = (materialName || "PLA").replace(/\[.*?\]/g, "").trim();
+
+  // Micro-order rule: Under 17g is flat 50 EGP. 17g and above does NOT activate (normal 3.5/g)
+  const microThreshold = parseFloat(config?.micro_order_weight_threshold) || 17.0;
+  const microFlatPrice = parseFloat(config?.micro_order_flat_price) || 50.0;
+  const isMicroOrder = hasMetrics && weight > 0 && weight < microThreshold;
 
   // Itemized breakdowns matching user invoice format
   const supportWeight = hasMetrics && enableSupports
@@ -48,25 +53,29 @@ export default function ReviewInvoiceCard({
   const supportRemovalCost = hasMetrics && enableSupports ? (serviceTier === "professional" ? 10.0 : 5.0) : 0;
   const materialCost = Math.round(weight * rate * 100) / 100;
 
-  const minimumPrice = parseFloat(config?.pickup_minimum) || 75.0;
+  const minimumPrice = isMicroOrder ? microFlatPrice : (parseFloat(config?.pickup_minimum) || 50.0);
   
   // Base raw calculated total
-  const estimatedTimeCost = Math.round(hours * (parseFloat(config?.printing_hourly_rate) || 12.0) * 100) / 100;
-  const setupFee = parseFloat(config?.setup_fee) || 25.0;
-  const rawSubtotal = materialCost + estimatedTimeCost + setupFee + supportCost + supportRemovalCost;
+  const estimatedTimeCost = Math.round(hours * (parseFloat(config?.printing_hourly_rate) || 0.0) * 100) / 100;
+  const setupFee = parseFloat(config?.setup_fee) || 0.0;
+  const rawSubtotal = isMicroOrder
+    ? microFlatPrice
+    : (materialCost + estimatedTimeCost + setupFee + supportCost + supportRemovalCost);
   
   const totalPrice = hasMetrics
-    ? Math.max(minimumPrice, Math.ceil(clientMetrics.totalPrice ? Math.max(clientMetrics.totalPrice, rawSubtotal) : rawSubtotal))
-    : minimumPrice;
+    ? (isMicroOrder
+        ? microFlatPrice
+        : Math.max(minimumPrice, Math.ceil(clientMetrics.totalPrice ? Math.max(clientMetrics.totalPrice, rawSubtotal) : rawSubtotal)))
+    : microFlatPrice;
 
   // Print time & machine cost smoothly balances the itemized sum so total matches exactly
   const timeCost = Math.max(
-    estimatedTimeCost + setupFee,
+    0,
     Math.round((totalPrice - materialCost - supportCost - supportRemovalCost) * 100) / 100
   );
 
   // Recalculate true total to match sum
-  const finalTotal = Math.round(materialCost + timeCost + supportCost + supportRemovalCost);
+  const finalTotal = isMicroOrder ? microFlatPrice : Math.round(materialCost + timeCost + supportCost + supportRemovalCost);
 
   // Deposit calculation (50%)
   const depositRequired = Math.ceil(finalTotal * 0.5);
@@ -97,53 +106,72 @@ export default function ReviewInvoiceCard({
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "flex-start",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
           gap: 10,
-          marginBottom: 18
+          marginBottom: 16
         }}
       >
-        {/* Calculator SVG Icon in brand orange */}
-        <div
-          style={{
-            color: "var(--accent, #FF8000)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center"
-          }}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="24"
-            height="24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Calculator SVG Icon in brand orange */}
+          <div
+            style={{
+              color: "var(--accent, #FF8000)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center"
+            }}
           >
-            <rect x="4" y="2" width="16" height="20" rx="2" />
-            <line x1="8" y1="6" x2="16" y2="6" />
-            <line x1="16" y1="14" x2="16" y2="18" />
-            <path d="M8 10h.01" />
-            <path d="M12 10h.01" />
-            <path d="M16 10h.01" />
-            <path d="M8 14h.01" />
-            <path d="M12 14h.01" />
-            <path d="M8 18h.01" />
-            <path d="M12 18h.01" />
-          </svg>
+            <svg
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="4" y="2" width="16" height="20" rx="2" />
+              <line x1="8" y1="6" x2="16" y2="6" />
+              <line x1="16" y1="14" x2="16" y2="18" />
+              <path d="M8 10h.01" />
+              <path d="M12 10h.01" />
+              <path d="M16 10h.01" />
+              <path d="M8 14h.01" />
+              <path d="M12 14h.01" />
+              <path d="M8 18h.01" />
+              <path d="M12 18h.01" />
+            </svg>
+          </div>
+          <h3
+            style={{
+              fontSize: 20,
+              fontWeight: 800,
+              color: "#ffffff",
+              margin: 0,
+              letterSpacing: "-0.01em"
+            }}
+          >
+            Pricing Breakdown
+          </h3>
         </div>
-        <h3
-          style={{
-            fontSize: 20,
-            fontWeight: 800,
-            color: "#ffffff",
-            margin: 0,
-            letterSpacing: "-0.01em"
-          }}
-        >
-          Pricing Breakdown
-        </h3>
+
+        {hasMetrics && (
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              padding: "4px 10px",
+              borderRadius: 980,
+              background: isMicroOrder ? "rgba(255, 128, 0, 0.15)" : "rgba(16, 185, 129, 0.15)",
+              color: isMicroOrder ? "var(--accent, #FF8000)" : "#34d399",
+              border: isMicroOrder ? "1px solid rgba(255, 128, 0, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)"
+            }}
+          >
+            {isMicroOrder ? `Under ${microThreshold}g Flat: 50 EGP` : `Standard ${rate.toFixed(2)} EGP/g`}
+          </span>
+        )}
       </div>
 
       {/* Top Metrics Row: 3 Cards (Weight | Print Time | Layers) */}
@@ -324,7 +352,7 @@ export default function ReviewInvoiceCard({
           }}
         >
           <span style={{ fontWeight: 600 }}>
-            Material Cost ({cleanMatLabel} Plastic)
+            Material Cost ({cleanMatLabel} @ {rate.toFixed(2)} EGP/g)
           </span>
           <span style={{ fontWeight: 700, color: "#ffffff" }}>
             {hasMetrics ? `${materialCost.toFixed(2)} EGP` : `${rate.toFixed(2)} EGP/g`}
@@ -341,7 +369,9 @@ export default function ReviewInvoiceCard({
             color: "#e2e8f0"
           }}
         >
-          <span style={{ fontWeight: 600 }}>Machine Print Time</span>
+          <span style={{ fontWeight: 600 }}>
+            {isMicroOrder ? "Micro-Order Adjustment (< 17g)" : "Machine Print & Prep"}
+          </span>
           <span style={{ fontWeight: 700, color: "#ffffff" }}>
             {hasMetrics ? `${timeCost.toFixed(2)} EGP` : "--"}
           </span>
