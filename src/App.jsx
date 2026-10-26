@@ -1946,6 +1946,10 @@ export default function App() {
 
       const dynamicTags = [
         `[PROFILE:${selectedTier || "standard"}]`,
+        `[TIER:${selectedTier || "standard"}]`,
+        `[QUALITY:${selectedTier || "standard"}]`,
+        `[LAYER:${Number(orderLayerHeight || 0.20).toFixed(2)}mm]`,
+        `[INFILL:${orderInfill || 20}%]`,
         `[SUPPORTS:${enableSupports ? "yes" : "no"}]`,
         `[DELIVERY:${deliveryMode || "pickup"}]`,
         `[DEPOSIT:${depositRequired || 0}]`,
@@ -2066,6 +2070,17 @@ export default function App() {
       : "Pending review";
     const trackUrl = `https://etba3ly.store/#track?id=${encodeURIComponent(trackingCode)}`;
 
+    const notesStr = order.notes || "";
+    const tierMatch = notesStr.match(/\[(?:QUALITY|PROFILE|TIER):([^\]]+)\]/i);
+    const tier = tierMatch ? tierMatch[1].trim().toLowerCase() : "standard";
+    const layerMatch = notesStr.match(/\[LAYER:([^\]]+)\]/i);
+    const layer = layerMatch ? layerMatch[1].trim() : (tier === "economy" ? "0.28mm" : tier === "professional" ? "0.12mm" : "0.20mm");
+    const infillMatch = notesStr.match(/\[INFILL:([^\]]+)\]/i);
+    const infill = infillMatch ? infillMatch[1].trim() : (tier === "economy" ? "15%" : tier === "professional" ? "25%" : "20%");
+    const supportsMatch = notesStr.match(/\[SUPPORTS:([^\]]+)\]/i);
+    const supports = supportsMatch ? supportsMatch[1].trim().toLowerCase() !== "no" : true;
+    const tierLabel = tier === "economy" ? "Economy (Draft 0.28mm)" : tier === "professional" ? "Professional (Fine 0.12mm)" : tier === "custom" ? `Custom (${layer}, ${infill})` : "Standard (0.20mm)";
+
     // 1. Send confirmation & invoice email + cloud Telegram alert via backend edge function
     triggerOrderEmail("INSERT", order);
 
@@ -2079,6 +2094,7 @@ export default function App() {
         `Phone: ${clientPhone}\n` +
         `Part: ${partName}\n` +
         `Material: ${material} (${color})\n` +
+        `Quality Profile: ${tierLabel} • Infill: ${infill} • Supports: ${supports ? "Yes" : "No"}\n` +
         `Weight: ${weight}\n` +
         `Total: ${total}\n\n` +
         (order.fileurl ? `Model / File Link:\n${order.fileurl}\n\n` : '') +
@@ -2106,6 +2122,7 @@ export default function App() {
       const discordFields = [
         { name: "Customer", value: `${clientName} (${clientPhone})`, inline: true },
         { name: "Material", value: `${material} - ${color}`, inline: true },
+        { name: "Quality Profile", value: `${tierLabel} (${infill} infill)`, inline: true },
         { name: "Estimated Weight", value: weight, inline: true },
         { name: "Total Price", value: total, inline: true },
         { name: "Tracking Code", value: trackingCode, inline: true },
@@ -2142,6 +2159,7 @@ export default function App() {
           `Phone: ${clientPhone}\n` +
           `Part: ${partName}\n` +
           `Material: ${material} (${color})\n` +
+          `Quality: ${tierLabel} (${infill} infill)\n` +
           `Weight: ${weight}\n` +
           `Total: ${total}`;
         const botUrl = `https://api.callmebot.com/whatsapp.php?phone=${intlAdminPhone}&text=${encodeURIComponent(alertMsg)}&apikey=${encodeURIComponent(config.whatsapp_api_key.trim())}`;

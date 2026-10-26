@@ -211,6 +211,73 @@ function setOrderPaymentInNotes(notes, status, paidAmount = 0) {
   return clean ? `${clean} ${tag}` : tag;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Quality & Service Tier Helper Functions
+// ─────────────────────────────────────────────────────────────
+export function getOrderQuality(orderOrNotes) {
+  if (!orderOrNotes) return { tier: 'standard', layerHeight: 0.20, infill: 20, supports: true, label: 'Standard (0.20mm)' };
+  const notes = typeof orderOrNotes === 'object'
+    ? (orderOrNotes.notes || '')
+    : String(orderOrNotes);
+
+  const tierMatch = notes.match(/\[(?:QUALITY|PROFILE|TIER):([^\]]+)\]/i);
+  let tier = tierMatch ? tierMatch[1].trim().toLowerCase() : null;
+
+  const layerMatch = notes.match(/\[LAYER:([^\]]+)\]/i);
+  let layerHeight = layerMatch ? parseFloat(layerMatch[1].replace(/mm/i, '')) : null;
+
+  const infillMatch = notes.match(/\[INFILL:([^\]]+)\]/i);
+  let infill = infillMatch ? parseInt(infillMatch[1].replace(/%/i, ''), 10) : null;
+
+  const supportsMatch = notes.match(/\[SUPPORTS:([^\]]+)\]/i);
+  let supports = supportsMatch ? (supportsMatch[1].trim().toLowerCase() !== 'no') : true;
+
+  if (!tier && (layerHeight || infill !== null)) {
+    tier = 'custom';
+  } else if (!tier) {
+    tier = 'standard';
+  }
+
+  if (!layerHeight || isNaN(layerHeight)) {
+    if (tier === 'economy') layerHeight = 0.28;
+    else if (tier === 'professional') layerHeight = 0.12;
+    else layerHeight = 0.20;
+  }
+
+  if (infill === null || isNaN(infill)) {
+    if (tier === 'economy') infill = 15;
+    else if (tier === 'professional') infill = 25;
+    else infill = 20;
+  }
+
+  let label = 'Standard (0.20mm)';
+  if (tier === 'economy') label = 'Economy (Draft 0.28mm)';
+  else if (tier === 'professional') label = 'Professional (Fine 0.12mm)';
+  else if (tier === 'custom') label = `Custom (${layerHeight.toFixed(2)}mm, ${infill}%)`;
+  else label = 'Standard (0.20mm)';
+
+  return { tier, layerHeight, infill, supports, label };
+}
+
+export function setOrderQualityInNotes(notes, qualityData) {
+  let clean = (notes || '')
+    .replace(/\[PROFILE:[^\]]+\]/gi, '')
+    .replace(/\[TIER:[^\]]+\]/gi, '')
+    .replace(/\[QUALITY:[^\]]+\]/gi, '')
+    .replace(/\[LAYER:[^\]]+\]/gi, '')
+    .replace(/\[INFILL:[^\]]+\]/gi, '')
+    .replace(/\[SUPPORTS:[^\]]+\]/gi, '')
+    .trim();
+
+  const tier = (qualityData.tier || 'standard').toLowerCase();
+  const layerHeight = Number(qualityData.layerHeight || (tier === 'economy' ? 0.28 : tier === 'professional' ? 0.12 : 0.20)).toFixed(2);
+  const infill = qualityData.infill !== undefined && qualityData.infill !== null ? qualityData.infill : (tier === 'economy' ? 15 : tier === 'professional' ? 25 : 20);
+  const supports = qualityData.supports !== false ? 'yes' : 'no';
+
+  const tags = `[PROFILE:${tier}] [TIER:${tier}] [QUALITY:${tier}] [LAYER:${layerHeight}mm] [INFILL:${infill}%] [SUPPORTS:${supports}]`;
+  return clean ? `${clean} ${tags}` : tags;
+}
+
 export default function AdminDashboard({
   orders = [],
   setOrders = () => {},
@@ -242,6 +309,15 @@ export default function AdminDashboard({
   materials: propMaterials,
   setMaterials: propSetMaterials
 }) {
+  // Mobile Viewport Detection for clean responsive layouts on phones
+  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false));
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Theme state: Apple Business Light vs Apple Pro Dark
   const [isAppleDark, setIsAppleDark] = useState(() => {
     try {
@@ -459,6 +535,7 @@ export default function AdminDashboard({
     printHours: 1.5,
     material: 'PLA',
     printer: 'CC Abdalla',
+    tier: 'standard',
     customPrice: '',
     deliveryMode: 'pickup'
   });
@@ -610,6 +687,7 @@ export default function AdminDashboard({
   };
 
   const handleOpenEditModal = (order) => {
+    const q = getOrderQuality(order);
     setEditingOrderData({
       id: order.id,
       name: order.name || '',
@@ -620,7 +698,11 @@ export default function AdminDashboard({
       printhours: getOrderPrintHours(order),
       totalprice: order.totalprice || 0,
       delivery_mode: getDeliveryMode(order),
-      printer: getPrinterFromNotes(order.notes) || 'CC Abdalla'
+      printer: getPrinterFromNotes(order.notes) || 'CC Abdalla',
+      tier: q.tier,
+      layerHeight: q.layerHeight,
+      infill: q.infill,
+      supports: q.supports
     });
     setIsEditModalOpen(true);
   };
@@ -628,10 +710,11 @@ export default function AdminDashboard({
   const handleSaveOrderEdit = async (e) => {
     if (e) e.preventDefault();
     if (!editingOrderData) return;
-    const { id, name, phone, ordername, material, weightgrams, printhours, totalprice, delivery_mode, printer } = editingOrderData;
+    const { id, name, phone, ordername, material, weightgrams, printhours, totalprice, delivery_mode, printer, tier, layerHeight, infill, supports } = editingOrderData;
 
     const currentOrder = orders.find(o => o.id === id);
     let updatedNotes = setPrinterInNotes(currentOrder?.notes || '', printer);
+    updatedNotes = setOrderQualityInNotes(updatedNotes, { tier, layerHeight, infill, supports });
     updatedNotes = updatedNotes
       .replace(/\[DELIVERY:[^\]]+\]/gi, '')
       .replace(/\[HOURS:[^\]]+\]/gi, '')
@@ -916,8 +999,15 @@ export default function AdminDashboard({
     const finalPrice = quickOrder.customPrice !== '' ? Number(quickOrder.customPrice) : calculatedQuote.customerTotal;
     const trackingCode = 'ETB-' + Math.random().toString(36).substring(2, 7).toUpperCase();
 
+    const qInfo = getOrderQuality(`[PROFILE:${quickOrder.tier || 'standard'}]`);
     const assignedNotes = setPrinterInNotes('', quickOrder.printer);
-    const enrichedNotes = `${assignedNotes} [DELIVERY:${delivery}] [DEPOSIT:${calculatedQuote.depositRequired}] [HOURS:${h}]`.trim();
+    const withQualityNotes = setOrderQualityInNotes(assignedNotes, {
+      tier: quickOrder.tier || 'standard',
+      layerHeight: qInfo.layerHeight,
+      infill: qInfo.infill,
+      supports: true
+    });
+    const enrichedNotes = `${withQualityNotes} [DELIVERY:${delivery}] [DEPOSIT:${calculatedQuote.depositRequired}] [HOURS:${h}]`.trim();
 
     const dbPayload = {
       name: quickOrder.name || 'Direct Client',
@@ -1117,136 +1207,201 @@ export default function AdminDashboard({
       {/* 1. APPLE TOP NAVIGATION BAR */}
       {/* ───────────────────────────────────────────────────────────── */}
       <header style={{
-        height: 52,
         background: theme.canvas,
         borderBottom: `1px solid ${theme.border}`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 24px',
         position: 'sticky',
         top: 0,
         zIndex: 100
       }}>
-        {/* Brand */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img
-            src={getAssetPath(isAppleDark ? "logo-dark.svg" : "logo-light.svg")}
-            alt="Etba3ly"
-            style={{ height: 26, width: 'auto', display: 'block' }}
-          />
-          <span style={{
-            fontSize: 10,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            padding: '2px 8px',
-            borderRadius: 980,
-            background: isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
-            color: theme.textSecondary
-          }}>
-            Business
-          </span>
-        </div>
+        {/* Top Header Row */}
+        <div style={{
+          height: isMobile ? 48 : 52,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: isMobile ? '0 12px' : '0 24px'
+        }}>
+          {/* Brand */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <img
+              src={getAssetPath(isAppleDark ? "logo-dark.svg" : "logo-light.svg")}
+              alt="Etba3ly"
+              style={{ height: isMobile ? 22 : 26, width: 'auto', display: 'block' }}
+            />
+            <span style={{
+              fontSize: 9.5,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              padding: '2px 6px',
+              borderRadius: 980,
+              background: isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+              color: theme.textSecondary
+            }}>
+              Business
+            </span>
+          </div>
 
-        {/* Apple Horizontal Segmented Navigation */}
-        <nav style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          {[
-            { id: 'orders', label: 'Orders' },
-            { id: 'fleet', label: 'Devices' },
-            { id: 'partners', label: 'Finance' },
-            { id: 'settings', label: 'Settings' },
-            { id: 'gallery', label: 'Showcase' }
-          ].map(tab => (
+          {/* Desktop Navigation */}
+          {!isMobile && (
+            <nav style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {[
+                { id: 'orders', label: 'Orders' },
+                { id: 'fleet', label: 'Devices' },
+                { id: 'partners', label: 'Finance' },
+                { id: 'settings', label: 'Settings' },
+                { id: 'gallery', label: 'Showcase' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveNav(tab.id)}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 980,
+                    fontSize: 13,
+                    fontWeight: activeNav === tab.id ? 600 : 500,
+                    border: 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    background: activeNav === tab.id ? theme.buttonSecondaryBg : 'transparent',
+                    color: activeNav === tab.id ? theme.text : theme.textSecondary
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          )}
+
+          {/* User / Theme / Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10 }}>
             <button
-              key={tab.id}
-              onClick={() => setActiveNav(tab.id)}
+              onClick={toggleAppleTheme}
+              title={isAppleDark ? 'Switch to Apple Business Light' : 'Switch to Apple Pro Dark'}
               style={{
-                padding: '6px 14px',
+                width: isMobile ? 30 : 32,
+                height: isMobile ? 30 : 32,
                 borderRadius: 980,
-                fontSize: 13,
-                fontWeight: activeNav === tab.id ? 600 : 500,
-                border: 'none',
+                border: `1px solid ${theme.border}`,
+                background: theme.surface,
+                color: theme.text,
                 cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                background: activeNav === tab.id ? theme.buttonSecondaryBg : 'transparent',
-                color: activeNav === tab.id ? theme.text : theme.textSecondary
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
               }}
             >
-              {tab.label}
+              {isAppleDark ? <Icons.Sun /> : <Icons.Moon />}
             </button>
-          ))}
-        </nav>
 
-        {/* User / Theme / Actions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            onClick={toggleAppleTheme}
-            title={isAppleDark ? 'Switch to Apple Business Light' : 'Switch to Apple Pro Dark'}
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 980,
-              border: `1px solid ${theme.border}`,
-              background: theme.surface,
-              color: theme.text,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
-            {isAppleDark ? <Icons.Sun /> : <Icons.Moon />}
-          </button>
+            <button
+              onClick={() => setIsQuickAddOpen(true)}
+              style={{
+                padding: isMobile ? '5px 10px' : '6px 14px',
+                borderRadius: 980,
+                fontSize: 12,
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                background: theme.buttonPrimaryBg,
+                color: theme.buttonPrimaryText,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {isMobile ? '+ Order' : '+ New Order'}
+            </button>
 
-          <button
-            onClick={() => setIsQuickAddOpen(true)}
-            style={{
-              padding: '6px 14px',
-              borderRadius: 980,
-              fontSize: 12,
-              fontWeight: 600,
-              border: 'none',
-              cursor: 'pointer',
-              background: theme.buttonPrimaryBg,
-              color: theme.buttonPrimaryText
-            }}
-          >
-            + New Order
-          </button>
-
-          <button
-            onClick={handleAdminLogout}
-            style={{
-              padding: '6px 12px',
-              borderRadius: 980,
-              fontSize: 12,
-              fontWeight: 500,
-              border: `1px solid ${theme.border}`,
-              background: 'transparent',
-              color: theme.textSecondary,
-              cursor: 'pointer'
-            }}
-          >
-            Sign Out
-          </button>
+            <button
+              onClick={handleAdminLogout}
+              style={{
+                padding: isMobile ? '5px 8px' : '6px 12px',
+                borderRadius: 980,
+                fontSize: 12,
+                fontWeight: 500,
+                border: `1px solid ${theme.border}`,
+                background: 'transparent',
+                color: theme.textSecondary,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
+
+        {/* Mobile Horizontal Scrollable Segmented Navigation */}
+        {isMobile && (
+          <nav style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '4px 10px 8px',
+            overflowX: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            scrollbarWidth: 'none',
+            borderTop: `1px solid ${theme.borderSubtle}`
+          }}>
+            {[
+              { id: 'orders', label: 'Orders' },
+              { id: 'fleet', label: 'Devices' },
+              { id: 'partners', label: 'Finance' },
+              { id: 'settings', label: 'Settings' },
+              { id: 'gallery', label: 'Showcase' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveNav(tab.id)}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 980,
+                  fontSize: 12,
+                  fontWeight: activeNav === tab.id ? 600 : 500,
+                  border: 'none',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  transition: 'all 0.15s ease',
+                  background: activeNav === tab.id ? (isAppleDark ? '#2c2c2e' : '#e5e5ea') : 'transparent',
+                  color: activeNav === tab.id ? theme.text : theme.textSecondary
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        )}
       </header>
 
       {/* ───────────────────────────────────────────────────────────── */}
       {/* 2. MAIN APP CONTAINER (DATA TABLE + SLIDE-OUT INSPECTOR SHEET) */}
       {/* ───────────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', flex: 1, minHeight: 'calc(100vh - 52px)', position: 'relative' }}>
+      <div style={{
+        display: 'flex',
+        flex: 1,
+        minHeight: isMobile ? 'auto' : 'calc(100vh - 52px)',
+        position: 'relative',
+        width: '100%',
+        maxWidth: '100vw',
+        overflowX: 'hidden'
+      }}>
         {/* Main Content Area */}
-        <div style={{ flex: 1, padding: '24px 32px', overflowY: 'auto', minWidth: 0 }}>
+        <div style={{
+          flex: 1,
+          padding: isMobile ? '14px 12px 28px' : '24px 32px',
+          overflowY: 'auto',
+          minWidth: 0,
+          maxWidth: '100%',
+          boxSizing: 'border-box'
+        }}>
           {/* Subheader / Action Bar */}
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 20,
-            flexWrap: 'wrap',
-            gap: 16
+            alignItems: isMobile ? 'stretch' : 'center',
+            marginBottom: isMobile ? 14 : 20,
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? 12 : 16
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
               <div>
@@ -1268,7 +1423,16 @@ export default function AdminDashboard({
 
               {/* 4 Small Apple Metric Boxes */}
               {activeNav === 'orders' && (
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{
+                  display: 'flex',
+                  gap: 6,
+                  alignItems: 'center',
+                  overflowX: 'auto',
+                  WebkitOverflowScrolling: 'touch',
+                  scrollbarWidth: 'none',
+                  maxWidth: isMobile ? '100%' : 'auto',
+                  paddingBottom: isMobile ? 4 : 0
+                }}>
                   {[
                     { id: 'total', label: 'Total', count: orderCounts.total, filter: 'all' },
                     { id: 'queued', label: 'Queued', count: orderCounts.queued, filter: 'queued', dot: '#2997ff' },
@@ -1288,7 +1452,7 @@ export default function AdminDashboard({
                           display: 'flex',
                           alignItems: 'center',
                           gap: 6,
-                          padding: '5px 10px',
+                          padding: isMobile ? '4px 8px' : '5px 10px',
                           borderRadius: 8,
                           background: isActive
                             ? (isAppleDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)')
@@ -1298,6 +1462,7 @@ export default function AdminDashboard({
                           cursor: 'pointer',
                           transition: 'all 0.15s ease',
                           outline: 'none',
+                          flexShrink: 0,
                           boxShadow: isActive ? (isAppleDark ? '0 1px 4px rgba(0,0,0,0.4)' : '0 1px 3px rgba(0,0,0,0.06)') : 'none',
                           userSelect: 'none'
                         }}
@@ -1341,9 +1506,16 @@ export default function AdminDashboard({
               )}
             </div>
 
-            {/* Orders specific filters - EXACT SAME ORIGINAL PLACE & SIZES */}
+            {/* Orders specific filters */}
             {activeNav === 'orders' && (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
+              <div style={{
+                display: 'flex',
+                gap: 8,
+                alignItems: 'center',
+                flexWrap: isMobile ? 'wrap' : 'nowrap',
+                width: isMobile ? '100%' : 'auto',
+                flexShrink: 0
+              }}>
                 {/* Search */}
                 <div style={{
                   position: 'relative',
@@ -1352,7 +1524,8 @@ export default function AdminDashboard({
                   background: theme.surface,
                   border: `1px solid ${theme.border}`,
                   borderRadius: 8,
-                  padding: '5px 10px'
+                  padding: '5px 10px',
+                  flex: isMobile ? '1 1 100%' : 'initial'
                 }}>
                   <Icons.Search />
                   <input
@@ -1367,7 +1540,7 @@ export default function AdminDashboard({
                       fontSize: 13,
                       paddingLeft: 8,
                       outline: 'none',
-                      width: 180
+                      width: isMobile ? '100%' : 180
                     }}
                   />
                 </div>
@@ -1384,7 +1557,8 @@ export default function AdminDashboard({
                     color: theme.text,
                     fontSize: 12,
                     fontWeight: 500,
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    flex: isMobile ? '1 1 calc(50% - 4px)' : 'initial'
                   }}
                 >
                   <option value="all">All Statuses</option>
@@ -1405,7 +1579,8 @@ export default function AdminDashboard({
                     color: theme.text,
                     fontSize: 12,
                     fontWeight: 500,
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    flex: isMobile ? '1 1 calc(50% - 4px)' : 'initial'
                   }}
                 >
                   <option value="all">All Hardware</option>
@@ -1427,7 +1602,9 @@ export default function AdminDashboard({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 6
+                    justifyContent: 'center',
+                    gap: 6,
+                    flex: isMobile ? '1 1 100%' : 'initial'
                   }}
                 >
                   Export CSV
@@ -1437,142 +1614,298 @@ export default function AdminDashboard({
           </div>
 
           {/* ───────────────────────────────────────────────────────── */}
-          {/* VIEW: ORDERS (FULL-WIDTH APPLE DATA TABLE) */}
+          {/* VIEW: ORDERS (RESPONSIVE CARDS ON PHONE, FULL TABLE ON DESKTOP) */}
           {/* ───────────────────────────────────────────────────────── */}
           {activeNav === 'orders' && (
-            <div style={{
-              background: theme.surface,
-              borderRadius: 12,
-              border: `1px solid ${theme.border}`,
-              overflow: 'hidden'
-            }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
-                <thead>
-                  <tr style={{
-                    borderBottom: `1px solid ${theme.border}`,
+            isMobile ? (
+              /* Mobile Order Cards (No squishing, fits phone 100%) */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {filteredOrders.length === 0 ? (
+                  <div style={{
+                    padding: '36px 16px',
+                    textAlign: 'center',
+                    background: theme.surface,
+                    borderRadius: 12,
+                    border: `1px solid ${theme.border}`,
                     color: theme.textSecondary,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    letterSpacing: '0.04em',
-                    textTransform: 'uppercase'
+                    fontSize: 13
                   }}>
-                    <th style={{ padding: '12px 18px' }}>Name / Details</th>
-                    <th style={{ padding: '12px 18px' }}>Specifications</th>
-                    <th style={{ padding: '12px 18px' }}>Device</th>
-                    <th style={{ padding: '12px 18px' }}>Price</th>
-                    <th style={{ padding: '12px 18px' }}>Status</th>
-                    <th style={{ padding: '12px 18px', textAlign: 'right' }}>Inspection</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredOrders.length === 0 ? (
-                    <tr>
-                      <td colSpan="6" style={{ padding: '48px 18px', textAlign: 'center', color: theme.textSecondary, fontSize: 13 }}>
-                        No orders found.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredOrders.map(order => {
-                      const isSelected = selectedOrder?.id === order.id;
-                      const printer = getPrinterFromNotes(order.notes) || 'Unassigned';
-                      const isLocked = order.status === 'approved' || order.status === 'printing' || order.status === 'done' || order.totalprice !== null;
-                      const weight = Number(order.weightgrams) || 0;
-                      const price = Number(order.totalprice) || 0;
-                      const paymentInfo = getOrderPaymentInfo(order);
+                    No orders found.
+                  </div>
+                ) : (
+                  filteredOrders.map(order => {
+                    const isSelected = selectedOrder?.id === order.id;
+                    const printer = getPrinterFromNotes(order.notes) || 'Unassigned';
+                    const weight = Number(order.weightgrams) || 0;
+                    const price = Number(order.totalprice) || 0;
+                    const paymentInfo = getOrderPaymentInfo(order);
+                    const qualityInfo = getOrderQuality(order);
 
-                      let statusColor = theme.textSecondary;
-                      if (order.status === 'printing') statusColor = theme.statusOrange;
-                      if (order.status === 'done') statusColor = theme.statusGreen;
-                      if (order.status === 'cancelled') statusColor = theme.statusRed;
+                    let statusColor = theme.textSecondary;
+                    if (order.status === 'printing') statusColor = theme.statusOrange;
+                    if (order.status === 'done') statusColor = theme.statusGreen;
+                    if (order.status === 'cancelled') statusColor = theme.statusRed;
 
-                      return (
-                        <tr
-                          key={order.id}
-                          onClick={() => setSelectedOrder(order)}
-                          style={{
-                            borderBottom: `1px solid ${theme.borderSubtle}`,
-                            cursor: 'pointer',
-                            background: isSelected ? (isAppleDark ? '#2c2c2e' : '#f0f0f5') : 'transparent',
-                            transition: 'background 0.1s ease'
-                          }}
-                        >
-                          {/* Name / Customer */}
-                          <td style={{ padding: '14px 18px' }}>
-                            <div style={{ fontWeight: 600, color: theme.text }}>{order.ordername || 'Custom 3D Print'}</div>
-                            <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
+                    return (
+                      <div
+                        key={order.id}
+                        onClick={() => setSelectedOrder(order)}
+                        style={{
+                          background: isSelected ? (isAppleDark ? '#2c2c2e' : '#f0f0f5') : theme.surface,
+                          borderRadius: 12,
+                          border: `1px solid ${isSelected ? theme.accent : theme.border}`,
+                          padding: '14px 14px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 10,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {/* Header: Title & Status */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: 14, color: theme.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {order.ordername || 'Custom 3D Print'}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: theme.textSecondary, marginTop: 2 }}>
                               {order.name || 'Client'} · {order.tracking_code || `#${String(order.id).slice(0, 6)}`}
                             </div>
-                          </td>
-
-                          {/* Specifications */}
-                          <td style={{ padding: '14px 18px' }}>
-                            <div style={{ color: theme.text, fontWeight: 500 }}>
-                              {order.material || 'PLA'} · {weight}g
-                            </div>
-                            <div style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>
-                              ~{getOrderPrintHours(order).toFixed(1)} hrs
-                            </div>
-                          </td>
-
-                          {/* Device Assigned */}
-                          <td style={{ padding: '14px 18px' }}>
-                            <span style={{
-                              fontSize: 12,
-                              fontWeight: 500,
-                              color: printer.includes('Abdalla') ? theme.accent : printer.includes('Mazen') ? '#af52de' : theme.textSecondary
-                            }}>
-                              {printer}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor }} />
+                            <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'capitalize', color: theme.text }}>
+                              {order.status}
                             </span>
-                          </td>
+                          </div>
+                        </div>
 
-                          {/* Price & Payment */}
-                          <td style={{ padding: '14px 18px' }}>
-                            <div style={{ fontWeight: 600, color: theme.text }}>{price.toFixed(2)} EGP</div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                        {/* Middle: Quality Badge & Specs */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                          <span style={{
+                            fontSize: 10.5,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 6,
+                            background: qualityInfo.tier === 'professional'
+                              ? (isAppleDark ? 'rgba(175, 82, 222, 0.2)' : 'rgba(175, 82, 222, 0.12)')
+                              : qualityInfo.tier === 'economy'
+                              ? (isAppleDark ? 'rgba(255, 159, 10, 0.2)' : 'rgba(255, 149, 0, 0.12)')
+                              : (isAppleDark ? 'rgba(41, 151, 255, 0.2)' : 'rgba(0, 113, 227, 0.12)'),
+                            color: qualityInfo.tier === 'professional' ? '#af52de' : qualityInfo.tier === 'economy' ? theme.statusOrange : theme.accent,
+                            letterSpacing: '0.02em'
+                          }}>
+                            {qualityInfo.label}
+                          </span>
+                          <span style={{ fontSize: 11.5, color: theme.textSecondary }}>
+                            {order.material || 'PLA'} · {weight}g · {qualityInfo.infill}% infill
+                          </span>
+                        </div>
+
+                        {/* Footer: Device & Price & Payment */}
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          paddingTop: 8,
+                          borderTop: `1px solid ${theme.borderSubtle}`
+                        }}>
+                          <span style={{
+                            fontSize: 11.5,
+                            fontWeight: 500,
+                            color: printer.includes('Abdalla') ? theme.accent : printer.includes('Mazen') ? '#af52de' : theme.textSecondary
+                          }}>
+                            {printer}
+                          </span>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              padding: '1px 6px',
+                              borderRadius: 4,
+                              background: paymentInfo.status === 'paid'
+                                ? (isAppleDark ? 'rgba(48, 209, 88, 0.15)' : 'rgba(52, 199, 89, 0.12)')
+                                : paymentInfo.status === 'partial'
+                                ? (isAppleDark ? 'rgba(255, 159, 10, 0.15)' : 'rgba(255, 149, 0, 0.12)')
+                                : (isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)'),
+                              color: paymentInfo.status === 'paid'
+                                ? theme.statusGreen
+                                : paymentInfo.status === 'partial'
+                                ? theme.statusOrange
+                                : theme.textSecondary,
+                              textTransform: 'uppercase'
+                            }}>
+                              {paymentInfo.status === 'paid' ? 'Paid' : paymentInfo.status === 'partial' ? 'Partial' : 'Unpaid'}
+                            </span>
+                            <span style={{ fontWeight: 700, fontSize: 13.5, color: theme.text }}>
+                              {price.toFixed(2)} EGP
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            ) : (
+              /* Desktop Table with scroll wrapper */
+              <div style={{
+                background: theme.surface,
+                borderRadius: 12,
+                border: `1px solid ${theme.border}`,
+                overflowX: 'auto',
+                WebkitOverflowScrolling: 'touch'
+              }}>
+                <table style={{ width: '100%', minWidth: 680, borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{
+                      borderBottom: `1px solid ${theme.border}`,
+                      color: theme.textSecondary,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase'
+                    }}>
+                      <th style={{ padding: '12px 18px' }}>Name / Details</th>
+                      <th style={{ padding: '12px 18px' }}>Specifications & Quality</th>
+                      <th style={{ padding: '12px 18px' }}>Device</th>
+                      <th style={{ padding: '12px 18px' }}>Price</th>
+                      <th style={{ padding: '12px 18px' }}>Status</th>
+                      <th style={{ padding: '12px 18px', textAlign: 'right' }}>Inspection</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" style={{ padding: '48px 18px', textAlign: 'center', color: theme.textSecondary, fontSize: 13 }}>
+                          No orders found.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredOrders.map(order => {
+                        const isSelected = selectedOrder?.id === order.id;
+                        const printer = getPrinterFromNotes(order.notes) || 'Unassigned';
+                        const weight = Number(order.weightgrams) || 0;
+                        const price = Number(order.totalprice) || 0;
+                        const paymentInfo = getOrderPaymentInfo(order);
+                        const qualityInfo = getOrderQuality(order);
+
+                        let statusColor = theme.textSecondary;
+                        if (order.status === 'printing') statusColor = theme.statusOrange;
+                        if (order.status === 'done') statusColor = theme.statusGreen;
+                        if (order.status === 'cancelled') statusColor = theme.statusRed;
+
+                        return (
+                          <tr
+                            key={order.id}
+                            onClick={() => setSelectedOrder(order)}
+                            style={{
+                              borderBottom: `1px solid ${theme.borderSubtle}`,
+                              cursor: 'pointer',
+                              background: isSelected ? (isAppleDark ? '#2c2c2e' : '#f0f0f5') : 'transparent',
+                              transition: 'background 0.1s ease'
+                            }}
+                          >
+                            {/* Name / Customer */}
+                            <td style={{ padding: '14px 18px' }}>
+                              <div style={{ fontWeight: 600, color: theme.text }}>{order.ordername || 'Custom 3D Print'}</div>
+                              <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
+                                {order.name || 'Client'} · {order.tracking_code || `#${String(order.id).slice(0, 6)}`}
+                              </div>
+                            </td>
+
+                            {/* Specifications & Quality */}
+                            <td style={{ padding: '14px 18px' }}>
+                              <div style={{ color: theme.text, fontWeight: 500 }}>
+                                {order.material || 'PLA'} · {weight}g
+                              </div>
+                              <div style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>
+                                ~{getOrderPrintHours(order).toFixed(1)} hrs
+                              </div>
+                              {/* Quality Setting Badge */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
+                                <span style={{
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  padding: '2px 6px',
+                                  borderRadius: 4,
+                                  background: qualityInfo.tier === 'professional'
+                                    ? (isAppleDark ? 'rgba(175, 82, 222, 0.2)' : 'rgba(175, 82, 222, 0.12)')
+                                    : qualityInfo.tier === 'economy'
+                                    ? (isAppleDark ? 'rgba(255, 159, 10, 0.2)' : 'rgba(255, 149, 0, 0.12)')
+                                    : (isAppleDark ? 'rgba(41, 151, 255, 0.2)' : 'rgba(0, 113, 227, 0.12)'),
+                                  color: qualityInfo.tier === 'professional' ? '#af52de' : qualityInfo.tier === 'economy' ? theme.statusOrange : theme.accent,
+                                  letterSpacing: '0.02em'
+                                }}>
+                                  {qualityInfo.label}
+                                </span>
+                                <span style={{ fontSize: 10, color: theme.textSecondary }}>
+                                  · {qualityInfo.infill}% infill
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Device Assigned */}
+                            <td style={{ padding: '14px 18px' }}>
                               <span style={{
-                                fontSize: 10,
-                                fontWeight: 600,
-                                padding: '1px 6px',
-                                borderRadius: 4,
-                                background: paymentInfo.status === 'paid'
-                                  ? (isAppleDark ? 'rgba(48, 209, 88, 0.15)' : 'rgba(52, 199, 89, 0.12)')
-                                  : paymentInfo.status === 'partial'
-                                  ? (isAppleDark ? 'rgba(255, 159, 10, 0.15)' : 'rgba(255, 149, 0, 0.12)')
-                                  : (isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)'),
-                                color: paymentInfo.status === 'paid'
-                                  ? theme.statusGreen
-                                  : paymentInfo.status === 'partial'
-                                  ? theme.statusOrange
-                                  : theme.textSecondary,
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.03em'
+                                fontSize: 12,
+                                fontWeight: 500,
+                                color: printer.includes('Abdalla') ? theme.accent : printer.includes('Mazen') ? '#af52de' : theme.textSecondary
                               }}>
-                                {paymentInfo.status === 'paid' ? 'Paid' : paymentInfo.status === 'partial' ? 'Partial' : 'Unpaid'}
+                                {printer}
                               </span>
-                            </div>
-                          </td>
+                            </td>
 
-                          {/* Status */}
-                          <td style={{ padding: '14px 18px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />
-                              <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'capitalize', color: theme.text }}>
-                                {order.status}
-                              </span>
-                            </div>
-                          </td>
+                            {/* Price & Payment */}
+                            <td style={{ padding: '14px 18px' }}>
+                              <div style={{ fontWeight: 600, color: theme.text }}>{price.toFixed(2)} EGP</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                                <span style={{
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  padding: '1px 6px',
+                                  borderRadius: 4,
+                                  background: paymentInfo.status === 'paid'
+                                    ? (isAppleDark ? 'rgba(48, 209, 88, 0.15)' : 'rgba(52, 199, 89, 0.12)')
+                                    : paymentInfo.status === 'partial'
+                                    ? (isAppleDark ? 'rgba(255, 159, 10, 0.15)' : 'rgba(255, 149, 0, 0.12)')
+                                    : (isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)'),
+                                  color: paymentInfo.status === 'paid'
+                                    ? theme.statusGreen
+                                    : paymentInfo.status === 'partial'
+                                    ? theme.statusOrange
+                                    : theme.textSecondary,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.03em'
+                                }}>
+                                  {paymentInfo.status === 'paid' ? 'Paid' : paymentInfo.status === 'partial' ? 'Partial' : 'Unpaid'}
+                                </span>
+                              </div>
+                            </td>
 
-                          {/* Right Chevron */}
-                          <td style={{ padding: '14px 18px', textAlign: 'right', color: theme.textMuted }}>
-                            <Icons.ChevronRight />
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                            {/* Status */}
+                            <td style={{ padding: '14px 18px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />
+                                <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'capitalize', color: theme.text }}>
+                                  {order.status}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Right Chevron */}
+                            <td style={{ padding: '14px 18px', textAlign: 'right', color: theme.textMuted }}>
+                              <Icons.ChevronRight />
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )
           )}
 
           {/* ───────────────────────────────────────────────────────── */}
@@ -1585,14 +1918,14 @@ export default function AdminDashboard({
                 background: theme.surface,
                 borderRadius: 12,
                 border: `1px solid ${theme.border}`,
-                padding: '20px 24px',
+                padding: isMobile ? '16px' : '20px 24px',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: isMobile ? 'stretch' : 'center',
                 justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: 20
+                flexDirection: isMobile ? 'column' : 'row',
+                gap: 16
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   <div style={{
                     width: 44,
                     height: 44,
@@ -1601,7 +1934,8 @@ export default function AdminDashboard({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: theme.text
+                    color: theme.text,
+                    flexShrink: 0
                   }}>
                     <Icons.Fleet />
                   </div>
@@ -1612,7 +1946,8 @@ export default function AdminDashboard({
                         width: 7,
                         height: 7,
                         borderRadius: '50%',
-                        background: fleetData.abdalla.activeJob ? theme.statusOrange : theme.statusGreen
+                        background: fleetData.abdalla.activeJob ? theme.statusOrange : theme.statusGreen,
+                        flexShrink: 0
                       }} />
                       <span style={{ fontSize: 12, color: theme.textSecondary }}>
                         {fleetData.abdalla.activeJob ? 'Printing: ' + fleetData.abdalla.activeJob.ordername : 'Ready'}
@@ -1625,7 +1960,13 @@ export default function AdminDashboard({
                 </div>
 
                 {/* Inline Telemetry Metrics */}
-                <div style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
+                <div style={{
+                  display: isMobile ? 'grid' : 'flex',
+                  gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : undefined,
+                  gap: isMobile ? 12 : 32,
+                  alignItems: isMobile ? 'stretch' : 'center',
+                  width: isMobile ? '100%' : 'auto'
+                }}>
                   <div>
                     <div style={{ fontSize: 11, color: theme.textSecondary, textTransform: 'uppercase' }}>Hours</div>
                     <div style={{ fontSize: 15, fontWeight: 600, color: theme.text, marginTop: 2 }}>{fleetData.abdalla.hours} hrs</div>
@@ -1655,7 +1996,10 @@ export default function AdminDashboard({
                       border: `1px solid ${theme.border}`,
                       background: theme.buttonSecondaryBg,
                       color: theme.buttonSecondaryText,
-                      cursor: 'pointer'
+                      cursor: 'pointer',
+                      gridColumn: isMobile ? '1 / -1' : undefined,
+                      width: isMobile ? '100%' : 'auto',
+                      marginTop: isMobile ? 4 : 0
                     }}
                   >
                     + Log Job
@@ -1668,14 +2012,14 @@ export default function AdminDashboard({
                 background: theme.surface,
                 borderRadius: 12,
                 border: `1px solid ${theme.border}`,
-                padding: '20px 24px',
+                padding: isMobile ? '16px' : '20px 24px',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: isMobile ? 'stretch' : 'center',
                 justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: 20
+                flexDirection: isMobile ? 'column' : 'row',
+                gap: 16
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   <div style={{
                     width: 44,
                     height: 44,
@@ -1684,7 +2028,8 @@ export default function AdminDashboard({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: theme.text
+                    color: theme.text,
+                    flexShrink: 0
                   }}>
                     <Icons.Fleet />
                   </div>
@@ -1695,7 +2040,8 @@ export default function AdminDashboard({
                         width: 7,
                         height: 7,
                         borderRadius: '50%',
-                        background: fleetData.mazen.activeJob ? theme.statusOrange : theme.statusGreen
+                        background: fleetData.mazen.activeJob ? theme.statusOrange : theme.statusGreen,
+                        flexShrink: 0
                       }} />
                       <span style={{ fontSize: 12, color: theme.textSecondary }}>
                         {fleetData.mazen.activeJob ? 'Printing: ' + fleetData.mazen.activeJob.ordername : 'Ready'}
@@ -1708,7 +2054,13 @@ export default function AdminDashboard({
                 </div>
 
                 {/* Inline Telemetry Metrics */}
-                <div style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
+                <div style={{
+                  display: isMobile ? 'grid' : 'flex',
+                  gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : undefined,
+                  gap: isMobile ? 12 : 32,
+                  alignItems: isMobile ? 'stretch' : 'center',
+                  width: isMobile ? '100%' : 'auto'
+                }}>
                   <div>
                     <div style={{ fontSize: 11, color: theme.textSecondary, textTransform: 'uppercase' }}>Hours</div>
                     <div style={{ fontSize: 15, fontWeight: 600, color: theme.text, marginTop: 2 }}>{fleetData.mazen.hours} hrs</div>
@@ -1738,7 +2090,10 @@ export default function AdminDashboard({
                       border: `1px solid ${theme.border}`,
                       background: theme.buttonSecondaryBg,
                       color: theme.buttonSecondaryText,
-                      cursor: 'pointer'
+                      cursor: 'pointer',
+                      gridColumn: isMobile ? '1 / -1' : undefined,
+                      width: isMobile ? '100%' : 'auto',
+                      marginTop: isMobile ? 4 : 0
                     }}
                   >
                     + Log Job
@@ -1751,10 +2106,12 @@ export default function AdminDashboard({
                 background: theme.surface,
                 borderRadius: 12,
                 border: `1px solid ${theme.border}`,
-                padding: '16px 24px',
+                padding: isMobile ? '14px 16px' : '16px 24px',
                 display: 'flex',
+                flexDirection: isMobile ? 'column' : 'row',
                 justifyContent: 'space-between',
-                alignItems: 'center',
+                alignItems: isMobile ? 'flex-start' : 'center',
+                gap: 8,
                 fontSize: 13,
                 color: theme.textSecondary
               }}>
@@ -1770,17 +2127,17 @@ export default function AdminDashboard({
           {activeNav === 'partners' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {/* Partner Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
                 <div style={{
                   background: theme.surface,
                   borderRadius: 12,
                   border: `1px solid ${theme.border}`,
-                  padding: 24
+                  padding: isMobile ? 18 : 24
                 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
                     Partner Abdalla (50% Distributable)
                   </div>
-                  <div style={{ fontSize: 32, fontWeight: 700, margin: '8px 0', color: theme.text, letterSpacing: '-0.02em' }}>
+                  <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 700, margin: '8px 0', color: theme.text, letterSpacing: '-0.02em' }}>
                     {fleetData.partnerDistributions.partnerA.payout.toFixed(2)} EGP
                   </div>
                   <div style={{ fontSize: 12, color: theme.textSecondary }}>
@@ -1792,12 +2149,12 @@ export default function AdminDashboard({
                   background: theme.surface,
                   borderRadius: 12,
                   border: `1px solid ${theme.border}`,
-                  padding: 24
+                  padding: isMobile ? 18 : 24
                 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
                     Partner Mazen (50% Distributable)
                   </div>
-                  <div style={{ fontSize: 32, fontWeight: 700, margin: '8px 0', color: theme.text, letterSpacing: '-0.02em' }}>
+                  <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 700, margin: '8px 0', color: theme.text, letterSpacing: '-0.02em' }}>
                     {fleetData.partnerDistributions.partnerB.payout.toFixed(2)} EGP
                   </div>
                   <div style={{ fontSize: 12, color: theme.textSecondary }}>
@@ -2136,7 +2493,8 @@ export default function AdminDashboard({
                     </div>
                   )}
 
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', width: '100%' }}>
+                    <table style={{ width: '100%', minWidth: 540, borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ borderBottom: `1px solid ${theme.border}`, color: theme.textSecondary }}>
                         <th style={{ padding: '8px 10px', textAlign: 'left' }}>Filament Name</th>
@@ -2217,7 +2575,8 @@ export default function AdminDashboard({
                         );
                       })}
                     </tbody>
-                  </table>
+                    </table>
+                  </div>
                 </div>
 
                 {/* Filament Colors Catalog */}
@@ -2499,426 +2858,523 @@ export default function AdminDashboard({
         </div>
 
         {/* ───────────────────────────────────────────────────────────── */}
-        {/* 3. SLIDE-OUT APPLE INSPECTOR SHEET (EXACT MATCH TO SCREENSHOT 1 & 2) */}
+        {/* 3. APPLE INSPECTOR SHEET (DRAWER ON MOBILE, STICKY ON DESKTOP) */}
         {/* ───────────────────────────────────────────────────────────── */}
-        {selectedOrder && (
-          <aside style={{
-            width: 380,
-            background: theme.inspectorBg,
-            borderLeft: `1px solid ${theme.border}`,
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            position: 'sticky',
-            top: 52,
-            height: 'calc(100vh - 52px)',
-            overflowY: 'auto',
-            zIndex: 60
-          }}>
-            <div style={{ padding: 24 }}>
-              {/* Close Button & Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    {selectedOrder.tracking_code || `#${String(selectedOrder.id).slice(0, 8)}`}
+        {(() => {
+          if (!selectedOrder) return null;
+          const selectedQuality = getOrderQuality(selectedOrder);
+
+          const inspectorContent = (
+            <>
+              <div style={{ padding: isMobile ? '16px 18px' : 24 }}>
+                {/* Close Button & Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      {selectedOrder.tracking_code || `#${String(selectedOrder.id).slice(0, 8)}`}
+                    </div>
+                    <h2 style={{ fontSize: 20, fontWeight: 700, margin: '4px 0 0', color: theme.text, letterSpacing: '-0.02em' }}>
+                      {selectedOrder.ordername || 'Custom 3D Print'}
+                    </h2>
+                    <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
+                      Client: {selectedOrder.name || 'Anonymous'} · {selectedOrder.phone}
+                    </div>
                   </div>
-                  <h2 style={{ fontSize: 20, fontWeight: 700, margin: '4px 0 0', color: theme.text, letterSpacing: '-0.02em' }}>
-                    {selectedOrder.ordername || 'Custom 3D Print'}
-                  </h2>
-                  <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
-                    Client: {selectedOrder.name || 'Anonymous'} · {selectedOrder.phone}
-                  </div>
-                </div>
-                <button
-                  onClick={() => setSelectedOrder(null)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: theme.textSecondary,
-                    cursor: 'pointer',
-                    fontSize: 20,
-                    lineHeight: 1
-                  }}
-                >
-                  &times;
-                </button>
-              </div>
-
-              {/* Apple Action Pills Row (like 'Edit Name' & 'Delete' in screenshot 1) */}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-                <button
-                  onClick={() => handleOpenEditModal(selectedOrder)}
-                  style={{
-                    padding: '7px 14px',
-                    borderRadius: 980,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    border: `1px solid ${theme.border}`,
-                    background: theme.buttonSecondaryBg,
-                    color: theme.buttonSecondaryText,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Edit Details
-                </button>
-
-                <button
-                  onClick={() => handleRecalculateOrderPrice(selectedOrder)}
-                  style={{
-                    flex: 1,
-                    padding: '7px 12px',
-                    borderRadius: 980,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    border: `1px solid ${theme.border}`,
-                    background: theme.buttonSecondaryBg,
-                    color: theme.buttonSecondaryText,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Recalculate Price
-                </button>
-
-                <button
-                  onClick={() => handleDeleteOrder(selectedOrder.id)}
-                  style={{
-                    padding: '7px 16px',
-                    borderRadius: 980,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    border: `1px solid rgba(255, 59, 48, 0.2)`,
-                    background: 'rgba(255, 59, 48, 0.06)',
-                    color: theme.statusRed,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
-
-              {/* Apple Segmented Underline Navigation (Overview, Specs, Payment) */}
-              <div style={{
-                display: 'flex',
-                borderBottom: `1px solid ${theme.border}`,
-                marginBottom: 20,
-                gap: 16
-              }}>
-                {[
-                  { id: 'overview', label: 'Overview' },
-                  { id: 'specs', label: 'Specifications' },
-                  { id: 'payment', label: 'Payment' }
-                ].map(tab => (
                   <button
-                    key={tab.id}
-                    onClick={() => setInspectorTab(tab.id)}
+                    onClick={() => setSelectedOrder(null)}
                     style={{
                       background: 'none',
                       border: 'none',
-                      padding: '8px 0',
-                      fontSize: 13,
-                      fontWeight: inspectorTab === tab.id ? 600 : 500,
-                      color: inspectorTab === tab.id ? theme.text : theme.textSecondary,
-                      borderBottom: inspectorTab === tab.id ? `2px solid ${theme.text}` : '2px solid transparent',
+                      color: theme.textSecondary,
                       cursor: 'pointer',
-                      marginBottom: -1
+                      fontSize: 22,
+                      lineHeight: 1,
+                      padding: '0 4px'
                     }}
                   >
-                    {tab.label}
+                    &times;
                   </button>
-                ))}
-              </div>
+                </div>
 
-              {/* Tab 1: Overview */}
-              {inspectorTab === 'overview' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-                    <span style={{ color: theme.textSecondary }}>Production Status</span>
-                    <select
-                      value={selectedOrder.status}
-                      onChange={e => handleUpdateStatus(selectedOrder.id, e.target.value)}
+                {/* Apple Action Pills Row */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => handleOpenEditModal(selectedOrder)}
+                    style={{
+                      padding: '7px 14px',
+                      borderRadius: 980,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      border: `1px solid ${theme.border}`,
+                      background: theme.buttonSecondaryBg,
+                      color: theme.buttonSecondaryText,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Edit Details
+                  </button>
+
+                  <button
+                    onClick={() => handleRecalculateOrderPrice(selectedOrder)}
+                    style={{
+                      flex: 1,
+                      padding: '7px 12px',
+                      borderRadius: 980,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      border: `1px solid ${theme.border}`,
+                      background: theme.buttonSecondaryBg,
+                      color: theme.buttonSecondaryText,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Recalculate Price
+                  </button>
+
+                  <button
+                    onClick={() => handleDeleteOrder(selectedOrder.id)}
+                    style={{
+                      padding: '7px 16px',
+                      borderRadius: 980,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      border: `1px solid rgba(255, 59, 48, 0.2)`,
+                      background: 'rgba(255, 59, 48, 0.06)',
+                      color: theme.statusRed,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+
+                {/* Apple Segmented Underline Navigation (Overview, Specs, Payment) */}
+                <div style={{
+                  display: 'flex',
+                  borderBottom: `1px solid ${theme.border}`,
+                  marginBottom: 20,
+                  gap: 16
+                }}>
+                  {[
+                    { id: 'overview', label: 'Overview' },
+                    { id: 'specs', label: 'Specifications' },
+                    { id: 'payment', label: 'Payment' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setInspectorTab(tab.id)}
                       style={{
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        background: theme.surface,
-                        border: `1px solid ${theme.border}`,
-                        color: theme.text,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: 'pointer'
+                        background: 'none',
+                        border: 'none',
+                        padding: '8px 0',
+                        fontSize: 13,
+                        fontWeight: inspectorTab === tab.id ? 600 : 500,
+                        color: inspectorTab === tab.id ? theme.text : theme.textSecondary,
+                        borderBottom: inspectorTab === tab.id ? `2px solid ${theme.text}` : '2px solid transparent',
+                        cursor: 'pointer',
+                        marginBottom: -1
                       }}
                     >
-                      <option value="queued">Queued</option>
-                      <option value="approved">Approved</option>
-                      <option value="printing">Printing</option>
-                      <option value="done">Completed</option>
-                      <option value="cancelled">Cancelled</option>
-                    </select>
-                  </div>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-                    <span style={{ color: theme.textSecondary }}>Assigned Device</span>
-                    <select
-                      value={getPrinterFromNotes(selectedOrder.notes) || 'Unassigned'}
-                      onChange={e => handleAssignPrinter(selectedOrder.id, e.target.value)}
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        background: theme.surface,
-                        border: `1px solid ${theme.border}`,
-                        color: theme.text,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <option value="Unassigned">Unassigned</option>
-                      <option value="CC Abdalla">CC Abdalla (Abdalla)</option>
-                      <option value="CC Mazen">CC Mazen (Mazen)</option>
-                    </select>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-                    <span style={{ color: theme.textSecondary }}>Total Order Amount</span>
-                    <strong style={{ fontSize: 16, color: theme.text }}>
-                      {Number(selectedOrder.totalprice || 0).toFixed(2)} EGP
-                    </strong>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-                    <span style={{ color: theme.textSecondary }}>Deposit Status</span>
-                    <span style={{ color: theme.statusGreen, fontWeight: 600 }}>
-                      {getOrderDeposit(selectedOrder) ? `${getOrderDeposit(selectedOrder).toFixed(2)} EGP Required` : 'Standard 50%'}
-                    </span>
-                  </div>
-
-                  {selectedOrder.fileurl && (
-                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${theme.borderSubtle}` }}>
-                      <a
-                        href={selectedOrder.fileurl.split(',')[0]}
-                        target="_blank"
-                        rel="noreferrer"
+                {/* Tab 1: Overview */}
+                {inspectorTab === 'overview' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                      <span style={{ color: theme.textSecondary }}>Production Status</span>
+                      <select
+                        value={selectedOrder.status}
+                        onChange={e => handleUpdateStatus(selectedOrder.id, e.target.value)}
                         style={{
-                          display: 'block',
-                          textAlign: 'center',
-                          padding: '8px 14px',
-                          borderRadius: 8,
-                          background: theme.buttonSecondaryBg,
+                          padding: '4px 10px',
+                          borderRadius: 6,
+                          background: theme.surface,
+                          border: `1px solid ${theme.border}`,
                           color: theme.text,
-                          textDecoration: 'none',
                           fontSize: 12,
                           fontWeight: 600,
-                          border: `1px solid ${theme.border}`
+                          cursor: 'pointer'
                         }}
                       >
-                        Download 3D STL Model File &rarr;
-                      </a>
+                        <option value="queued">Queued</option>
+                        <option value="approved">Approved</option>
+                        <option value="printing">Printing</option>
+                        <option value="done">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
                     </div>
-                  )}
-                </div>
-              )}
 
-              {/* Tab 2: Specifications */}
-              {inspectorTab === 'specs' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
-                    <span style={{ color: theme.textSecondary }}>Material</span>
-                    <strong style={{ color: theme.text }}>{selectedOrder.material || 'PLA'}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
-                    <span style={{ color: theme.textSecondary }}>Filament Weight</span>
-                    <strong style={{ color: theme.text }}>{selectedOrder.weightgrams || 0} grams</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
-                    <span style={{ color: theme.textSecondary }}>Estimated Print Time</span>
-                    <strong style={{ color: theme.text }}>~{getOrderPrintHours(selectedOrder).toFixed(1)} hours</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
-                    <span style={{ color: theme.textSecondary }}>Color Choice</span>
-                    <strong style={{ color: theme.text }}>{selectedOrder.color || 'White'}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: theme.textSecondary }}>Fulfillment Mode</span>
-                    <strong style={{ color: theme.text, textTransform: 'capitalize' }}>{getDeliveryMode(selectedOrder)}</strong>
-                  </div>
-                </div>
-              )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                      <span style={{ color: theme.textSecondary }}>Assigned Device</span>
+                      <select
+                        value={getPrinterFromNotes(selectedOrder.notes) || 'Unassigned'}
+                        onChange={e => handleAssignPrinter(selectedOrder.id, e.target.value)}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 6,
+                          background: theme.surface,
+                          border: `1px solid ${theme.border}`,
+                          color: theme.text,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="Unassigned">Unassigned</option>
+                        <option value="CC Abdalla">CC Abdalla (Abdalla)</option>
+                        <option value="CC Mazen">CC Mazen (Mazen)</option>
+                      </select>
+                    </div>
 
-              {/* Tab 3: Payment */}
-              {inspectorTab === 'payment' && (() => {
-                const paymentInfo = getOrderPaymentInfo(selectedOrder);
-                const totalPrice = Number(selectedOrder.totalprice || 0);
-                const depositReq = getOrderDeposit(selectedOrder) || Math.ceil(totalPrice * 0.5);
-                const paidAmount = paymentInfo.status === 'paid'
-                  ? totalPrice
-                  : paymentInfo.status === 'partial'
-                  ? (paymentInfo.paidAmount > 0 ? paymentInfo.paidAmount : depositReq)
-                  : 0;
-                const remainingDue = Math.max(0, totalPrice - paidAmount);
+                    {/* Quality Profile Badge */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                      <span style={{ color: theme.textSecondary }}>Quality Profile</span>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        background: selectedQuality.tier === 'professional'
+                          ? (isAppleDark ? 'rgba(175, 82, 222, 0.2)' : 'rgba(175, 82, 222, 0.12)')
+                          : selectedQuality.tier === 'economy'
+                          ? (isAppleDark ? 'rgba(255, 159, 10, 0.2)' : 'rgba(255, 149, 0, 0.12)')
+                          : (isAppleDark ? 'rgba(41, 151, 255, 0.2)' : 'rgba(0, 113, 227, 0.12)'),
+                        color: selectedQuality.tier === 'professional' ? '#af52de' : selectedQuality.tier === 'economy' ? theme.statusOrange : theme.accent
+                      }}>
+                        {selectedQuality.label}
+                      </span>
+                    </div>
 
-                return (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontSize: 13 }}>
-                    {/* Apple Segmented Payment Selector */}
-                    <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                      <span style={{ color: theme.textSecondary }}>Total Order Amount</span>
+                      <strong style={{ fontSize: 16, color: theme.text }}>
+                        {Number(selectedOrder.totalprice || 0).toFixed(2)} EGP
+                      </strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                      <span style={{ color: theme.textSecondary }}>Deposit Status</span>
+                      <span style={{ color: theme.statusGreen, fontWeight: 600 }}>
+                        {getOrderDeposit(selectedOrder) ? `${getOrderDeposit(selectedOrder).toFixed(2)} EGP Required` : 'Standard 50%'}
+                      </span>
+                    </div>
+
+                    {selectedOrder.fileurl && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${theme.borderSubtle}` }}>
+                        <a
+                          href={selectedOrder.fileurl.split(',')[0]}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            display: 'block',
+                            textAlign: 'center',
+                            padding: '8px 14px',
+                            borderRadius: 8,
+                            background: theme.buttonSecondaryBg,
+                            color: theme.text,
+                            textDecoration: 'none',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            border: `1px solid ${theme.border}`
+                          }}
+                        >
+                          Download 3D STL Model File &rarr;
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Tab 2: Specifications */}
+                {inspectorTab === 'specs' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                      <span style={{ color: theme.textSecondary }}>Material</span>
+                      <strong style={{ color: theme.text }}>{selectedOrder.material || 'PLA'}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                      <span style={{ color: theme.textSecondary }}>Filament Weight</span>
+                      <strong style={{ color: theme.text }}>{selectedOrder.weightgrams || 0} grams</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                      <span style={{ color: theme.textSecondary }}>Estimated Print Time</span>
+                      <strong style={{ color: theme.text }}>~{getOrderPrintHours(selectedOrder).toFixed(1)} hours</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                      <span style={{ color: theme.textSecondary }}>Color Choice</span>
+                      <strong style={{ color: theme.text }}>{selectedOrder.color || 'White'}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                      <span style={{ color: theme.textSecondary }}>Fulfillment Mode</span>
+                      <strong style={{ color: theme.text, textTransform: 'capitalize' }}>{getDeliveryMode(selectedOrder)}</strong>
+                    </div>
+                    {/* Quality Settings Detailed Breakdown */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                      <span style={{ color: theme.textSecondary }}>Quality Preset</span>
+                      <strong style={{
+                        color: selectedQuality.tier === 'professional' ? '#af52de' : selectedQuality.tier === 'economy' ? theme.statusOrange : theme.accent,
+                        textTransform: 'capitalize'
+                      }}>
+                        {selectedQuality.label}
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                      <span style={{ color: theme.textSecondary }}>Layer Height</span>
+                      <strong style={{ color: theme.text }}>{selectedQuality.layerHeight.toFixed(2)} mm</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                      <span style={{ color: theme.textSecondary }}>Infill Density</span>
+                      <strong style={{ color: theme.text }}>{selectedQuality.infill}%</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: theme.textSecondary }}>Supports Generation</span>
+                      <strong style={{ color: selectedQuality.supports ? theme.statusGreen : theme.textSecondary }}>
+                        {selectedQuality.supports ? 'Enabled (Active)' : 'Disabled (None)'}
+                      </strong>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab 3: Payment */}
+                {inspectorTab === 'payment' && (() => {
+                  const paymentInfo = getOrderPaymentInfo(selectedOrder);
+                  const totalPrice = Number(selectedOrder.totalprice || 0);
+                  const depositReq = getOrderDeposit(selectedOrder) || Math.ceil(totalPrice * 0.5);
+                  const paidAmount = paymentInfo.status === 'paid'
+                    ? totalPrice
+                    : paymentInfo.status === 'partial'
+                    ? (paymentInfo.paidAmount > 0 ? paymentInfo.paidAmount : depositReq)
+                    : 0;
+                  const remainingDue = Math.max(0, totalPrice - paidAmount);
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontSize: 13 }}>
+                      <div>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 8
+                        }}>
+                          <span style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: theme.textSecondary,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em'
+                          }}>
+                            Payment Status
+                          </span>
+                          <span style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 980,
+                            background: paymentInfo.status === 'paid'
+                              ? (isAppleDark ? 'rgba(48, 209, 88, 0.15)' : 'rgba(52, 199, 89, 0.12)')
+                              : paymentInfo.status === 'partial'
+                              ? (isAppleDark ? 'rgba(255, 159, 10, 0.15)' : 'rgba(255, 149, 0, 0.12)')
+                              : (isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)'),
+                            color: paymentInfo.status === 'paid'
+                              ? theme.statusGreen
+                              : paymentInfo.status === 'partial'
+                              ? theme.statusOrange
+                              : theme.textSecondary,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.03em'
+                          }}>
+                            {paymentInfo.status === 'paid' ? 'Paid' : paymentInfo.status === 'partial' ? 'Partially Paid' : 'Unpaid'}
+                          </span>
+                        </div>
+
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 1fr 1fr',
+                          gap: 3,
+                          background: isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+                          padding: 3,
+                          borderRadius: 9,
+                          border: `1px solid ${theme.borderSubtle}`
+                        }}>
+                          {[
+                            { id: 'unpaid', label: 'Unpaid', dot: theme.textSecondary },
+                            { id: 'partial', label: 'Partially Paid', dot: theme.statusOrange },
+                            { id: 'paid', label: 'Paid', dot: theme.statusGreen }
+                          ].map(segment => {
+                            const isActive = paymentInfo.status === segment.id;
+                            return (
+                              <button
+                                key={segment.id}
+                                type="button"
+                                onClick={() => handleUpdatePaymentStatus(selectedOrder.id, segment.id)}
+                                style={{
+                                  padding: '7px 4px',
+                                  borderRadius: 7,
+                                  border: 'none',
+                                  fontSize: 11.5,
+                                  fontWeight: isActive ? 600 : 500,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 5,
+                                  transition: 'all 0.15s ease',
+                                  background: isActive ? theme.surface : 'transparent',
+                                  color: isActive ? theme.text : theme.textSecondary,
+                                  boxShadow: isActive
+                                    ? (isAppleDark ? '0 1px 3px rgba(0,0,0,0.5)' : '0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06)')
+                                    : 'none',
+                                  outline: 'none',
+                                  userSelect: 'none'
+                                }}
+                              >
+                                <span style={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: '50%',
+                                  background: segment.dot,
+                                  flexShrink: 0
+                                }} />
+                                <span>{segment.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Financial Snapshot */}
                       <div style={{
+                        background: isAppleDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                        borderRadius: 10,
+                        border: `1px solid ${theme.borderSubtle}`,
+                        padding: '14px 16px',
                         display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: 8
+                        flexDirection: 'column',
+                        gap: 10
                       }}>
-                        <span style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: theme.textSecondary,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.04em'
-                        }}>
-                          Payment Status
-                        </span>
-                        <span style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          padding: '2px 8px',
-                          borderRadius: 980,
-                          background: paymentInfo.status === 'paid'
-                            ? (isAppleDark ? 'rgba(48, 209, 88, 0.15)' : 'rgba(52, 199, 89, 0.12)')
-                            : paymentInfo.status === 'partial'
-                            ? (isAppleDark ? 'rgba(255, 159, 10, 0.15)' : 'rgba(255, 149, 0, 0.12)')
-                            : (isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)'),
-                          color: paymentInfo.status === 'paid'
-                            ? theme.statusGreen
-                            : paymentInfo.status === 'partial'
-                            ? theme.statusOrange
-                            : theme.textSecondary,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.03em'
-                        }}>
-                          {paymentInfo.status === 'paid' ? 'Paid' : paymentInfo.status === 'partial' ? 'Partially Paid' : 'Unpaid'}
-                        </span>
-                      </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                          <span style={{ color: theme.textSecondary }}>Total Customer Price</span>
+                          <strong style={{ color: theme.text }}>{totalPrice.toFixed(2)} EGP</strong>
+                        </div>
 
-                      <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr 1fr',
-                        gap: 3,
-                        background: isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
-                        padding: 3,
-                        borderRadius: 9,
-                        border: `1px solid ${theme.borderSubtle}`
-                      }}>
-                        {[
-                          { id: 'unpaid', label: 'Unpaid', dot: theme.textSecondary },
-                          { id: 'partial', label: 'Partially Paid', dot: theme.statusOrange },
-                          { id: 'paid', label: 'Paid', dot: theme.statusGreen }
-                        ].map(segment => {
-                          const isActive = paymentInfo.status === segment.id;
-                          return (
-                            <button
-                              key={segment.id}
-                              type="button"
-                              onClick={() => handleUpdatePaymentStatus(selectedOrder.id, segment.id)}
-                              style={{
-                                padding: '7px 4px',
-                                borderRadius: 7,
-                                border: 'none',
-                                fontSize: 11.5,
-                                fontWeight: isActive ? 600 : 500,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 5,
-                                transition: 'all 0.15s ease',
-                                background: isActive ? theme.surface : 'transparent',
-                                color: isActive ? theme.text : theme.textSecondary,
-                                boxShadow: isActive
-                                  ? (isAppleDark ? '0 1px 3px rgba(0,0,0,0.5)' : '0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06)')
-                                  : 'none',
-                                outline: 'none',
-                                userSelect: 'none'
-                              }}
-                            >
-                              <span style={{
-                                width: 6,
-                                height: 6,
-                                borderRadius: '50%',
-                                background: segment.dot,
-                                flexShrink: 0
-                              }} />
-                              <span>{segment.label}</span>
-                            </button>
-                          );
-                        })}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                          <span style={{ color: theme.textSecondary }}>50% Deposit Due</span>
+                          <strong style={{ color: theme.text }}>{depositReq.toFixed(2)} EGP</strong>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
+                          <span style={{ color: theme.textSecondary }}>Collected Amount</span>
+                          <strong style={{ color: paidAmount > 0 ? theme.statusGreen : theme.textSecondary }}>
+                            {paidAmount.toFixed(2)} EGP
+                          </strong>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 2 }}>
+                          <span style={{ color: theme.textSecondary }}>Remaining on Collection</span>
+                          <strong style={{
+                            color: remainingDue > 0 ? (paymentInfo.status === 'partial' ? theme.statusOrange : theme.text) : theme.statusGreen,
+                            fontSize: 14
+                          }}>
+                            {remainingDue.toFixed(2)} EGP
+                          </strong>
+                        </div>
                       </div>
                     </div>
+                  );
+                })()}
+              </div>
 
-                    {/* Financial Snapshot */}
-                    <div style={{
-                      background: isAppleDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
-                      borderRadius: 10,
-                      border: `1px solid ${theme.borderSubtle}`,
-                      padding: '14px 16px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 10
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
-                        <span style={{ color: theme.textSecondary }}>Total Customer Price</span>
-                        <strong style={{ color: theme.text }}>{totalPrice.toFixed(2)} EGP</strong>
-                      </div>
+              {/* Bottom Sheet Actions */}
+              <div style={{
+                padding: '14px 20px',
+                borderTop: `1px solid ${theme.border}`,
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 8
+              }}>
+                <button
+                  onClick={() => setSelectedOrder(null)}
+                  style={{
+                    padding: '6px 16px',
+                    borderRadius: 980,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    background: 'transparent',
+                    color: theme.textSecondary,
+                    border: `1px solid ${theme.border}`,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </>
+          );
 
-                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
-                        <span style={{ color: theme.textSecondary }}>50% Deposit Due</span>
-                        <strong style={{ color: theme.text }}>{depositReq.toFixed(2)} EGP</strong>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 8 }}>
-                        <span style={{ color: theme.textSecondary }}>Collected Amount</span>
-                        <strong style={{ color: paidAmount > 0 ? theme.statusGreen : theme.textSecondary }}>
-                          {paidAmount.toFixed(2)} EGP
-                        </strong>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 2 }}>
-                        <span style={{ color: theme.textSecondary }}>Remaining on Collection</span>
-                        <strong style={{
-                          color: remainingDue > 0 ? (paymentInfo.status === 'partial' ? theme.statusOrange : theme.text) : theme.statusGreen,
-                          fontSize: 14
-                        }}>
-                          {remainingDue.toFixed(2)} EGP
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-
-            {/* Bottom Sheet Actions */}
-            <div style={{
-              padding: '16px 24px',
-              borderTop: `1px solid ${theme.border}`,
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: 8
-            }}>
-              <button
-                onClick={() => setSelectedOrder(null)}
+          if (isMobile) {
+            return (
+              <div
                 style={{
-                  padding: '6px 14px',
-                  borderRadius: 980,
-                  fontSize: 12,
-                  fontWeight: 500,
-                  background: 'transparent',
-                  color: theme.textSecondary,
-                  border: `1px solid ${theme.border}`,
-                  cursor: 'pointer'
+                  position: 'fixed',
+                  inset: 0,
+                  background: 'rgba(0, 0, 0, 0.55)',
+                  backdropFilter: 'blur(8px)',
+                  WebkitBackdropFilter: 'blur(8px)',
+                  zIndex: 1000,
+                  display: 'flex',
+                  alignItems: 'flex-end',
+                  justifyContent: 'center'
                 }}
+                onClick={() => setSelectedOrder(null)}
               >
-                Close
-              </button>
-            </div>
-          </aside>
-        )}
+                <aside
+                  onClick={e => e.stopPropagation()}
+                  style={{
+                    width: '100%',
+                    maxHeight: '88vh',
+                    background: theme.inspectorBg,
+                    borderTopLeftRadius: 20,
+                    borderTopRightRadius: 20,
+                    borderTop: `1px solid ${theme.border}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    overflowY: 'auto',
+                    WebkitOverflowScrolling: 'touch',
+                    boxShadow: '0 -10px 40px rgba(0,0,0,0.5)',
+                    paddingBottom: 'env(safe-area-inset-bottom, 12px)'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 10 }}>
+                    <div style={{ width: 40, height: 4, borderRadius: 2, background: theme.border }} />
+                  </div>
+                  {inspectorContent}
+                </aside>
+              </div>
+            );
+          }
+
+          return (
+            <aside style={{
+              width: 380,
+              background: theme.inspectorBg,
+              borderLeft: `1px solid ${theme.border}`,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              position: 'sticky',
+              top: 52,
+              height: 'calc(100vh - 52px)',
+              overflowY: 'auto',
+              zIndex: 60
+            }}>
+              {inspectorContent}
+            </aside>
+          );
+        })()}
       </div>
 
       {/* ───────────────────────────────────────────────────────────── */}
@@ -2928,13 +3384,14 @@ export default function AdminDashboard({
         <div style={{
           position: 'fixed',
           inset: 0,
-          background: 'rgba(0, 0, 0, 0.4)',
+          background: 'rgba(0, 0, 0, 0.55)',
           backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 210,
-          padding: 20
+          padding: isMobile ? 12 : 20
         }}>
           <form
             onSubmit={handleSaveOrderEdit}
@@ -2942,13 +3399,16 @@ export default function AdminDashboard({
               background: theme.surface,
               border: `1px solid ${theme.border}`,
               borderRadius: 16,
-              padding: 28,
-              maxWidth: 460,
+              padding: isMobile ? '20px 16px' : 28,
+              maxWidth: 480,
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              WebkitOverflowScrolling: 'touch',
               width: '100%',
               display: 'flex',
               flexDirection: 'column',
-              gap: 16,
-              boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
+              gap: 14,
+              boxShadow: '0 20px 40px rgba(0,0,0,0.3)'
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2956,7 +3416,7 @@ export default function AdminDashboard({
               <button
                 type="button"
                 onClick={() => setIsEditModalOpen(false)}
-                style={{ background: 'none', border: 'none', color: theme.textSecondary, cursor: 'pointer', fontSize: 20 }}
+                style={{ background: 'none', border: 'none', color: theme.textSecondary, cursor: 'pointer', fontSize: 22, lineHeight: 1 }}
               >
                 &times;
               </button>
@@ -2975,7 +3435,7 @@ export default function AdminDashboard({
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
                   Client Name
@@ -3001,7 +3461,7 @@ export default function AdminDashboard({
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
                   Assigned Hardware
@@ -3035,7 +3495,81 @@ export default function AdminDashboard({
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {/* Quality Preset & Supports */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Quality Tier Preset
+                </label>
+                <select
+                  value={editingOrderData.tier || 'standard'}
+                  onChange={e => {
+                    const newTier = e.target.value;
+                    let lh = 0.20;
+                    let inf = 20;
+                    if (newTier === 'economy') { lh = 0.28; inf = 15; }
+                    else if (newTier === 'professional') { lh = 0.12; inf = 25; }
+                    setEditingOrderData({
+                      ...editingOrderData,
+                      tier: newTier,
+                      layerHeight: lh,
+                      infill: inf
+                    });
+                  }}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                >
+                  <option value="economy">Economy (Draft 0.28mm)</option>
+                  <option value="standard">Standard (0.20mm)</option>
+                  <option value="professional">Professional (Fine 0.12mm)</option>
+                  <option value="custom">Custom Settings</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Supports Generation
+                </label>
+                <select
+                  value={editingOrderData.supports !== false ? 'yes' : 'no'}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, supports: e.target.value === 'yes' })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                >
+                  <option value="yes">Enabled (Generate Supports)</option>
+                  <option value="no">Disabled (No Supports)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Layer Height & Infill Density */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Layer Height (mm)
+                </label>
+                <input
+                  type="number"
+                  step="0.02"
+                  value={editingOrderData.layerHeight || 0.20}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, layerHeight: parseFloat(e.target.value) || 0.20, tier: 'custom' })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Infill Density (%)
+                </label>
+                <input
+                  type="number"
+                  step="5"
+                  value={editingOrderData.infill || 20}
+                  onChange={e => setEditingOrderData({ ...editingOrderData, infill: parseInt(e.target.value, 10) || 20, tier: 'custom' })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
                   Weight (grams)
@@ -3063,7 +3597,7 @@ export default function AdminDashboard({
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
                   Total Price (EGP)
@@ -3137,13 +3671,14 @@ export default function AdminDashboard({
         <div style={{
           position: 'fixed',
           inset: 0,
-          background: 'rgba(0, 0, 0, 0.4)',
+          background: 'rgba(0, 0, 0, 0.55)',
           backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 200,
-          padding: 20
+          padding: isMobile ? 12 : 20
         }}>
           <form
             onSubmit={handleCreateQuickOrder}
@@ -3151,13 +3686,16 @@ export default function AdminDashboard({
               background: theme.surface,
               border: `1px solid ${theme.border}`,
               borderRadius: 16,
-              padding: 28,
-              maxWidth: 460,
+              padding: isMobile ? '20px 16px' : 28,
+              maxWidth: 480,
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              WebkitOverflowScrolling: 'touch',
               width: '100%',
               display: 'flex',
               flexDirection: 'column',
-              gap: 16,
-              boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
+              gap: 14,
+              boxShadow: '0 20px 40px rgba(0,0,0,0.3)'
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -3165,7 +3703,7 @@ export default function AdminDashboard({
               <button
                 type="button"
                 onClick={() => setIsQuickAddOpen(false)}
-                style={{ background: 'none', border: 'none', color: theme.textSecondary, cursor: 'pointer', fontSize: 20 }}
+                style={{ background: 'none', border: 'none', color: theme.textSecondary, cursor: 'pointer', fontSize: 22, lineHeight: 1 }}
               >
                 &times;
               </button>
@@ -3185,7 +3723,22 @@ export default function AdminDashboard({
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Quality Profile
+                </label>
+                <select
+                  value={quickOrder.tier || 'standard'}
+                  onChange={e => setQuickOrder({ ...quickOrder, tier: e.target.value })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                >
+                  <option value="economy">Economy (Draft 0.28mm)</option>
+                  <option value="standard">Standard (0.20mm)</option>
+                  <option value="professional">Professional (Fine 0.12mm)</option>
+                </select>
+              </div>
+
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
                   Assigned Hardware
@@ -3199,7 +3752,9 @@ export default function AdminDashboard({
                   <option value="CC Mazen">CC Mazen (Mazen)</option>
                 </select>
               </div>
+            </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
                   Material
@@ -3214,9 +3769,7 @@ export default function AdminDashboard({
                   ))}
                 </select>
               </div>
-            </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
                   Weight (grams)
@@ -3229,7 +3782,9 @@ export default function AdminDashboard({
                   style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                 />
               </div>
+            </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
                   Print Time (hrs)
@@ -3242,20 +3797,20 @@ export default function AdminDashboard({
                   style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
                 />
               </div>
-            </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
-                Custom Price (Leave empty for dynamic pricing)
-              </label>
-              <input
-                type="number"
-                step="1"
-                placeholder="Auto-calculated"
-                value={quickOrder.customPrice}
-                onChange={e => setQuickOrder({ ...quickOrder, customPrice: e.target.value })}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
-              />
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                  Custom Price (Leave empty for dynamic)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  placeholder="Auto-calculated"
+                  value={quickOrder.customPrice}
+                  onChange={e => setQuickOrder({ ...quickOrder, customPrice: e.target.value })}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, background: theme.canvas, color: theme.text, border: `1px solid ${theme.border}`, fontSize: 13 }}
+                />
+              </div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
@@ -3289,7 +3844,7 @@ export default function AdminDashboard({
                   cursor: 'pointer'
                 }}
               >
-                Add Order
+                Create Order
               </button>
             </div>
           </form>
