@@ -714,11 +714,14 @@ function PrintScene() {
       <Float speed={1.4} rotationIntensity={0.35} floatIntensity={0.45}>
         <mesh position={[0, 0, 0]}>
           <torusKnotGeometry args={[0.8, 0.25, 128, 32]} />
-          <meshStandardMaterial
+          <meshPhysicalMaterial
             color="#FF8000"
-            metalness={0.85}
-            roughness={0.1}
-            envMapIntensity={2}
+            metalness={0.88}
+            roughness={0.12}
+            clearcoat={0.65}
+            clearcoatRoughness={0.15}
+            reflectivity={0.85}
+            envMapIntensity={2.2}
           />
         </mesh>
       </Float>
