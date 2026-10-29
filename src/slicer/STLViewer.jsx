@@ -8,6 +8,7 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import {
   PRINTER_PROFILES,
   autoOrientForPrinting,
+  rotateModelOnBed,
   estimatePrintMetrics,
   sliceMesh,
   generateElegooGcode
@@ -39,9 +40,10 @@ const STLViewer = forwardRef(function STLViewer({
   color = 'Black',
   infillPercent = 20,
   materialKey = 'pla',
-  pricePerGram = 3.0,
+  pricePerGram = 3.5,
   layerHeight = 0.20,
   nozzleSize = 0.40,
+  enableSupports = true,
   printerId = 'centauri_carbon',
   onMetricsChange,
   showSlicerControls = false,
@@ -61,6 +63,7 @@ const STLViewer = forwardRef(function STLViewer({
   const [loadingText, setLoadingText] = useState('Loading 3D model...');
   const [viewMode, setViewMode] = useState('model'); // 'model' | 'toolpath'
   const [sliceData, setSliceData] = useState(null);
+  const [liveMetrics, setLiveMetrics] = useState(null);
   const [activeLayer, setActiveLayer] = useState(1);
   const [maxLayers, setMaxLayers] = useState(1);
   const [soloLayer, setSoloLayer] = useState(false);
@@ -235,7 +238,7 @@ const STLViewer = forwardRef(function STLViewer({
     }
 
     setLoading(true);
-    setLoadingText('Loading STL...');
+    setLoadingText('Loading & orienting STL...');
 
     const loader = new STLLoader();
 
@@ -279,7 +282,7 @@ const STLViewer = forwardRef(function STLViewer({
     }
   }, [color]);
 
-  // Re-estimate metrics when infill, material, pricePerGram, layerHeight, or nozzleSize changes
+  // Re-estimate metrics when infill, material, pricePerGram, layerHeight, nozzleSize, or enableSupports changes
   useEffect(() => {
     if (!geometryRef.current) return;
     const est = estimatePrintMetrics(geometryRef.current, {
@@ -288,10 +291,12 @@ const STLViewer = forwardRef(function STLViewer({
       pricePerGram,
       layerHeight,
       nozzleSize: nozzleSize || (layerHeight <= 0.10 ? 0.20 : 0.40),
+      enableSupports,
       printerId
     });
+    setLiveMetrics(est);
     if (onMetricsChange) onMetricsChange(est);
-  }, [infillPercent, materialKey, pricePerGram, layerHeight, nozzleSize, printerId]);
+  }, [infillPercent, materialKey, pricePerGram, layerHeight, nozzleSize, enableSupports, printerId]);
 
   // Clear 3D model
   function clearModel() {
@@ -303,6 +308,7 @@ const STLViewer = forwardRef(function STLViewer({
     clearToolpaths();
     geometryRef.current = null;
     setSliceData(null);
+    setLiveMetrics(null);
   }
 
   function clearToolpaths() {
@@ -318,12 +324,12 @@ const STLViewer = forwardRef(function STLViewer({
     clearModel();
     geo.computeVertexNormals();
 
-    // Auto-orient for best FDM print orientation (minimise height, maximise bed contact)
+    // Auto-orient for optimal Elegoo Centauri Carbon FDM printing (balanced adhesion & minimal supports)
     autoOrientForPrinting(geo);
 
     geometryRef.current = geo;
 
-    // Center horizontally and ground base on bed (y = 0)
+    // Ensure grounded at y = 0 and centered horizontally on 256 x 256 mm build plate
     geo.computeBoundingBox();
     const bbox = geo.boundingBox;
     const cx = (bbox.max.x + bbox.min.x) / 2;
@@ -347,15 +353,17 @@ const STLViewer = forwardRef(function STLViewer({
     // Auto-frame camera so model is prominent and clean
     autoFrameCamera(geo);
 
-    // Estimate print metrics
+    // Estimate print metrics with supports and active settings
     const est = estimatePrintMetrics(geo, {
       infillPercent,
       materialKey,
       pricePerGram,
       layerHeight,
       nozzleSize: nozzleSize || (layerHeight <= 0.10 ? 0.20 : 0.40),
+      enableSupports,
       printerId
     });
+    setLiveMetrics(est);
     if (onMetricsChange) onMetricsChange(est);
 
     setLoading(false);
@@ -375,9 +383,11 @@ const STLViewer = forwardRef(function STLViewer({
           pricePerGram,
           layerHeight,
           nozzleSize: nozzleSize || (layerHeight <= 0.10 ? 0.20 : 0.40),
+          enableSupports,
           printerId
         });
         setSliceData(res);
+        setLiveMetrics(res);
         setMaxLayers(res.numLayers);
         setActiveLayer(res.numLayers);
         renderToolpaths(res);
@@ -409,7 +419,7 @@ const STLViewer = forwardRef(function STLViewer({
       // Outer wall
       if (layer.outerWall && layer.outerWall.length > 0) {
         const pts = [];
-        layer.outerWall.forEach(seg => {
+        layer.outerWall.forEach((seg) => {
           pts.push(new THREE.Vector3(seg[0].x, seg[0].z, seg[0].y));
           pts.push(new THREE.Vector3(seg[1].x, seg[1].z, seg[1].y));
         });
@@ -420,7 +430,7 @@ const STLViewer = forwardRef(function STLViewer({
       // Inner wall
       if (layer.innerWall && layer.innerWall.length > 0) {
         const pts = [];
-        layer.innerWall.forEach(seg => {
+        layer.innerWall.forEach((seg) => {
           pts.push(new THREE.Vector3(seg[0].x, seg[0].z, seg[0].y));
           pts.push(new THREE.Vector3(seg[1].x, seg[1].z, seg[1].y));
         });
@@ -431,7 +441,7 @@ const STLViewer = forwardRef(function STLViewer({
       // Infill
       if (layer.infill && layer.infill.length > 0) {
         const pts = [];
-        layer.infill.forEach(seg => {
+        layer.infill.forEach((seg) => {
           pts.push(new THREE.Vector3(seg[0].x, seg[0].z, seg[0].y));
           pts.push(new THREE.Vector3(seg[1].x, seg[1].z, seg[1].y));
         });
@@ -448,7 +458,7 @@ const STLViewer = forwardRef(function STLViewer({
   // Filter layer visibility
   function filterLayers(currentL, isSolo) {
     if (!toolpathGroupRef.current) return;
-    toolpathGroupRef.current.children.forEach(grp => {
+    toolpathGroupRef.current.children.forEach((grp) => {
       const idx = grp.userData.layerIndex;
       if (isSolo) {
         grp.visible = idx === currentL;
@@ -474,6 +484,74 @@ const STLViewer = forwardRef(function STLViewer({
     }
   }
 
+  // Update scene mesh & recalculate metrics on orientation changes
+  function updateModelSceneAndMetrics(geo) {
+    if (!geo) return;
+    if (modelGroupRef.current) {
+      while (modelGroupRef.current.children.length > 0) {
+        modelGroupRef.current.remove(modelGroupRef.current.children[0]);
+      }
+
+      const hexColor = resolveColorHex(color);
+      const mat = new THREE.MeshStandardMaterial({
+        color: hexColor,
+        roughness: 0.38,
+        metalness: 0.22,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1
+      });
+
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      modelGroupRef.current.add(mesh);
+
+      const wireMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.08 });
+      const wireGeo = new THREE.WireframeGeometry(geo);
+      const wireLine = new THREE.LineSegments(wireGeo, wireMat);
+      modelGroupRef.current.add(wireLine);
+    }
+
+    if (viewMode === 'toolpath') {
+      setViewMode('model');
+      if (toolpathGroupRef.current) toolpathGroupRef.current.visible = false;
+      if (modelGroupRef.current) modelGroupRef.current.visible = true;
+      setSliceData(null);
+    }
+
+    const calculated = estimatePrintMetrics(geo, {
+      materialKey,
+      pricePerGram,
+      infillPercent,
+      layerHeight,
+      nozzleSize: nozzleSize || (layerHeight <= 0.10 ? 0.20 : 0.40),
+      enableSupports,
+      printerId
+    });
+
+    setLiveMetrics(calculated);
+    if (onMetricsChange) {
+      onMetricsChange(calculated);
+    }
+  }
+
+  // Tashkeel auto-print surface alignment
+  function handleAutoOrient() {
+    if (!geometryRef.current) return;
+    autoOrientForPrinting(geometryRef.current);
+    updateModelSceneAndMetrics(geometryRef.current);
+    autoFrameCamera(geometryRef.current);
+  }
+
+  // Rotate model 90 degrees on bed (Tashkeel rotateX mechanism)
+  function handleRotate90() {
+    if (!geometryRef.current) return;
+    rotateModelOnBed(geometryRef.current, 'x', -Math.PI / 2);
+    updateModelSceneAndMetrics(geometryRef.current);
+    autoFrameCamera(geometryRef.current);
+  }
+
   // Reset Camera View
   function handleResetCamera() {
     if (geometryRef.current) {
@@ -491,8 +569,15 @@ const STLViewer = forwardRef(function STLViewer({
     getSliceResult: () => sliceData,
     generateGcode: (name) => sliceData ? generateElegooGcode(sliceData, name) : null,
     resetCamera: handleResetCamera,
-    autoFrame: () => autoFrameCamera(geometryRef.current)
+    autoFrame: () => autoFrameCamera(geometryRef.current),
+    autoOrient: handleAutoOrient,
+    rotate90: handleRotate90
   }));
+
+  const mDims = liveMetrics?.metrics;
+  const modelG = liveMetrics ? Number(liveMetrics.modelWeightGrams ?? liveMetrics.weightGrams ?? 0) : 0;
+  const supportG = liveMetrics && enableSupports ? Number(liveMetrics.supportWeightGrams ?? 0) : 0;
+  const totalG = liveMetrics ? Number(liveMetrics.totalWeightGrams ?? (modelG + supportG)) : 0;
 
   return (
     <div style={{ position: 'relative', width: '100%', height, minHeight: typeof height === 'number' ? height : undefined, borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border-glass)', background: 'rgba(10, 12, 16, 0.85)' }}>
@@ -508,7 +593,7 @@ const STLViewer = forwardRef(function STLViewer({
       )}
 
       {/* Top Floating Controls Bar */}
-      <div style={{ position: 'absolute', top: 12, left: 12, right: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', pointerEvents: 'none', zIndex: 5 }}>
+      <div style={{ position: 'absolute', top: 12, left: 12, right: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', pointerEvents: 'none', zIndex: 5, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ pointerEvents: 'auto', display: 'flex', gap: 6, background: 'rgba(20, 25, 35, 0.8)', backdropFilter: 'blur(12px)', padding: '4px 8px', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-glass)' }}>
           <button
             type="button"
@@ -528,16 +613,75 @@ const STLViewer = forwardRef(function STLViewer({
           </button>
         </div>
 
-        <button
-          type="button"
-          className="btn btn-sm btn-glass"
-          style={{ pointerEvents: 'auto', padding: '4px 10px', fontSize: 11, borderRadius: 'var(--radius-full)' }}
-          onClick={handleResetCamera}
-          title="Reset Camera & Center Model"
-        >
-          Reset View
-        </button>
+        <div style={{ pointerEvents: 'auto', display: 'flex', gap: 6 }}>
+          <button
+            type="button"
+            className="btn btn-sm btn-glass"
+            style={{ padding: '4px 10px', fontSize: 11, borderRadius: 'var(--radius-full)' }}
+            onClick={handleAutoOrient}
+            title="Auto Print Surface: Place largest flat face on bed"
+          >
+            Auto Orient
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-glass"
+            style={{ padding: '4px 10px', fontSize: 11, borderRadius: 'var(--radius-full)' }}
+            onClick={handleRotate90}
+            title="Rotate model 90 degrees around X"
+          >
+            Rotate 90°
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-glass"
+            style={{ padding: '4px 10px', fontSize: 11, borderRadius: 'var(--radius-full)' }}
+            onClick={handleResetCamera}
+            title="Reset Camera & Center Model"
+          >
+            Reset View
+          </button>
+        </div>
       </div>
+
+      {/* Bottom Slicer Telemetry Badge (Oriented Dimensions, Model Mass & Support Mass) */}
+      {liveMetrics && mDims && viewMode === 'model' && !compact && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 10,
+            left: 10,
+            right: 10,
+            pointerEvents: 'none',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+            padding: '6px 12px',
+            borderRadius: 10,
+            background: 'rgba(14, 18, 26, 0.86)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            fontSize: 11,
+            color: '#cbd5e1',
+            zIndex: 5
+          }}
+        >
+          <span>
+            Oriented: <strong style={{ color: '#ffffff' }}>{mDims.width} x {mDims.depth} x {mDims.height} mm</strong>
+          </span>
+          <span>
+            Model: <strong style={{ color: '#ffffff' }}>{modelG.toFixed(1)}g</strong>
+            {' | '}
+            Supports: <strong style={{ color: enableSupports ? '#34d399' : '#94a3b8' }}>
+              {enableSupports ? `${supportG.toFixed(1)}g` : 'Off'}
+            </strong>
+            {' | '}
+            Total: <strong style={{ color: 'var(--accent, #ff8000)' }}>{totalG.toFixed(1)}g</strong>
+          </span>
+        </div>
+      )}
 
       {/* Bottom Toolpath Layer Slider (visible when in toolpath mode) */}
       {viewMode === 'toolpath' && sliceData && (

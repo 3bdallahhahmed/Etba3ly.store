@@ -12,17 +12,36 @@ export default function ReviewInvoiceCard({
   orderData = {},
   showDepositInfo = true
 }) {
-  const hasMetrics = Boolean(clientMetrics && (clientMetrics.weightGrams || clientMetrics.filamentWeightGrams));
+  const hasMetrics = Boolean(
+    clientMetrics &&
+    (clientMetrics.totalWeightGrams !== undefined ||
+      clientMetrics.weightGrams !== undefined ||
+      clientMetrics.filamentWeightGrams !== undefined)
+  );
 
-  const weight = hasMetrics
-    ? Number(clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0)
+  // Extract 1:1 Model Mass and Tree Support Mass breakdown
+  const rawModelWeight = hasMetrics
+    ? Number(
+        clientMetrics.modelWeightGrams ??
+        clientMetrics.weightGrams ??
+        clientMetrics.filamentWeightGrams ??
+        0
+      )
+    : 0;
+
+  const rawSupportWeight = hasMetrics && enableSupports
+    ? Number(clientMetrics.supportWeightGrams ?? 0)
+    : 0;
+
+  const totalBillableWeight = hasMetrics
+    ? Math.round((rawModelWeight + (enableSupports ? rawSupportWeight : 0)) * 100) / 100
     : 0;
 
   const hours = hasMetrics
     ? clientMetrics.totalSeconds
       ? clientMetrics.totalSeconds / 3600
-      : weight > 0
-        ? weight / 35
+      : totalBillableWeight > 0
+        ? totalBillableWeight / 35
         : 0.2
     : 0;
 
@@ -31,35 +50,34 @@ export default function ReviewInvoiceCard({
       Math.max(1, Math.round((clientMetrics.metrics?.height || 20) / (clientMetrics.layerHeight || 0.20)))
     : 0;
 
-  // Rate calculations
+  // Dynamic Rate Resolution (100% reactive to admin config & material selection)
   const normKey = normalizeMaterialKey(materialKey || materialName || "pla");
   const configuredRate = parseFloat(config?.price_per_gram) || 3.5;
   const mData =
     (materialRates && (materialRates[normKey] || materialRates[materialKey?.toLowerCase()])) ||
     { selling_rate: configuredRate };
-  let rate = Number(mData.selling_rate) || configuredRate;
-  if ((normKey === "pla" || normKey === "pla_plus") && (rate < configuredRate || rate <= 2.0)) {
-    rate = configuredRate;
+  let activeRate = Number(mData.selling_rate) || configuredRate;
+  if ((normKey === "pla" || normKey === "pla_plus") && (activeRate < configuredRate || activeRate <= 2.0)) {
+    activeRate = configuredRate;
   }
   const cleanMatLabel = (materialName || "PLA").replace(/\[.*?\]/g, "").trim();
 
-  // Micro-order rule: Under 17g is flat 50 EGP. 17g and above does NOT activate (normal 3.5/g)
+  // Micro-Order Threshold: < 17g bills at flat 50.00 EGP; 17g+ bills at Math.ceil(totalWeightGrams * activePricePerGram)
   const microThreshold = parseFloat(config?.micro_order_weight_threshold) || 17.0;
   const microFlatPrice = parseFloat(config?.micro_order_flat_price) || 50.0;
-  const isMicroOrder = hasMetrics && weight > 0 && weight < microThreshold;
+  const isMicroOrder = hasMetrics && totalBillableWeight > 0 && totalBillableWeight < microThreshold;
 
-  // Supports and post-print cleaning are fully included in the 3.50 EGP/g rate
-  const finalTotal = hasMetrics
+  const quotedPrice = hasMetrics
     ? (isMicroOrder
         ? microFlatPrice
-        : Math.ceil(weight * rate))
+        : Math.ceil(totalBillableWeight * activeRate))
     : microFlatPrice;
 
   // Deposit calculation (50%)
-  const depositRequired = Math.ceil(finalTotal * 0.5);
-  const remainingBalance = finalTotal - depositRequired;
+  const depositRequired = Math.ceil(quotedPrice * 0.5);
+  const remainingBalance = quotedPrice - depositRequired;
 
-  const isReviewRequired = hasMetrics && finalTotal > (parseFloat(config?.price_review_threshold) || 300);
+  const isReviewRequired = hasMetrics && quotedPrice > (parseFloat(config?.price_review_threshold) || 300);
 
   return (
     <div
@@ -91,7 +109,6 @@ export default function ReviewInvoiceCard({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {/* Calculator SVG Icon in brand orange */}
           <div
             style={{
               color: "var(--accent, #FF8000)",
@@ -147,21 +164,21 @@ export default function ReviewInvoiceCard({
               border: isMicroOrder ? "1px solid rgba(255, 128, 0, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)"
             }}
           >
-            {isMicroOrder ? `Under ${microThreshold}g Flat: 50 EGP` : `Standard ${rate.toFixed(2)} EGP/g`}
+            {isMicroOrder ? `Under ${microThreshold}g Flat: ${microFlatPrice} EGP` : `Active Rate: ${activeRate.toFixed(2)} EGP/g`}
           </span>
         )}
       </div>
 
-      {/* Top Metrics Row: 3 Cards (Weight | Print Time | Layers) */}
+      {/* Top Metrics Row: 3 Cards (Total Mass | Print Time | Layers) */}
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(3, 1fr)",
           gap: 12,
-          marginBottom: 24
+          marginBottom: 22
         }}
       >
-        {/* 1. Weight Card */}
+        {/* 1. Total Weight Card */}
         <div
           className="review-invoice-metric-box"
           style={{
@@ -177,7 +194,6 @@ export default function ReviewInvoiceCard({
             gap: 6
           }}
         >
-          {/* 3D Box Icon (Orange) */}
           <svg
             viewBox="0 0 24 24"
             width="24"
@@ -200,7 +216,7 @@ export default function ReviewInvoiceCard({
               lineHeight: 1.1
             }}
           >
-            {hasMetrics ? `${weight.toFixed(1)}g` : "--"}
+            {hasMetrics ? `${totalBillableWeight.toFixed(1)}g` : "--"}
           </div>
           <div
             style={{
@@ -209,7 +225,7 @@ export default function ReviewInvoiceCard({
               fontWeight: 600
             }}
           >
-            Weight
+            Total Mass
           </div>
         </div>
 
@@ -229,7 +245,6 @@ export default function ReviewInvoiceCard({
             gap: 6
           }}
         >
-          {/* Clock Icon (Light Blue) */}
           <svg
             viewBox="0 0 24 24"
             width="24"
@@ -251,7 +266,7 @@ export default function ReviewInvoiceCard({
               lineHeight: 1.1
             }}
           >
-            {hasMetrics ? (hours >= 1 ? `${hours.toFixed(1)}h` : `${Math.round(hours * 60)}m`) : "--"}
+            {hasMetrics ? (clientMetrics.printTimeFormatted || (hours >= 1 ? `${hours.toFixed(1)}h` : `${Math.round(hours * 60)}m`)) : "--"}
           </div>
           <div
             style={{
@@ -280,7 +295,6 @@ export default function ReviewInvoiceCard({
             gap: 6
           }}
         >
-          {/* Layers Icon (Green) */}
           <svg
             viewBox="0 0 24 24"
             width="24"
@@ -317,29 +331,9 @@ export default function ReviewInvoiceCard({
         </div>
       </div>
 
-      {/* Itemized Pricing Rows */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {/* Row 1: Material & 3D Printing */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            fontSize: 14.5,
-            color: "#e2e8f0"
-          }}
-        >
-          <span style={{ fontWeight: 600 }}>
-            {isMicroOrder
-              ? `Micro-Order Base Rate (< ${microThreshold}g)`
-              : `Material & 3D Printing (${cleanMatLabel} @ ${rate.toFixed(2)} EGP/g)`}
-          </span>
-          <span style={{ fontWeight: 700, color: "#ffffff" }}>
-            {hasMetrics ? `${finalTotal} EGP` : `${rate.toFixed(2)} EGP/g`}
-          </span>
-        </div>
-
-        {/* Row 2: Support Material & Post-Print Cleanup (Included) */}
+      {/* Itemized Mass & Pricing Line-Item Rows */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* Line Item 1: Model Mass (g) */}
         <div
           style={{
             display: "flex",
@@ -349,13 +343,90 @@ export default function ReviewInvoiceCard({
             color: "#cbd5e1"
           }}
         >
-          <span style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
-            Support Material & Post-Print Cleanup
+          <span style={{ fontWeight: 500 }}>Model Mass (2 Walls + Gyroid Infill)</span>
+          <span style={{ fontWeight: 700, color: "#ffffff" }}>
+            {hasMetrics ? `${rawModelWeight.toFixed(2)} g` : "--"}
+          </span>
+        </div>
+
+        {/* Line Item 2: Tree Supports Mass (g) */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            fontSize: 14,
+            color: "#cbd5e1"
+          }}
+        >
+          <span style={{ fontWeight: 500 }}>
+            Tree Supports Mass {enableSupports ? "(Slim / Organic >45 deg)" : "(Disabled)"}
           </span>
           <span
             style={{
               fontWeight: 700,
-              fontSize: 12.5,
+              color: enableSupports ? (rawSupportWeight > 0 ? "#34d399" : "#94a3b8") : "#64748b"
+            }}
+          >
+            {hasMetrics
+              ? (enableSupports ? `${rawSupportWeight.toFixed(2)} g` : "0.00 g (Off)")
+              : "--"}
+          </span>
+        </div>
+
+        {/* Line Item 3: Total Billable Mass (g) */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            fontSize: 14.5,
+            color: "#e2e8f0",
+            paddingTop: 6,
+            borderTop: "1px dashed rgba(255, 255, 255, 0.08)"
+          }}
+        >
+          <span style={{ fontWeight: 700 }}>Total Billable Mass</span>
+          <span style={{ fontWeight: 800, color: "var(--accent, #FF8000)" }}>
+            {hasMetrics ? `${totalBillableWeight.toFixed(2)} g` : "--"}
+          </span>
+        </div>
+
+        {/* Line Item 4: Active Rate (EGP/g) */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            fontSize: 14,
+            color: "#cbd5e1"
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>
+            {isMicroOrder
+              ? `Micro-Order Flat Tier (< ${microThreshold}g)`
+              : `Active Material Rate (${cleanMatLabel})`}
+          </span>
+          <span style={{ fontWeight: 700, color: "#ffffff" }}>
+            {isMicroOrder ? `Flat ${microFlatPrice.toFixed(2)} EGP` : `${activeRate.toFixed(2)} EGP/g`}
+          </span>
+        </div>
+
+        {/* Post-Print Cleanup Included */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            fontSize: 13.5,
+            color: "#cbd5e1"
+          }}
+        >
+          <span style={{ fontWeight: 500 }}>Support Removal & Surface Cleanup</span>
+          <span
+            style={{
+              fontWeight: 700,
+              fontSize: 12,
               padding: "2px 8px",
               borderRadius: 6,
               background: "rgba(16, 185, 129, 0.15)",
@@ -370,7 +441,7 @@ export default function ReviewInvoiceCard({
         {/* Subtle Divider Line */}
         <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.08)", margin: "4px 0" }} />
 
-        {/* Row 5: Total Row (Prominent Orange) */}
+        {/* Total Row (Prominent Orange) */}
         <div
           style={{
             display: "flex",
@@ -408,7 +479,7 @@ export default function ReviewInvoiceCard({
                 textShadow: "0 0 16px rgba(255, 128, 0, 0.35)"
               }}
             >
-              {hasMetrics ? `${finalTotal} EGP` : `Calculated upon slicing`}
+              {hasMetrics ? `${quotedPrice} EGP` : `Calculated upon slicing`}
             </span>
           )}
         </div>
@@ -457,7 +528,7 @@ export default function ReviewInvoiceCard({
               Due to part volume and geometry, our workshop team will review the 3D model for optimal machine orientation and confirm exact pricing before printing.
             </span>
           ) : (
-            "Preliminary estimate based on 3D geometry. Final price confirmed upon workshop review."
+            "1:1 Elegoo Centauri Carbon slicer calibration. Final price confirmed upon workshop review."
           )}
         </div>
       </div>

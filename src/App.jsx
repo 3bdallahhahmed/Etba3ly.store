@@ -41,9 +41,9 @@ try {
   // Ignore preload error in SSR or headless testing
 }
 
-// ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------
 // Supabase
-// ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://gfswtgvsbvmuxywewxij.supabase.co";
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_ORiX5qWkvIQLrG17DIuvIQ_hgFm971W";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -76,9 +76,9 @@ function parseCurrentRoute() {
   return route;
 }
 
-// ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------
 // Helpers
-// ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------
 function getColorHex(colorName = "") {
   const c = String(colorName || "").toLowerCase().trim();
   if (c.startsWith("#")) return c;
@@ -134,9 +134,9 @@ async function copyToClipboard(text) {
   }
 }
 
-// ─────────────────────────────────────────────────────────
-// Printer helpers — parse/set printer tag in notes field
-// ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------
+// Printer helpers -- parse/set printer tag in notes field
+// ---------------------------------------------------------
 function getPrinterFromNotes(notesOrOrder) {
   if (!notesOrOrder) return null;
   const notes = typeof notesOrOrder === 'object'
@@ -158,9 +158,9 @@ function setPrinterInNotes(notes, printer) {
   return `[PRINTER:${printer}] ${cleanNotes}`.trim();
 }
 
-// ─────────────────────────────────────────────────────────
-// Payment helpers — internal cash payment status (Admin Only)
-// ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------
+// Payment helpers -- internal cash payment status (Admin Only)
+// ---------------------------------------------------------
 function getOrderPaymentInfo(order) {
   if (!order) return { status: "unpaid", paidAmount: 0 };
 
@@ -204,9 +204,9 @@ function getCleanNotes(notes) {
     .trim();
 }
 
-// ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------
 // URL & Model Link Helpers
-// ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------
 function isValidUrl(str) {
   if (!str || typeof str !== "string") return false;
   const s = str.trim();
@@ -351,9 +351,9 @@ function AdminOrderCardFooter({ order, config, onUpdateWeight, onUpdatePrice }) 
   );
 }
 
-// ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------
 // Archive (.zip & .rar) & STL validation helpers
-// ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------
 function inspectArchiveBuffer(buffer) {
   const bytes = new Uint8Array(buffer);
   if (bytes.length < 7) {
@@ -500,9 +500,9 @@ function uploadFileWithProgress(file, fileName, onProgress) {
   });
 }
 
-// ─────────────────────────────────────────────────────────
-// 3D SCENE — Abstract Geometry + 3D Print Icons
-// ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------
+// 3D SCENE -- Abstract Geometry + 3D Print Icons
+// ---------------------------------------------------------
 class CanvasErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -547,7 +547,7 @@ function SceneReadyNotifier({ onReady }) {
   return null;
 }
 
-/* ── Gear Shape (3D printing icon) ── */
+/* -- Gear Shape (3D printing icon) -- */
 function GearShape({ position, scale = 1, color = "#FF8000" }) {
   const meshRef = useRef();
   const gearGeo = useMemo(() => {
@@ -584,7 +584,7 @@ function GearShape({ position, scale = 1, color = "#FF8000" }) {
   );
 }
 
-/* ── 3DBenchy Floating Model (shared geometry + persistent per-user random filament colors) ── */
+/* -- 3DBenchy Floating Model (shared geometry + persistent per-user random filament colors) -- */
 const BENCHY_COLOR_PALETTE = [
   "#FFFFFF", // Pure White
   "#00A8FF", // Electric Cyan
@@ -672,7 +672,7 @@ function BenchyShape({ position, rotation = [0, 0, 0], scale = 0.66, spinSpeed =
   );
 }
 
-/* ── Main 3D Scene ── */
+/* -- Main 3D Scene -- */
 function PrintScene() {
   const groupRef = useRef();
   const benchyColors = useMemo(() => getPersistentBenchyColors(), []);
@@ -710,7 +710,7 @@ function PrintScene() {
 
   return (
     <group ref={groupRef}>
-      {/* Central Torus Knot — abstract hero piece */}
+      {/* Central Torus Knot -- abstract hero piece */}
       <Float speed={1.4} rotationIntensity={0.35} floatIntensity={0.45}>
         <mesh position={[0, 0, 0]}>
           <torusKnotGeometry args={[0.8, 0.25, 128, 32]} />
@@ -727,7 +727,7 @@ function PrintScene() {
       </Float>
 
       {/* 3 Same-Size Floating 3DBenchy Models in non-colliding orbits */}
-      {/* Benchy 1 — Top sector */}
+      {/* Benchy 1 -- Top sector */}
       <Float speed={1.6} rotationIntensity={0.3} floatIntensity={0.35}>
         <BenchyShape
           position={[0.1, 1.92, 0.2]}
@@ -738,7 +738,7 @@ function PrintScene() {
         />
       </Float>
 
-      {/* Benchy 2 — Bottom-left sector */}
+      {/* Benchy 2 -- Bottom-left sector */}
       <Float speed={1.7} rotationIntensity={0.3} floatIntensity={0.35}>
         <BenchyShape
           position={[-1.58, -1.22, 0.35]}
@@ -749,7 +749,7 @@ function PrintScene() {
         />
       </Float>
 
-      {/* Benchy 3 — Right sector */}
+      {/* Benchy 3 -- Right sector */}
       <Float speed={1.8} rotationIntensity={0.3} floatIntensity={0.35}>
         <BenchyShape
           position={[1.95, 0.08, 0.25]}
@@ -760,17 +760,17 @@ function PrintScene() {
         />
       </Float>
 
-      {/* Gear 1 — Top-left sector */}
+      {/* Gear 1 -- Top-left sector */}
       <Float speed={1.8} rotationIntensity={0.4} floatIntensity={0.4}>
         <GearShape position={[-1.92, 1.2, -0.45]} scale={0.5} color="#333333" />
       </Float>
 
-      {/* Gear 2 — Bottom-right sector */}
+      {/* Gear 2 -- Bottom-right sector */}
       <Float speed={1.6} rotationIntensity={0.4} floatIntensity={0.4}>
         <GearShape position={[1.65, -1.25, 0.25]} scale={0.35} color="#FFB347" />
       </Float>
 
-      {/* Floating Octahedron — Upper-right sector */}
+      {/* Floating Octahedron -- Upper-right sector */}
       <Float speed={1.5} rotationIntensity={0.5} floatIntensity={0.35}>
         <mesh position={[1.82, 1.42, -0.35]} rotation={[0.3, 0.4, 0]}>
           <octahedronGeometry args={[0.38]} />
@@ -778,7 +778,7 @@ function PrintScene() {
         </mesh>
       </Float>
 
-      {/* Small Torus — Front-left detail */}
+      {/* Small Torus -- Front-left detail */}
       <Float speed={1.3} rotationIntensity={0.25} floatIntensity={0.3}>
         <mesh position={[-0.55, -0.15, 1.2]} rotation={[Math.PI / 3, 0, 0]}>
           <torusGeometry args={[0.28, 0.075, 16, 32]} />
@@ -786,7 +786,7 @@ function PrintScene() {
         </mesh>
       </Float>
 
-      {/* Cylinder — Bottom nozzle detail */}
+      {/* Cylinder -- Bottom nozzle detail */}
       <Float speed={1.2} rotationIntensity={0.2} floatIntensity={0.35}>
         <mesh position={[0.55, -1.85, -0.35]} rotation={[0.2, 0, 0.5]}>
           <cylinderGeometry args={[0.06, 0.15, 0.6, 16]} />
@@ -797,9 +797,9 @@ function PrintScene() {
   );
 }
 
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
 // SVG ICONS
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
 const SunIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
 );
@@ -829,9 +829,9 @@ const CubeIcon = () => (
 );
 
 
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
 // STATUS STEPPER
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
 function StatusStepper({ status }) {
   const normalized = (status || "").toLowerCase().trim();
   const stepKeys = ["queued", "printing", "done"];
@@ -887,9 +887,9 @@ function StatusStepper({ status }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
 // COPYABLE CODE
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
 function CopyableCode({ code }) {
   const [copied, setCopied] = useState(false);
   async function handleCopy() {
@@ -909,9 +909,9 @@ function CopyableCode({ code }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
 // 404 NOT FOUND PAGE
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
 function NotFoundPage({ onGoHome }) {
   const [countdown, setCountdown] = useState(5);
   useEffect(() => {
@@ -936,7 +936,7 @@ function NotFoundPage({ onGoHome }) {
         <h2 style={{ marginBottom: 12 }}>Page Not Found</h2>
         <p style={{ marginBottom: 16 }}>The page you're looking for doesn't exist or has been moved.</p>
         <p style={{ fontSize: 14, color: 'var(--text-tertiary)', marginBottom: 24 }}>
-          Redirecting to home in <strong style={{ color: 'var(--accent)', fontSize: 18 }}>{countdown}</strong> seconds…
+          Redirecting to home in <strong style={{ color: 'var(--accent)', fontSize: 18 }}>{countdown}</strong> seconds...
         </p>
         <a
           href="/home"
@@ -947,24 +947,24 @@ function NotFoundPage({ onGoHome }) {
             else window.location.pathname = "/home";
           }}
         >
-          ← Go Home Now
+          &larr; Go Home Now
         </a>
       </div>
     </section>
   );
 }
 
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
 // MAIN APPLICATION
-// ═══════════════════════════════════════════════════════════
+// ===========================================================
 
 const DEFAULT_CONFIG = {
   id: 1,
   brand_name: "Etba3ly",
   hero_title: "Your Idea.\nMade Real.",
-  hero_subtitle: "Upload your 3D design, pick your material, and we'll print it for you — fast, affordable, and right here on campus.",
+  hero_subtitle: "Upload your 3D design, pick your material, and we'll print it for you -- fast, affordable, and right here on campus.",
   why_title: "Why Print With Us?",
-  why_text: "We're students who love making things. Our setup is tuned for speed and precision, so you get your parts fast without breaking the bank. PLA, PETG, TPU — we've got what you need.",
+  why_text: "We're students who love making things. Our setup is tuned for speed and precision, so you get your parts fast without breaking the bank. PLA, PETG, TPU -- we've got what you need.",
   price_per_gram: 3.5,
   micro_order_weight_threshold: 17,
   micro_order_flat_price: 50,
@@ -1346,16 +1346,16 @@ export default function App() {
   useEffect(() => {
     const brand = (config.brand_name && config.brand_name !== "JUST print" && config.brand_name !== "PrintQueue") ? config.brand_name : "Etba3ly";
     const routeTitles = {
-      home: `${brand} Store — 3D Printing Service Egypt & On-Demand 3D Store`,
-      order: `Order 3D Print | ${brand} Store — Instant Slicing & Quote`,
-      track: `Track Order | ${brand} Store — Live 3D Print Queue`,
-      "full-gallery": `3D Print Gallery | ${brand} Store — Custom Parts & Prototypes`,
-      why: `Why Print With Us | ${brand} Store — Rapid 3D Prototyping`,
-      about: `About Us | ${brand} Store — Student Engineering 3D Printing`,
-      contact: `Contact Us | ${brand} Store — WhatsApp & Email Support`,
+      home: `${brand} Store -- 3D Printing Service Egypt & On-Demand 3D Store`,
+      order: `Order 3D Print | ${brand} Store -- Instant Slicing & Quote`,
+      track: `Track Order | ${brand} Store -- Live 3D Print Queue`,
+      "full-gallery": `3D Print Gallery | ${brand} Store -- Custom Parts & Prototypes`,
+      why: `Why Print With Us | ${brand} Store -- Rapid 3D Prototyping`,
+      about: `About Us | ${brand} Store -- Student Engineering 3D Printing`,
+      contact: `Contact Us | ${brand} Store -- WhatsApp & Email Support`,
       boss: `${brand} Admin Dashboard`
     };
-    const newTitle = routeTitles[currentRoute] || `${brand} Store — 3D Printing Service Egypt`;
+    const newTitle = routeTitles[currentRoute] || `${brand} Store -- 3D Printing Service Egypt`;
     document.title = newTitle;
   }, [config.brand_name, currentRoute]);
 
@@ -1464,7 +1464,7 @@ export default function App() {
     });
   }, [materialRates, config.materials, config.colors]);
 
-  // Scroll reveal — re-run when hash/admin changes so newly-rendered sections get observed
+  // Scroll reveal -- re-run when hash/admin changes so newly-rendered sections get observed
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add("active"); });
@@ -1921,20 +1921,55 @@ export default function App() {
       setUploadProgress(prev => ({ ...prev, percent: 98, stage: "saving" }));
 
       const trackingCode = generateTrackingCode();
-      const weightGrams = clientMetrics ? (clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0) : 0;
-      const printHours = clientMetrics && clientMetrics.printingTimeSeconds ? (clientMetrics.printingTimeSeconds / 3600) : (weightGrams > 0 ? (weightGrams / 35) : 0.2);
+      const modelWeightGrams = clientMetrics
+        ? Number(clientMetrics.modelWeightGrams ?? clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0)
+        : 0;
+      const supportWeightGrams = clientMetrics && enableSupports
+        ? Number(clientMetrics.supportWeightGrams ?? 0)
+        : 0;
+      const weightGrams = clientMetrics
+        ? Math.round((modelWeightGrams + (enableSupports ? supportWeightGrams : 0)) * 100) / 100
+        : 0;
+      const printHours = clientMetrics && clientMetrics.printingTimeSeconds
+        ? (clientMetrics.printingTimeSeconds / 3600)
+        : (weightGrams > 0 ? (weightGrams / 35) : 0.2);
       const deliveryMode = newOrder.deliveryMode || "pickup";
       const referralCode = typeof window !== "undefined" ? (localStorage.getItem("etba3ly_referral") || null) : null;
 
+      const normMatKey = normalizeMaterialKey(newOrder.material || "PLA");
+      const baseRate = parseFloat(config.price_per_gram) || 3.5;
+      const customMatsWithActiveRate = { ...materialRates };
+      const existingMatObj = customMatsWithActiveRate[normMatKey] || {};
+      let resolvedRate = Number(existingMatObj.selling_rate) || baseRate;
+      if ((normMatKey === "pla" || normMatKey === "pla_plus") && (resolvedRate < baseRate || resolvedRate <= 2.0)) {
+        resolvedRate = baseRate;
+      }
+      customMatsWithActiveRate[normMatKey] = {
+        ...existingMatObj,
+        name: existingMatObj.name || newOrder.material || "PLA",
+        selling_rate: resolvedRate,
+        cost: Number(existingMatObj.cost) || 0.66
+      };
+
       const quote = calculateOrderQuote({
-        items: [{ weightGrams, printHours, materialKey: (newOrder.material || "PLA").toLowerCase() }],
+        items: [{ weightGrams, printHours, materialKey: normMatKey }],
         deliveryMode,
         referralCode,
-        customMaterials: materialRates
+        customMaterials: customMatsWithActiveRate,
+        customSettings: {
+          micro_order_weight_threshold: parseFloat(config.micro_order_weight_threshold) || 17,
+          micro_order_flat_price: parseFloat(config.micro_order_flat_price) || 50,
+          pickup_minimum: parseFloat(config.pickup_minimum) || 50
+        }
       });
-      const calculatedTotal = quote.customerTotal;
-      const depositRequired = quote.depositRequired;
-      const remainingBalance = quote.remainingBalance;
+      const microThreshold = parseFloat(config.micro_order_weight_threshold) || 17.0;
+      const microFlatPrice = parseFloat(config.micro_order_flat_price) || 50.0;
+      const isMicro = weightGrams > 0 && weightGrams < microThreshold;
+      const calculatedTotal = deliveryMode === "shipping"
+        ? quote.customerTotal
+        : (weightGrams > 0 ? (isMicro ? microFlatPrice : Math.ceil(weightGrams * resolvedRate)) : microFlatPrice);
+      const depositRequired = Math.ceil(calculatedTotal * 0.5);
+      const remainingBalance = calculatedTotal - depositRequired;
       const cleanNotes = (newOrder.notes || "").trim();
 
       const firstAvailable = Object.values(materialRates).find(m => m && m.in_stock !== false);
@@ -1943,6 +1978,9 @@ export default function App() {
       const finalMaterial = (newOrder.material || defMat).trim();
       const finalColor = (newOrder.color || defCol).trim();
       const fallbackName = hasLink && !hasFiles ? `${getPlatformFromUrl(cleanLink)?.name || 'Online'} 3D Model` : "Untitled Part";
+      const orientedDimsStr = clientMetrics?.metrics
+        ? `${clientMetrics.metrics.width}x${clientMetrics.metrics.depth}x${clientMetrics.metrics.height}mm`
+        : null;
 
       const dynamicTags = [
         `[PROFILE:${selectedTier || "standard"}]`,
@@ -1951,6 +1989,10 @@ export default function App() {
         `[LAYER:${Number(orderLayerHeight || 0.20).toFixed(2)}mm]`,
         `[INFILL:${orderInfill || 20}%]`,
         `[SUPPORTS:${enableSupports ? "yes" : "no"}]`,
+        `[MODEL_G:${modelWeightGrams.toFixed(2)}]`,
+        `[SUPPORT_G:${supportWeightGrams.toFixed(2)}]`,
+        `[TOTAL_G:${weightGrams.toFixed(2)}]`,
+        orientedDimsStr ? `[DIM:${orientedDimsStr}]` : null,
         `[DELIVERY:${deliveryMode || "pickup"}]`,
         `[DEPOSIT:${depositRequired || 0}]`,
         `[BALANCE:${remainingBalance || 0}]`,
@@ -1999,6 +2041,10 @@ export default function App() {
         orderName: payload.ordername,
         trackingCode,
         weightGrams,
+        modelWeightGrams,
+        supportWeightGrams,
+        enableSupports,
+        dimensions: orientedDimsStr,
         totalPrice: calculatedTotal,
         name: newOrder.name,
         material: finalMaterial,
@@ -2094,7 +2140,7 @@ export default function App() {
         `Phone: ${clientPhone}\n` +
         `Part: ${partName}\n` +
         `Material: ${material} (${color})\n` +
-        `Quality Profile: ${tierLabel} • Infill: ${infill} • Supports: ${supports ? "Yes" : "No"}\n` +
+        `Quality Profile: ${tierLabel} | Infill: ${infill} | Supports: ${supports ? "Yes" : "No"}\n` +
         `Weight: ${weight}\n` +
         `Total: ${total}\n\n` +
         (order.fileurl ? `Model / File Link:\n${order.fileurl}\n\n` : '') +
@@ -2141,7 +2187,7 @@ export default function App() {
             title: `Order: ${partName}`,
             color: 0xFF8000,
             fields: discordFields,
-            footer: { text: "Centurai Print OS • Etba3ly" },
+            footer: { text: "Centurai Print OS | Etba3ly" },
             timestamp: new Date().toISOString()
           }]
         })
@@ -2781,9 +2827,9 @@ export default function App() {
     setTrackResults(data && data.length > 0 ? data : "NOT_FOUND");
   }
 
-  // ═══════════════════════════════════════════════════════════
+  // ===========================================================
   // LOGIN VIEW
-  // ═══════════════════════════════════════════════════════════
+  // ===========================================================
   if (hash === "#boss" && !isAdmin) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg-page)' }}>
@@ -2801,9 +2847,9 @@ export default function App() {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
+  // ===========================================================
   // ADMIN DASHBOARD (STRIPE / SHOPIFY REDESIGNED INTERFACE)
-  // ═══════════════════════════════════════════════════════════
+  // ===========================================================
   if (hash === "#boss" && isAdmin) {
     return (
       <AdminDashboard
@@ -2841,9 +2887,9 @@ export default function App() {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
+  // ===========================================================
   // PUBLIC WEBSITE
-  // ═══════════════════════════════════════════════════════════
+  // ===========================================================
   const brandName = (config.brand_name && config.brand_name !== "JUST print" && config.brand_name !== "PrintQueue") ? config.brand_name : "Etba3ly";
 
   return (
@@ -2928,7 +2974,7 @@ export default function App() {
             <div style={{ textAlign: "center", marginBottom: 32 }}>
               <div className="eyebrow-tag">3D SLICER & ORDER WORKSTATION</div>
               <h1 style={{ fontSize: "clamp(32px, 5vw, 48px)", marginBottom: 8 }}>{orderStep === 4 ? "Order Dispatched" : "Configure Your 3D Print"}</h1>
-              {orderStep < 4 && <p style={{ margin: 0 }}>Step {orderStep} of 3 — Instant STL Geometry & Weight Analysis</p>}
+              {orderStep < 4 && <p style={{ margin: 0 }}>Step {orderStep} of 3 -- Instant STL Geometry & Weight Analysis</p>}
               {orderStep === 1 && <a href="/home" onClick={(e) => { e.preventDefault(); navigateTo("home"); }} style={{ display: "inline-block", marginTop: 10, fontSize: 13, color: "var(--text-tertiary)", textDecoration: "none", fontWeight: 600 }}>Return to Studio Home</a>}
             </div>
             
@@ -3252,17 +3298,30 @@ export default function App() {
                         infillPercent={orderInfill}
                         layerHeight={orderLayerHeight}
                         nozzleSize={orderNozzle}
+                        enableSupports={enableSupports}
                         materialKey={newOrder.material || "pla"}
-                        pricePerGram={config.price_per_gram}
+                        pricePerGram={(() => {
+                          const nk = normalizeMaterialKey(newOrder.material || "pla");
+                          const baseR = parseFloat(config.price_per_gram) || 3.5;
+                          const md = (materialRates && (materialRates[nk] || materialRates[newOrder.material?.toLowerCase()])) || { selling_rate: baseR };
+                          let r = Number(md.selling_rate) || baseR;
+                          if ((nk === "pla" || nk === "pla_plus") && (r < baseR || r <= 2.0)) r = baseR;
+                          return r;
+                        })()}
                         onMetricsChange={setClientMetrics}
                         height="260px"
                       />
 
                       {clientMetrics && clientMetrics.metrics && (
                         <div style={{ marginTop: 8, marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "var(--text-secondary)", padding: "8px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)", flexWrap: "wrap", gap: 8 }}>
-                          <span>Dimensions: <strong>{clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm</strong></span>
+                          <span>Oriented Dimensions: <strong>{clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm</strong></span>
+                          <span>
+                            Model: <strong>{Number(clientMetrics.modelWeightGrams ?? clientMetrics.weightGrams ?? 0).toFixed(1)}g</strong>
+                            {" | "}
+                            Tree Supports: <strong>{enableSupports ? `${Number(clientMetrics.supportWeightGrams ?? 0).toFixed(1)}g` : "Disabled (0g)"}</strong>
+                          </span>
                           {clientMetrics.filamentLengthMeters && (
-                            <span>Filament Length: <strong>{clientMetrics.filamentLengthMeters}m</strong></span>
+                            <span>Filament: <strong>{clientMetrics.filamentLengthMeters}m</strong></span>
                           )}
                         </div>
                       )}
@@ -3327,9 +3386,25 @@ export default function App() {
                     <div className="review-item">
                       <span className="review-item-label">Service Tier</span>
                       <span className="review-item-value" style={{ fontWeight: 800, color: "var(--accent)" }}>
-                        {selectedTier === "economy" ? "Economy (Draft 0.28mm)" : selectedTier === "professional" ? "Professional (Fine 0.12mm)" : "Standard (Standard 0.20mm)"}
+                        {selectedTier === "economy" ? "Economy (Draft 0.28mm, 15% Infill)" : selectedTier === "professional" ? "Professional (Fine 0.12mm, 25% Infill)" : selectedTier === "custom" ? `Custom (${Number(orderLayerHeight).toFixed(2)}mm, ${orderInfill}% Infill)` : "Standard (0.20mm, 20% Infill)"}
                       </span>
                     </div>
+                    <div className="review-item">
+                      <span className="review-item-label">Tree Supports</span>
+                      <span className="review-item-value" style={{ fontWeight: 700, color: enableSupports ? "#34d399" : "var(--text-secondary)" }}>
+                        {enableSupports
+                          ? `Enabled (${clientMetrics ? `${Number(clientMetrics.supportWeightGrams ?? 0).toFixed(2)}g` : "Auto >45 deg"})`
+                          : "Disabled (0g)"}
+                      </span>
+                    </div>
+                    {clientMetrics && clientMetrics.metrics && (
+                      <div className="review-item">
+                        <span className="review-item-label">Oriented Bounds</span>
+                        <span className="review-item-value">
+                          {clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm
+                        </span>
+                      </div>
+                    )}
                     <div className="review-item">
                       <span className="review-item-label">Material & Color</span>
                       <span className="review-item-value" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -3611,7 +3686,7 @@ export default function App() {
 
         {(VALID_HASHES.includes(hash) && hash !== "#full-gallery" && hash !== "#order" && hash !== "#track") && (
           <>
-          {/* ── HERO ── */}
+          {/* -- HERO -- */}
           <section id="home" className="section-container animate-in">
             <span
               className="sr-only"
@@ -3627,7 +3702,7 @@ export default function App() {
                 border: 0
               }}
             >
-              Etba3ly Store — On-Demand 3D Printing Service Egypt
+              Etba3ly Store -- On-Demand 3D Printing Service Egypt
             </span>
             <h1 style={{ whiteSpace: "pre-line" }}>{config.hero_title}</h1>
             <p style={{ whiteSpace: "pre-line" }}>{config.hero_subtitle}</p>
@@ -3642,13 +3717,13 @@ export default function App() {
             </div>
           </section>
 
-          {/* ── WHY US ── */}
+          {/* -- WHY US -- */}
           <section id="why" className="section-container reveal">
             <h2>{config.why_title}</h2>
             <p>{(config.why_text || "").replace(/\s*<!--RATES_CATALOG:.*?-->/s, "").trim()}</p>
             <div className="feature-cards">
               {[
-                { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--accent)"}}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>, title: "Fast Turnaround", desc: "Most orders done in 24–48hrs" },
+                { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--accent)"}}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>, title: "Fast Turnaround", desc: "Most orders done in 24-48hrs" },
                 { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--status-done)"}}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>, title: "Student Pricing", desc: `Just ${config.price_per_gram} EGP/gram` },
                 { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 36, height: 36, color: "var(--status-printing)"}}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>, title: "Precision", desc: "0.2mm layer accuracy" }
               ].map((f, i) => (
@@ -3690,13 +3765,13 @@ export default function App() {
             </div>
           </section>
 
-          {/* ── ABOUT ── */}
+          {/* -- ABOUT -- */}
           <section id="about" className="section-container reveal">
             <h2>About Us</h2>
-            <p>We're a team of student engineers passionate about bringing ideas to life. Our 3D printing setup is calibrated daily for optimal results — from functional prototypes to creative projects.</p>
+            <p>We're a team of student engineers passionate about bringing ideas to life. Our 3D printing setup is calibrated daily for optimal results -- from functional prototypes to creative projects.</p>
           </section>
 
-          {/* ── CONTACT ── */}
+          {/* -- CONTACT -- */}
           <section id="contact" className="section-container reveal">
             <h2>Get In Touch</h2>
             <p>Need a custom order or have questions? We're here to help.</p>
@@ -3738,7 +3813,7 @@ export default function App() {
         {toasts.map(t => (
           <div key={t.id} className={`toast ${t.type}`}>
             {t.msg}
-            <button className="toast-close" onClick={() => setToasts(p => p.filter(x => x.id !== t.id))}>×</button>
+            <button className="toast-close" onClick={() => setToasts(p => p.filter(x => x.id !== t.id))}>x</button>
           </div>
         ))}
       </div>
