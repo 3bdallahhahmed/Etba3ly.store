@@ -977,7 +977,7 @@ const DEFAULT_CONFIG = {
   telegram_bot_token: "8667555636:AAHo8iluJWpdDJjwKbo18TfqmRwh9wF_KD0",
   telegram_chat_id: "655459922",
   discord_webhook_url: "",
-  instagram_link: "",
+  instagram_link: "https://www.instagram.com/etba3ly_3d/",
   email_address: "3bdallahhahmed@gmail.com",
   show_socials: true,
   privacy_policy: ""
@@ -3711,6 +3711,9 @@ export default function App() {
                     <WhatsAppIcon /> WhatsApp
                   </a>
                 )}
+                <a href={config.instagram_link || "https://www.instagram.com/etba3ly_3d/"} target="_blank" rel="noreferrer" className="btn btn-glass" style={{ gap: 10 }}>
+                  <InstagramIcon /> Instagram
+                </a>
                 {config.email_address ? (
                   <a href={`mailto:${config.email_address}`} className="btn btn-glass" style={{ gap: 10 }}>
                     <EmailIcon /> Email Us
@@ -3813,17 +3816,13 @@ export default function App() {
             <h4>Connect</h4>
             {config.show_socials !== false ? (
               <div className="social-links">
-                {config.instagram_link && <a href={config.instagram_link} target="_blank" rel="noreferrer" className="social-link"><InstagramIcon /></a>}
-                {config.whatsapp_number && <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="social-link"><WhatsAppIcon /></a>}
-                {config.email_address && <a href={`mailto:${config.email_address}`} className="social-link"><EmailIcon /></a>}
-                {/* Fallbacks if none are provided */}
-                {!config.instagram_link && !config.whatsapp_number && !config.email_address && (
-                  <>
-                    <a href="https://instagram.com" target="_blank" rel="noreferrer" className="social-link"><InstagramIcon /></a>
-                    <a href="https://wa.me/" target="_blank" rel="noreferrer" className="social-link"><WhatsAppIcon /></a>
-                    <a href="mailto:support@etba3ly.store" className="social-link"><EmailIcon /></a>
-                  </>
+                <a href={config.instagram_link || "https://www.instagram.com/etba3ly_3d/"} target="_blank" rel="noreferrer" className="social-link" aria-label="Etba3ly Instagram @etba3ly_3d"><InstagramIcon /></a>
+                {config.whatsapp_number ? (
+                  <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="social-link" aria-label="WhatsApp"><WhatsAppIcon /></a>
+                ) : (
+                  <a href="https://wa.me/" target="_blank" rel="noreferrer" className="social-link" aria-label="WhatsApp"><WhatsAppIcon /></a>
                 )}
+                <a href={`mailto:${config.email_address || "support@etba3ly.store"}`} className="social-link" aria-label="Email"><EmailIcon /></a>
               </div>
             ) : (
               <span style={{ fontSize: 13, color: "rgba(255,255,255,0.3)" }}>Hidden</span>
