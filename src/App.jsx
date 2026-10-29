@@ -3711,9 +3711,6 @@ export default function App() {
                     <WhatsAppIcon /> WhatsApp
                   </a>
                 )}
-                <a href={config.instagram_link || "https://www.instagram.com/etba3ly_3d/"} target="_blank" rel="noreferrer" className="btn btn-glass" style={{ gap: 10 }}>
-                  <InstagramIcon /> Instagram
-                </a>
                 {config.email_address ? (
                   <a href={`mailto:${config.email_address}`} className="btn btn-glass" style={{ gap: 10 }}>
                     <EmailIcon /> Email Us
@@ -3816,13 +3813,13 @@ export default function App() {
             <h4>Connect</h4>
             {config.show_socials !== false ? (
               <div className="social-links">
-                <a href={config.instagram_link || "https://www.instagram.com/etba3ly_3d/"} target="_blank" rel="noreferrer" className="social-link" aria-label="Etba3ly Instagram @etba3ly_3d"><InstagramIcon /></a>
                 {config.whatsapp_number ? (
-                  <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="social-link" aria-label="WhatsApp"><WhatsAppIcon /></a>
+                  <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="social-link" aria-label="WhatsApp" title="WhatsApp"><WhatsAppIcon /></a>
                 ) : (
-                  <a href="https://wa.me/" target="_blank" rel="noreferrer" className="social-link" aria-label="WhatsApp"><WhatsAppIcon /></a>
+                  <a href="https://wa.me/" target="_blank" rel="noreferrer" className="social-link" aria-label="WhatsApp" title="WhatsApp"><WhatsAppIcon /></a>
                 )}
-                <a href={`mailto:${config.email_address || "support@etba3ly.store"}`} className="social-link" aria-label="Email"><EmailIcon /></a>
+                <a href={config.instagram_link || "https://www.instagram.com/etba3ly_3d/"} target="_blank" rel="noreferrer" className="social-link" aria-label="Instagram @etba3ly_3d" title="Instagram @etba3ly_3d"><InstagramIcon /></a>
+                <a href={`mailto:${config.email_address || "support@etba3ly.store"}`} className="social-link" aria-label="Email" title="Email"><EmailIcon /></a>
               </div>
             ) : (
               <span style={{ fontSize: 13, color: "rgba(255,255,255,0.3)" }}>Hidden</span>
