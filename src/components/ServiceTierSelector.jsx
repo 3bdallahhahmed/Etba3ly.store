@@ -5,7 +5,7 @@ export const SERVICE_TIERS = {
     id: "economy",
     title: "Economy",
     subtitle: "Fast turnaround, lower cost",
-    badgeLabel: "Draft 0.28mm",
+    badgeLabel: "Draft 0.28mm | 15% Infill",
     layerHeight: 0.28,
     infill: 15,
     nozzle: 0.40,
@@ -16,7 +16,7 @@ export const SERVICE_TIERS = {
     id: "standard",
     title: "Standard",
     subtitle: "Balanced quality & speed",
-    badgeLabel: "Standard 0.20mm",
+    badgeLabel: "Standard 0.20mm | 20% Infill",
     layerHeight: 0.20,
     infill: 20,
     nozzle: 0.40,
@@ -27,7 +27,7 @@ export const SERVICE_TIERS = {
     id: "professional",
     title: "Professional",
     subtitle: "High precision surface finish",
-    badgeLabel: "Fine 0.12mm",
+    badgeLabel: "Fine 0.12mm | 25% Infill",
     layerHeight: 0.12,
     infill: 25,
     nozzle: 0.40,
@@ -61,6 +61,59 @@ export default function ServiceTierSelector({
     if (setOrderNozzle) setOrderNozzle(tier.nozzle);
   };
 
+  const renderTierIcon = (tierKey, isSelected) => {
+    if (tierKey === "economy") {
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill={isSelected ? "#0a0a0f" : "none"}
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+        </svg>
+      );
+    }
+    if (tierKey === "standard") {
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          width="22"
+          height="22"
+          fill={isSelected ? "#0a0a0f" : "none"}
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+        </svg>
+      );
+    }
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        width="22"
+        height="22"
+        fill={isSelected ? "#0a0a0f" : "none"}
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+        <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+        <path d="M4 22h16" />
+        <path d="M10 14.66V17c0 .55-.45 1-1 1H8c-.55 0-1 .45-1 1v1c0 .55.45 1 1 1h8c.55 0 1-.45 1-1v-1c0-.55-.45-1-1-1h-1c-.55 0-1-.45-1-1v-2.34" />
+        <path d="M18 2H6v7a6 6 0 0 0 12 0V2z" />
+      </svg>
+    );
+  };
+
   return (
     <div
       className="service-tier-wrapper"
@@ -78,42 +131,62 @@ export default function ServiceTierSelector({
       }}
     >
       {/* Header */}
-      <div style={{ marginBottom: 16 }}>
-        <h3
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+        <div>
+          <h3
+            style={{
+              fontSize: 18,
+              fontWeight: 800,
+              color: "var(--text-primary, #F0F0F5)",
+              margin: "0 0 4px 0",
+              letterSpacing: "-0.01em"
+            }}
+          >
+            Service Tier
+          </h3>
+          <p
+            style={{
+              fontSize: 13,
+              color: "var(--text-secondary, #94a3b8)",
+              margin: 0,
+              lineHeight: 1.5
+            }}
+          >
+            Quick preset adjusting resolution, Gyroid infill density, and surface finish.
+          </p>
+        </div>
+
+        <span
           style={{
-            fontSize: 18,
-            fontWeight: 800,
-            color: "var(--text-primary, #F0F0F5)",
-            margin: "0 0 4px 0",
-            letterSpacing: "-0.01em"
+            fontSize: 11.5,
+            fontWeight: 700,
+            padding: "4px 10px",
+            borderRadius: 999,
+            background: "rgba(255, 128, 0, 0.12)",
+            color: "var(--accent, #FF8000)",
+            border: "1px solid rgba(255, 128, 0, 0.28)"
           }}
         >
-          Service Tier
-        </h3>
-        <p
-          style={{
-            fontSize: 13,
-            color: "var(--text-secondary, #94a3b8)",
-            margin: 0,
-            lineHeight: 1.5
-          }}
-        >
-          Quick preset adjusting resolution, infill density, and surface finish.
-        </p>
+          {Number(orderLayerHeight).toFixed(2)}mm | {orderInfill}% Gyroid | Supports: {enableSupports ? "On" : "Off"}
+        </span>
       </div>
 
       {/* Tier Options Stack */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {/* 1. Economy Tier */}
-        {(() => {
-          const isSelected = selectedTier === "economy";
+        {Object.values(SERVICE_TIERS).map((tier) => {
+          const isSelected = selectedTier === tier.id;
           return (
             <div
-              key="economy"
-              onClick={() => handleTierClick("economy")}
+              key={tier.id}
+              onClick={() => handleTierClick(tier.id)}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleTierClick("economy"); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleTierClick(tier.id);
+                }
+              }}
               className={`service-tier-card ${isSelected ? "selected" : ""}`}
               style={{
                 display: "flex",
@@ -131,7 +204,6 @@ export default function ServiceTierSelector({
             >
               {/* Left side: Icon badge and Text */}
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                {/* Icon Badge */}
                 <div
                   style={{
                     width: 44,
@@ -147,31 +219,33 @@ export default function ServiceTierSelector({
                     transition: "all 0.2s ease"
                   }}
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="22"
-                    height="22"
-                    fill={isSelected ? "#0a0a0f" : "none"}
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                  </svg>
+                  {renderTierIcon(tier.id, isSelected)}
                 </div>
 
-                {/* Text Content */}
                 <div>
-                  <div
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 800,
-                      color: isSelected ? "#ffffff" : "var(--text-primary, #F0F0F5)",
-                      lineHeight: 1.3
-                    }}
-                  >
-                    Economy
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span
+                      style={{
+                        fontSize: 16,
+                        fontWeight: 800,
+                        color: isSelected ? "#ffffff" : "var(--text-primary, #F0F0F5)",
+                        lineHeight: 1.3
+                      }}
+                    >
+                      {tier.title}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: 6,
+                        background: isSelected ? "rgba(255, 128, 0, 0.2)" : "rgba(255, 255, 255, 0.06)",
+                        color: isSelected ? "#FF8000" : "#94a3b8"
+                      }}
+                    >
+                      {tier.badgeLabel}
+                    </span>
                   </div>
                   <div
                     style={{
@@ -180,7 +254,7 @@ export default function ServiceTierSelector({
                       marginTop: 2
                     }}
                   >
-                    Fast turnaround, lower cost
+                    {tier.subtitle}
                   </div>
                 </div>
               </div>
@@ -217,245 +291,11 @@ export default function ServiceTierSelector({
               </div>
             </div>
           );
-        })()}
-
-        {/* 2. Standard Tier */}
-        {(() => {
-          const isSelected = selectedTier === "standard";
-          return (
-            <div
-              key="standard"
-              onClick={() => handleTierClick("standard")}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleTierClick("standard"); }}
-              className={`service-tier-card ${isSelected ? "selected" : ""}`}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "14px 18px",
-                borderRadius: 14,
-                cursor: "pointer",
-                transition: "all 0.22s cubic-bezier(0.2, 0.8, 0.2, 1)",
-                background: isSelected ? "rgba(255, 128, 0, 0.08)" : "rgba(255, 255, 255, 0.03)",
-                border: isSelected ? "2px solid #FF8000" : "1px solid rgba(255, 255, 255, 0.08)",
-                boxShadow: isSelected ? "0 0 16px rgba(255, 128, 0, 0.22)" : "none",
-                userSelect: "none"
-              }}
-            >
-              {/* Left side: Icon badge and Text */}
-              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                {/* Icon Badge */}
-                <div
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    background: isSelected ? "#FF8000" : "rgba(255, 255, 255, 0.05)",
-                    border: isSelected ? "1px solid #FF9500" : "1px solid rgba(255, 255, 255, 0.08)",
-                    color: isSelected ? "#0a0a0f" : "#94a3b8",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                    transition: "all 0.2s ease"
-                  }}
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="22"
-                    height="22"
-                    fill={isSelected ? "#0a0a0f" : "none"}
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                  </svg>
-                </div>
-
-                {/* Text Content */}
-                <div>
-                  <div
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 800,
-                      color: isSelected ? "#ffffff" : "var(--text-primary, #F0F0F5)",
-                      lineHeight: 1.3
-                    }}
-                  >
-                    Standard
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 12.5,
-                      color: isSelected ? "#cbd5e1" : "var(--text-secondary, #94a3b8)",
-                      marginTop: 2
-                    }}
-                  >
-                    Balanced quality & speed
-                  </div>
-                </div>
-              </div>
-
-              {/* Right side: Radio indicator */}
-              <div
-                style={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: "50%",
-                  background: isSelected ? "#FF8000" : "transparent",
-                  border: isSelected ? "2px solid #FF8000" : "2px solid rgba(255, 255, 255, 0.22)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  transition: "all 0.2s ease",
-                  flexShrink: 0
-                }}
-              >
-                {isSelected && (
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="13"
-                    height="13"
-                    fill="none"
-                    stroke="#ffffff"
-                    strokeWidth="3.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* 3. Professional Tier */}
-        {(() => {
-          const isSelected = selectedTier === "professional";
-          return (
-            <div
-              key="professional"
-              onClick={() => handleTierClick("professional")}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleTierClick("professional"); }}
-              className={`service-tier-card ${isSelected ? "selected" : ""}`}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "14px 18px",
-                borderRadius: 14,
-                cursor: "pointer",
-                transition: "all 0.22s cubic-bezier(0.2, 0.8, 0.2, 1)",
-                background: isSelected ? "rgba(255, 128, 0, 0.08)" : "rgba(255, 255, 255, 0.03)",
-                border: isSelected ? "2px solid #FF8000" : "1px solid rgba(255, 255, 255, 0.08)",
-                boxShadow: isSelected ? "0 0 16px rgba(255, 128, 0, 0.22)" : "none",
-                userSelect: "none"
-              }}
-            >
-              {/* Left side: Icon badge and Text */}
-              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                {/* Icon Badge */}
-                <div
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    background: isSelected ? "#FF8000" : "rgba(255, 255, 255, 0.05)",
-                    border: isSelected ? "1px solid #FF9500" : "1px solid rgba(255, 255, 255, 0.08)",
-                    color: isSelected ? "#0a0a0f" : "#94a3b8",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                    transition: "all 0.2s ease"
-                  }}
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="22"
-                    height="22"
-                    fill={isSelected ? "#0a0a0f" : "none"}
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
-                    <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
-                    <path d="M4 22h16" />
-                    <path d="M10 14.66V17c0 .55-.45 1-1 1H8c-.55 0-1 .45-1 1v1c0 .55.45 1 1 1h8c.55 0 1-.45 1-1v-1c0-.55-.45-1-1-1h-1c-.55 0-1-.45-1-1v-2.34" />
-                    <path d="M18 2H6v7a6 6 0 0 0 12 0V2z" />
-                  </svg>
-                </div>
-
-                {/* Text Content */}
-                <div>
-                  <div
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 800,
-                      color: isSelected ? "#ffffff" : "var(--text-primary, #F0F0F5)",
-                      lineHeight: 1.3
-                    }}
-                  >
-                    Professional
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 12.5,
-                      color: isSelected ? "#cbd5e1" : "var(--text-secondary, #94a3b8)",
-                      marginTop: 2
-                    }}
-                  >
-                    High precision surface finish
-                  </div>
-                </div>
-              </div>
-
-              {/* Right side: Radio indicator */}
-              <div
-                style={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: "50%",
-                  background: isSelected ? "#FF8000" : "transparent",
-                  border: isSelected ? "2px solid #FF8000" : "2px solid rgba(255, 255, 255, 0.22)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  transition: "all 0.2s ease",
-                  flexShrink: 0
-                }}
-              >
-                {isSelected && (
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="13"
-                    height="13"
-                    fill="none"
-                    stroke="#ffffff"
-                    strokeWidth="3.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-              </div>
-            </div>
-          );
-        })()}
+        })}
       </div>
 
       {/* Advanced Options Collapsible Trigger */}
-      <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-start" }}>
+      <div style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <button
           type="button"
           onClick={() => setShowAdvanced(!showAdvanced)}
@@ -493,7 +333,7 @@ export default function ServiceTierSelector({
             <line x1="9" y1="8" x2="15" y2="8" />
             <line x1="17" y1="16" x2="23" y2="16" />
           </svg>
-          <span>Advanced Options</span>
+          <span>Advanced Slicer Options</span>
           <svg
             viewBox="0 0 24 24"
             width="14"
@@ -510,6 +350,27 @@ export default function ServiceTierSelector({
           >
             <polyline points="6 9 12 15 18 9" />
           </svg>
+        </button>
+
+        {/* Quick Tree Supports Toggle */}
+        <button
+          type="button"
+          onClick={() => {
+            if (setEnableSupports) setEnableSupports(!enableSupports);
+          }}
+          style={{
+            padding: "4px 10px",
+            fontSize: 11.5,
+            fontWeight: 700,
+            borderRadius: 8,
+            cursor: "pointer",
+            background: enableSupports ? "rgba(16, 185, 129, 0.14)" : "rgba(255,255,255,0.04)",
+            border: enableSupports ? "1px solid rgba(16, 185, 129, 0.35)" : "1px solid rgba(255,255,255,0.1)",
+            color: enableSupports ? "#34d399" : "var(--text-tertiary, #64748b)",
+            transition: "all 0.15s ease"
+          }}
+        >
+          Tree Supports: {enableSupports ? "Auto (Enabled)" : "Disabled"}
         </button>
       </div>
 
@@ -531,15 +392,15 @@ export default function ServiceTierSelector({
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <label style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary, #F0F0F5)", margin: 0 }}>
-                Internal Infill Density
+                Gyroid Infill Density
               </label>
               <span style={{ fontSize: 13, fontWeight: 800, color: "var(--accent, #FF8000)" }}>
                 {orderInfill}%
               </span>
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {[10, 15, 20, 30, 50, 100].map((val) => {
-                const isValActive = orderInfill === val;
+              {[10, 15, 20, 25, 30, 50, 100].map((val) => {
+                const isValActive = Number(orderInfill) === val;
                 return (
                   <button
                     key={val}
@@ -549,7 +410,7 @@ export default function ServiceTierSelector({
                       if (onSelectTier) onSelectTier("custom");
                     }}
                     style={{
-                      flex: "1 1 45px",
+                      flex: "1 1 42px",
                       padding: "6px 10px",
                       borderRadius: 8,
                       border: isValActive ? "1px solid #FF8000" : "1px solid rgba(255,255,255,0.1)",
@@ -575,17 +436,17 @@ export default function ServiceTierSelector({
                 Layer Height
               </label>
               <span style={{ fontSize: 13, fontWeight: 800, color: "var(--accent, #FF8000)" }}>
-                {orderLayerHeight.toFixed(2)} mm
+                {Number(orderLayerHeight).toFixed(2)} mm
               </span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
               {[
-                { val: 0.12, label: "0.12 mm — Ultra Fine" },
-                { val: 0.16, label: "0.16 mm — Fine Finish" },
-                { val: 0.20, label: "0.20 mm — Standard" },
-                { val: 0.28, label: "0.28 mm — Fast Draft" }
+                { val: 0.12, label: "0.12 mm - Fine" },
+                { val: 0.16, label: "0.16 mm - Optimal" },
+                { val: 0.20, label: "0.20 mm - Standard" },
+                { val: 0.28, label: "0.28 mm - Draft" }
               ].map((opt) => {
-                const isOptActive = Math.abs(orderLayerHeight - opt.val) < 0.01;
+                const isOptActive = Math.abs(Number(orderLayerHeight) - opt.val) < 0.01;
                 return (
                   <button
                     key={opt.val}
@@ -637,14 +498,14 @@ export default function ServiceTierSelector({
                   border: "1px solid rgba(255,255,255,0.12)"
                 }}
               >
-                <option value={0.40}>0.40 mm (Standard)</option>
+                <option value={0.40}>0.40 mm (Standard 0.42mm Line)</option>
                 <option value={0.20}>0.20 mm (High Precision)</option>
               </select>
             </div>
 
             <div>
               <label style={{ fontSize: 12, color: "var(--text-tertiary, #64748b)", display: "block", marginBottom: 4 }}>
-                Supports
+                Tree Supports (&gt;45 deg)
               </label>
               <button
                 type="button"
@@ -664,7 +525,7 @@ export default function ServiceTierSelector({
                   transition: "all 0.15s ease"
                 }}
               >
-                {enableSupports ? "Auto (When needed)" : "Disabled"}
+                {enableSupports ? "Auto (Tree Slim)" : "Disabled (0g)"}
               </button>
             </div>
           </div>
