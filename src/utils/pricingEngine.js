@@ -30,6 +30,7 @@ export const DEFAULT_PRICING_SETTINGS = {
   failed_print_reserve_pct: 0.00,
 
   // Commercial & partner splits
+  weekly_grams_goal: 500.00,
   deposit_percentage: 0.50,
   referral_commission_pct: 0.05,
   monthly_fixed_overhead: 0.00,

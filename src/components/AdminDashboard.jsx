@@ -398,11 +398,13 @@ export default function AdminDashboard({
   const [pricingSettings, setPricingSettings] = useState(() => {
     try {
       const cached = localStorage.getItem('etba3ly_pricing_settings');
+      const goalCached = localStorage.getItem('etba3ly_weekly_grams_goal');
       if (cached) {
         const parsed = JSON.parse(cached);
         return {
           ...DEFAULT_PRICING_SETTINGS,
           ...parsed,
+          weekly_grams_goal: goalCached ? Number(goalCached) : (Number(parsed.weekly_grams_goal) || 500),
           setup_fee: 0,
           printing_hourly_rate: 0,
           electricity_hourly_rate: 0,
@@ -410,10 +412,52 @@ export default function AdminDashboard({
           depreciation_hourly_rate: 0,
           failed_print_reserve_pct: 0
         };
+      } else if (goalCached) {
+        return {
+          ...DEFAULT_PRICING_SETTINGS,
+          weekly_grams_goal: Number(goalCached) || 500
+        };
       }
     } catch {}
     return { ...DEFAULT_PRICING_SETTINGS };
   });
+
+  // Weekly Production Goal State (customizable grams per week in the tab)
+  const [weeklyGoalInput, setWeeklyGoalInput] = useState(() => {
+    try {
+      const goalCached = localStorage.getItem('etba3ly_weekly_grams_goal');
+      if (goalCached) return Number(goalCached) || 500;
+    } catch {}
+    return 500;
+  });
+
+  useEffect(() => {
+    if (pricingSettings?.weekly_grams_goal) {
+      setWeeklyGoalInput(pricingSettings.weekly_grams_goal);
+    }
+  }, [pricingSettings?.weekly_grams_goal]);
+
+  const handleUpdateWeeklyGoal = async (newGoal) => {
+    const val = Math.max(10, Math.round(Number(newGoal) || 500));
+    setWeeklyGoalInput(val);
+    const updated = { ...pricingSettings, weekly_grams_goal: val };
+    setPricingSettings(updated);
+    try {
+      localStorage.setItem('etba3ly_weekly_grams_goal', String(val));
+      localStorage.setItem('etba3ly_pricing_settings', JSON.stringify(updated));
+      if (supabase) {
+        await supabase.from('pricing_settings').upsert({
+          id: 'default',
+          ...updated,
+          updated_at: new Date().toISOString()
+        });
+      }
+      addToast(`Weekly production goal updated to ${val} g`, 'success');
+    } catch (err) {
+      console.warn('Error saving weekly goal to cloud:', err);
+      addToast(`Weekly production goal set to ${val} g (cached locally)`, 'info');
+    }
+  };
 
   const [internalMaterials, setInternalMaterials] = useState(() => {
     try {
@@ -1147,6 +1191,109 @@ export default function AdminDashboard({
     };
   }, [orders, pricingSettings, materials]);
 
+  // ─────────────────────────────────────────────────────────────
+  // Weekly Production Analytics (Goal Tracking)
+  // ─────────────────────────────────────────────────────────────
+  const weeklyAnalytics = useMemo(() => {
+    const goal = Math.max(10, Number(pricingSettings.weekly_grams_goal) || 500);
+    const now = new Date();
+
+    // Start of current week (Monday 00:00:00.000)
+    const dayOfWeek = now.getDay();
+    const distanceToMonday = (dayOfWeek + 6) % 7;
+    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - distanceToMonday, 0, 0, 0, 0);
+    const startOfWeekMs = startOfWeek.getTime();
+    const endOfWeek = new Date(startOfWeek.getTime() + 7 * 86400000 - 1);
+
+    let thisWeekGrams = 0;
+    let thisWeekAbdallaGrams = 0;
+    let thisWeekMazenGrams = 0;
+    let thisWeekOtherGrams = 0;
+    let thisWeekRevenue = 0;
+    let thisWeekDirectCost = 0;
+    let thisWeekOrders = [];
+
+    // Daily breakdown for current week Mon-Sun (7 days)
+    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const dailyBreakdown = dayLabels.map((name, i) => {
+      const d = new Date(startOfWeek.getTime() + i * 86400000);
+      return {
+        day: name,
+        dateFormatted: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        isToday: d.toDateString() === now.toDateString(),
+        isPastOrToday: d <= now,
+        totalGrams: 0,
+        abdallaGrams: 0,
+        mazenGrams: 0,
+        revenue: 0
+      };
+    });
+
+    orders.forEach(o => {
+      const s = (o.status || '').toLowerCase().trim();
+      const isDone = s === 'done' || s === 'completed' || s === 'delivered';
+      const isPrinting = s === 'printing';
+      if (!isDone && !isPrinting) return;
+
+      const orderDate = o.createdat ? new Date(o.createdat) : (o.created_at ? new Date(o.created_at) : null);
+      const orderMs = (orderDate && !isNaN(orderDate.getTime())) ? orderDate.getTime() : 0;
+      const w = Number(o.weightgrams) || 0;
+      const rev = Number(o.totalprice) || 0;
+      const printer = getPrinterFromNotes(o.notes);
+
+      const matKey = normalizeMaterialKey(o.material);
+      const directMat = Object.values(materials).find(m => m && m.name && m.name.toLowerCase() === String(o.material || '').toLowerCase().trim());
+      const matCostRate = directMat?.cost || materials[matKey]?.cost || 0.66;
+      const directCost = w * matCostRate;
+
+      // Match current week
+      if (orderMs >= startOfWeekMs && orderMs <= endOfWeek.getTime()) {
+        thisWeekGrams += w;
+        thisWeekRevenue += rev;
+        thisWeekDirectCost += directCost;
+        thisWeekOrders.push(o);
+
+        if (printer === 'CC Abdalla') {
+          thisWeekAbdallaGrams += w;
+        } else if (printer === 'CC Mazen') {
+          thisWeekMazenGrams += w;
+        } else {
+          thisWeekOtherGrams += w;
+        }
+
+        const dayIdx = Math.floor((orderMs - startOfWeekMs) / 86400000);
+        if (dayIdx >= 0 && dayIdx < 7) {
+          dailyBreakdown[dayIdx].totalGrams += w;
+          dailyBreakdown[dayIdx].revenue += rev;
+          if (printer === 'CC Abdalla') dailyBreakdown[dayIdx].abdallaGrams += w;
+          else if (printer === 'CC Mazen') dailyBreakdown[dayIdx].mazenGrams += w;
+        }
+      }
+    });
+
+    const percentAchieved = goal > 0 ? Math.min(100, Math.round((thisWeekGrams / goal) * 100)) : 0;
+    const remainingGrams = Math.max(0, goal - thisWeekGrams);
+    const isGoalMet = thisWeekGrams >= goal;
+    const thisWeekProfit = thisWeekRevenue - thisWeekDirectCost;
+
+    return {
+      goal,
+      thisWeekGrams: Math.round(thisWeekGrams * 10) / 10,
+      thisWeekAbdallaGrams: Math.round(thisWeekAbdallaGrams * 10) / 10,
+      thisWeekMazenGrams: Math.round(thisWeekMazenGrams * 10) / 10,
+      thisWeekOtherGrams: Math.round(thisWeekOtherGrams * 10) / 10,
+      percentAchieved,
+      remainingGrams: Math.round(remainingGrams * 10) / 10,
+      isGoalMet,
+      thisWeekRevenue: Math.round(thisWeekRevenue * 100) / 100,
+      thisWeekDirectCost: Math.round(thisWeekDirectCost * 100) / 100,
+      thisWeekProfit: Math.round(thisWeekProfit * 100) / 100,
+      thisWeekOrders: thisWeekOrders.sort((a, b) => new Date(b.createdat || 0) - new Date(a.createdat || 0)),
+      dailyBreakdown,
+      weekRangeFormatted: `${startOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${endOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+    };
+  }, [orders, pricingSettings.weekly_grams_goal, materials]);
+
   // 4 Apple Top Metric Counters
   const orderCounts = useMemo(() => {
     let total = orders.length;
@@ -1408,14 +1555,14 @@ export default function AdminDashboard({
                 <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0, color: theme.text }}>
                   {activeNav === 'orders' && 'Orders'}
                   {activeNav === 'fleet' && 'Devices'}
-                  {activeNav === 'partners' && 'Finance & Partner Allocations'}
+                  {activeNav === 'partners' && 'Finance & Production Goals'}
                   {activeNav === 'settings' && 'Workshop Settings'}
                   {activeNav === 'gallery' && 'Showcase Portfolio'}
                 </h1>
                 <span style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2, display: 'inline-block' }}>
                   {activeNav === 'orders' && `${filteredOrders.length} orders configured`}
                   {activeNav === 'fleet' && '2 CoreXY Elegoo Centauri Carbon devices active'}
-                  {activeNav === 'partners' && 'Realized distributions for Mazen and Abdalla'}
+                  {activeNav === 'partners' && `Weekly target: ${weeklyAnalytics.goal}g · Track partner production and direct earnings`}
                   {activeNav === 'settings' && 'Dynamic pricing rates and CMS settings'}
                   {activeNav === 'gallery' && `${galleryItems.length} published products`}
                 </span>
@@ -2122,71 +2269,699 @@ export default function AdminDashboard({
           )}
 
           {/* ───────────────────────────────────────────────────────── */}
-          {/* VIEW: FINANCE & PARTNER ALLOCATIONS */}
+          {/* VIEW: FINANCE & PRODUCTION GOALS */}
           {/* ───────────────────────────────────────────────────────── */}
           {activeNav === 'partners' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {/* Partner Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Card 1: Apple Production Target & Interactive Goal Setter */}
+              <div style={{
+                background: theme.surface,
+                borderRadius: 14,
+                border: `1px solid ${theme.border}`,
+                padding: isMobile ? 18 : 24,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 20
+              }}>
+                {/* Header row with headline and interactive goal input */}
                 <div style={{
-                  background: theme.surface,
-                  borderRadius: 12,
-                  border: `1px solid ${theme.border}`,
-                  padding: isMobile ? 18 : 24
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: isMobile ? 'stretch' : 'flex-start',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  gap: 16
                 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
-                    Partner Abdalla (50% Distributable)
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        color: theme.textSecondary
+                      }}>
+                        Weekly Filament Target
+                      </span>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: 980,
+                        background: weeklyAnalytics.isGoalMet ? 'rgba(48, 209, 88, 0.15)' : 'rgba(41, 151, 255, 0.12)',
+                        color: weeklyAnalytics.isGoalMet ? theme.statusGreen : theme.accent
+                      }}>
+                        {weeklyAnalytics.isGoalMet
+                          ? `Goal Met (+${Math.round(weeklyAnalytics.thisWeekGrams - weeklyAnalytics.goal)}g)`
+                          : `${weeklyAnalytics.percentAchieved}% of Target`}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                      <span style={{
+                        fontSize: isMobile ? 30 : 38,
+                        fontWeight: 700,
+                        color: theme.text,
+                        letterSpacing: '-0.02em',
+                        fontVariantNumeric: 'tabular-nums'
+                      }}>
+                        {weeklyAnalytics.thisWeekGrams}
+                      </span>
+                      <span style={{ fontSize: 18, color: theme.textSecondary, fontWeight: 500 }}>
+                        / {weeklyAnalytics.goal} g
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: 13, color: theme.textSecondary, marginTop: 4 }}>
+                      {weeklyAnalytics.isGoalMet
+                        ? 'Target achieved for this week. Excellent output!'
+                        : `${weeklyAnalytics.remainingGrams} g remaining to hit this week's goal`}
+                    </div>
                   </div>
-                  <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 700, margin: '8px 0', color: theme.text, letterSpacing: '-0.02em' }}>
-                    {fleetData.partnerDistributions.partnerA.payout.toFixed(2)} EGP
-                  </div>
-                  <div style={{ fontSize: 12, color: theme.textSecondary }}>
-                    Direct machine contribution: {fleetData.abdalla.profit.toFixed(2)} EGP
+
+                  {/* Goal Adjustment Controls */}
+                  <div style={{
+                    background: theme.canvas,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: 12,
+                    padding: '12px 14px',
+                    minWidth: isMobile ? '100%' : 260,
+                    boxSizing: 'border-box'
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 8 }}>
+                      Set Weekly Target (Grams)
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <div style={{ position: 'relative', flex: 1 }}>
+                        <input
+                          type="number"
+                          min="10"
+                          step="50"
+                          value={weeklyGoalInput}
+                          onChange={e => setWeeklyGoalInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdateWeeklyGoal(weeklyGoalInput);
+                            }
+                          }}
+                          placeholder="500"
+                          style={{
+                            width: '100%',
+                            padding: '7px 28px 7px 10px',
+                            borderRadius: 8,
+                            background: theme.surface,
+                            color: theme.text,
+                            border: `1px solid ${theme.border}`,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                        <span style={{
+                          position: 'absolute',
+                          right: 8,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          fontSize: 11,
+                          color: theme.textSecondary,
+                          pointerEvents: 'none',
+                          fontWeight: 600
+                        }}>
+                          g
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateWeeklyGoal(weeklyGoalInput)}
+                        style={{
+                          padding: '7px 14px',
+                          borderRadius: 980,
+                          background: theme.buttonPrimaryBg,
+                          color: theme.buttonPrimaryText,
+                          border: 'none',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          transition: 'opacity 0.15s ease'
+                        }}
+                      >
+                        Save Target
+                      </button>
+                    </div>
+
+                    {/* Presets */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginTop: 10 }}>
+                      <span style={{ fontSize: 10, color: theme.textMuted, fontWeight: 500, marginRight: 2 }}>Presets:</span>
+                      {[250, 500, 750, 1000, 1500].map(val => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => handleUpdateWeeklyGoal(val)}
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: 980,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            border: `1px solid ${weeklyAnalytics.goal === val ? theme.accent : theme.borderSubtle}`,
+                            background: weeklyAnalytics.goal === val ? theme.accent : theme.surface,
+                            color: weeklyAnalytics.goal === val ? '#ffffff' : theme.textSecondary,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          {val}g
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
+                {/* Apple Multi-segment Progress Bar */}
+                <div>
+                  <div style={{
+                    height: 12,
+                    borderRadius: 999,
+                    background: isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    position: 'relative'
+                  }}>
+                    {/* Abdalla portion */}
+                    <div
+                      title={`Partner Abdalla: ${weeklyAnalytics.thisWeekAbdallaGrams}g`}
+                      style={{
+                        width: `${weeklyAnalytics.goal > 0 ? Math.min(100, (weeklyAnalytics.thisWeekAbdallaGrams / weeklyAnalytics.goal) * 100) : 0}%`,
+                        background: '#2997ff',
+                        transition: 'width 0.4s ease'
+                      }}
+                    />
+                    {/* Mazen portion */}
+                    <div
+                      title={`Partner Mazen: ${weeklyAnalytics.thisWeekMazenGrams}g`}
+                      style={{
+                        width: `${weeklyAnalytics.goal > 0 ? Math.min(100 - (weeklyAnalytics.thisWeekAbdallaGrams / weeklyAnalytics.goal) * 100, (weeklyAnalytics.thisWeekMazenGrams / weeklyAnalytics.goal) * 100) : 0}%`,
+                        background: '#af52de',
+                        transition: 'width 0.4s ease'
+                      }}
+                    />
+                    {/* Other unassigned */}
+                    {weeklyAnalytics.thisWeekOtherGrams > 0 && (
+                      <div
+                        title={`Unassigned: ${weeklyAnalytics.thisWeekOtherGrams}g`}
+                        style={{
+                          width: `${weeklyAnalytics.goal > 0 ? Math.min(100 - ((weeklyAnalytics.thisWeekAbdallaGrams + weeklyAnalytics.thisWeekMazenGrams) / weeklyAnalytics.goal) * 100, (weeklyAnalytics.thisWeekOtherGrams / weeklyAnalytics.goal) * 100) : 0}%`,
+                          background: theme.statusOrange,
+                          transition: 'width 0.4s ease'
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Legend below bar */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                    marginTop: 10,
+                    fontSize: 12,
+                    color: theme.textSecondary
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2997ff', display: 'inline-block' }} />
+                        <span>Partner Abdalla: <strong style={{ color: theme.text }}>{weeklyAnalytics.thisWeekAbdallaGrams} g</strong></span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#af52de', display: 'inline-block' }} />
+                        <span>Partner Mazen: <strong style={{ color: theme.text }}>{weeklyAnalytics.thisWeekMazenGrams} g</strong></span>
+                      </div>
+                      {weeklyAnalytics.thisWeekOtherGrams > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: theme.statusOrange, display: 'inline-block' }} />
+                          <span>Other: <strong style={{ color: theme.text }}>{weeklyAnalytics.thisWeekOtherGrams} g</strong></span>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: theme.textMuted }}>
+                      Current Week: {weeklyAnalytics.weekRangeFormatted}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Daily Production Activity (Mon - Sun) */}
                 <div style={{
-                  background: theme.surface,
-                  borderRadius: 12,
-                  border: `1px solid ${theme.border}`,
-                  padding: isMobile ? 18 : 24
+                  paddingTop: 16,
+                  borderTop: `1px solid ${theme.borderSubtle}`
                 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
-                    Partner Mazen (50% Distributable)
+                  <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 12 }}>
+                    Daily Production Breakdown
                   </div>
-                  <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 700, margin: '8px 0', color: theme.text, letterSpacing: '-0.02em' }}>
-                    {fleetData.partnerDistributions.partnerB.payout.toFixed(2)} EGP
-                  </div>
-                  <div style={{ fontSize: 12, color: theme.textSecondary }}>
-                    Direct machine contribution: {fleetData.mazen.profit.toFixed(2)} EGP
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(7, 1fr)',
+                    gap: 8,
+                    alignItems: 'end',
+                    height: 90
+                  }}>
+                    {weeklyAnalytics.dailyBreakdown.map((item, idx) => {
+                      const maxDailyRef = Math.max(100, ...weeklyAnalytics.dailyBreakdown.map(d => d.totalGrams));
+                      const barHeightPct = Math.min(100, Math.round((item.totalGrams / maxDailyRef) * 65));
+                      const abdallaSharePct = item.totalGrams > 0 ? (item.abdallaGrams / item.totalGrams) * 100 : 0;
+                      const mazenSharePct = item.totalGrams > 0 ? (item.mazenGrams / item.totalGrams) * 100 : 0;
+
+                      return (
+                        <div key={idx} style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          height: '100%',
+                          justifyContent: 'flex-end',
+                          gap: 5
+                        }}>
+                          <span style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: item.totalGrams > 0 ? theme.text : theme.textMuted
+                          }}>
+                            {item.totalGrams > 0 ? `${Math.round(item.totalGrams)}g` : '-'}
+                          </span>
+
+                          <div style={{
+                            width: '100%',
+                            maxWidth: 32,
+                            height: 50,
+                            borderRadius: 6,
+                            background: isAppleDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+                            display: 'flex',
+                            flexDirection: 'column-reverse',
+                            overflow: 'hidden',
+                            border: item.isToday ? `1px solid ${theme.accent}` : 'none'
+                          }}>
+                            {item.totalGrams > 0 ? (
+                              <div style={{
+                                height: `${Math.max(14, barHeightPct)}%`,
+                                width: '100%',
+                                display: 'flex',
+                                flexDirection: 'column-reverse',
+                                borderRadius: 4,
+                                overflow: 'hidden'
+                              }}>
+                                <div style={{ height: `${abdallaSharePct}%`, width: '100%', background: '#2997ff' }} />
+                                <div style={{ height: `${mazenSharePct}%`, width: '100%', background: '#af52de' }} />
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <span style={{
+                              fontSize: 11,
+                              fontWeight: item.isToday ? 700 : 500,
+                              color: item.isToday ? theme.accent : theme.textSecondary
+                            }}>
+                              {item.day}
+                            </span>
+                            {item.isToday && (
+                              <span style={{ width: 4, height: 4, borderRadius: '50%', background: theme.accent, display: 'inline-block' }} />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
 
-              {/* Pool Breakdown Table */}
-              <div style={{
-                background: theme.surface,
-                borderRadius: 12,
-                border: `1px solid ${theme.border}`,
-                padding: '20px 24px'
-              }}>
-                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: theme.text }}>
-                  Realized Net Earnings & Capital Pools
+              {/* Card 2: Partner Performance Cards (Abdalla & Mazen) */}
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
+                {/* Partner Abdalla */}
+                <div style={{
+                  background: theme.surface,
+                  borderRadius: 14,
+                  border: `1px solid ${theme.border}`,
+                  padding: isMobile ? 18 : 22,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2997ff' }} />
+                        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: theme.text }}>Partner Abdalla</h2>
+                      </div>
+                      <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 3 }}>
+                        Hardware: Elegoo Centauri Carbon (CC Abdalla)
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: '3px 8px',
+                      borderRadius: 980,
+                      background: fleetData.abdalla.activeJob ? 'rgba(255, 159, 10, 0.15)' : 'rgba(48, 209, 88, 0.15)',
+                      color: fleetData.abdalla.activeJob ? theme.statusOrange : theme.statusGreen
+                    }}>
+                      {fleetData.abdalla.activeJob ? 'Printing' : 'Standby / Ready'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      This Week's Production
+                    </div>
+                    <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 700, margin: '4px 0', color: theme.text, letterSpacing: '-0.02em' }}>
+                      {weeklyAnalytics.thisWeekAbdallaGrams} <span style={{ fontSize: 18, fontWeight: 500, color: theme.textSecondary }}>g</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: theme.textSecondary }}>
+                      {weeklyAnalytics.thisWeekGrams > 0
+                        ? `${Math.round((weeklyAnalytics.thisWeekAbdallaGrams / weeklyAnalytics.thisWeekGrams) * 100)}% of weekly team output`
+                        : 'No jobs printed this week yet'}
+                    </div>
+                  </div>
+
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 10,
+                    background: theme.canvas,
+                    borderRadius: 10,
+                    padding: '12px 14px',
+                    border: `1px solid ${theme.borderSubtle}`
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                        Realized Revenue
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: theme.text, marginTop: 2 }}>
+                        {fleetData.abdalla.revenue.toFixed(2)} EGP
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                        Machine Profit
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: theme.accent, marginTop: 2 }}>
+                        {fleetData.abdalla.profit.toFixed(2)} EGP
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                        All-Time Filament
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: theme.text, marginTop: 2 }}>
+                        {fleetData.abdalla.grams} g
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                        Logged Runtime
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: theme.text, marginTop: 2 }}>
+                        {fleetData.abdalla.hours} hrs
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 10 }}>
-                    <span style={{ color: theme.textSecondary }}>Distributable Partner Pool (40%)</span>
-                    <strong style={{ color: theme.statusGreen }}>{fleetData.partnerDistributions.totalDistributionPool.toFixed(2)} EGP</strong>
+                {/* Partner Mazen */}
+                <div style={{
+                  background: theme.surface,
+                  borderRadius: 14,
+                  border: `1px solid ${theme.border}`,
+                  padding: isMobile ? 18 : 22,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#af52de' }} />
+                        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: theme.text }}>Partner Mazen</h2>
+                      </div>
+                      <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 3 }}>
+                        Hardware: Elegoo Centauri Carbon (CC Mazen)
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: '3px 8px',
+                      borderRadius: 980,
+                      background: fleetData.mazen.activeJob ? 'rgba(255, 159, 10, 0.15)' : 'rgba(48, 209, 88, 0.15)',
+                      color: fleetData.mazen.activeJob ? theme.statusOrange : theme.statusGreen
+                    }}>
+                      {fleetData.mazen.activeJob ? 'Printing' : 'Standby / Ready'}
+                    </span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 10 }}>
-                    <span style={{ color: theme.textSecondary }}>Business Growth Fund (40%)</span>
-                    <strong style={{ color: theme.accent }}>{fleetData.partnerDistributions.growthFund.toFixed(2)} EGP</strong>
+
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      This Week's Production
+                    </div>
+                    <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 700, margin: '4px 0', color: theme.text, letterSpacing: '-0.02em' }}>
+                      {weeklyAnalytics.thisWeekMazenGrams} <span style={{ fontSize: 18, fontWeight: 500, color: theme.textSecondary }}>g</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: theme.textSecondary }}>
+                      {weeklyAnalytics.thisWeekGrams > 0
+                        ? `${Math.round((weeklyAnalytics.thisWeekMazenGrams / weeklyAnalytics.thisWeekGrams) * 100)}% of weekly team output`
+                        : 'No jobs printed this week yet'}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, paddingBottom: 4 }}>
-                    <span style={{ color: theme.textSecondary }}>Emergency Operating Reserves (20%)</span>
-                    <strong style={{ color: theme.statusOrange }}>{fleetData.partnerDistributions.cashReserves.toFixed(2)} EGP</strong>
+
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 10,
+                    background: theme.canvas,
+                    borderRadius: 10,
+                    padding: '12px 14px',
+                    border: `1px solid ${theme.borderSubtle}`
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                        Realized Revenue
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: theme.text, marginTop: 2 }}>
+                        {fleetData.mazen.revenue.toFixed(2)} EGP
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                        Machine Profit
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#af52de', marginTop: 2 }}>
+                        {fleetData.mazen.profit.toFixed(2)} EGP
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                        All-Time Filament
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: theme.text, marginTop: 2 }}>
+                        {fleetData.mazen.grams} g
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                        Logged Runtime
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: theme.text, marginTop: 2 }}>
+                        {fleetData.mazen.hours} hrs
+                      </div>
+                    </div>
                   </div>
+                </div>
+              </div>
+
+              {/* Card 3: Financial & Production Economics (Replaces 40/40/20 Pools) */}
+              <div style={{
+                background: theme.surface,
+                borderRadius: 14,
+                border: `1px solid ${theme.border}`,
+                padding: isMobile ? 18 : 24
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: theme.text }}>
+                      Financial & Production Economics
+                    </div>
+                    <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
+                      Direct operational performance and cashflow across active workshop orders
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: '4px 10px',
+                    borderRadius: 980,
+                    background: theme.buttonSecondaryBg,
+                    color: theme.textSecondary,
+                    border: `1px solid ${theme.borderSubtle}`
+                  }}>
+                    Direct Partner Production Model
+                  </span>
+                </div>
+
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
+                  gap: 12,
+                  marginBottom: 20
+                }}>
+                  <div style={{
+                    background: theme.canvas,
+                    borderRadius: 10,
+                    padding: 14,
+                    border: `1px solid ${theme.borderSubtle}`
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                      Total Realized Revenue
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: theme.text, marginTop: 4 }}>
+                      {(fleetData.abdalla.revenue + fleetData.mazen.revenue).toFixed(2)} EGP
+                    </div>
+                    <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
+                      This week: {weeklyAnalytics.thisWeekRevenue.toFixed(2)} EGP
+                    </div>
+                  </div>
+
+                  <div style={{
+                    background: theme.canvas,
+                    borderRadius: 10,
+                    padding: 14,
+                    border: `1px solid ${theme.borderSubtle}`
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                      Combined Net Profit
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: theme.statusGreen, marginTop: 4 }}>
+                      {fleetData.totalNetProfit.toFixed(2)} EGP
+                    </div>
+                    <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
+                      This week: {weeklyAnalytics.thisWeekProfit.toFixed(2)} EGP
+                    </div>
+                  </div>
+
+                  <div style={{
+                    background: theme.canvas,
+                    borderRadius: 10,
+                    padding: 14,
+                    border: `1px solid ${theme.borderSubtle}`
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                      Direct Material Costs
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: theme.text, marginTop: 4 }}>
+                      {((fleetData.abdalla.revenue - fleetData.abdalla.profit) + (fleetData.mazen.revenue - fleetData.mazen.profit)).toFixed(2)} EGP
+                    </div>
+                    <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
+                      This week: {weeklyAnalytics.thisWeekDirectCost.toFixed(2)} EGP
+                    </div>
+                  </div>
+
+                  <div style={{
+                    background: theme.canvas,
+                    borderRadius: 10,
+                    padding: 14,
+                    border: `1px solid ${theme.borderSubtle}`
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
+                      Average Realized Rate
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: theme.accent, marginTop: 4 }}>
+                      {(fleetData.abdalla.grams + fleetData.mazen.grams) > 0
+                        ? ((fleetData.abdalla.revenue + fleetData.mazen.revenue) / (fleetData.abdalla.grams + fleetData.mazen.grams)).toFixed(2)
+                        : '3.50'} EGP/g
+                    </div>
+                    <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
+                      Student baseline: 3.50 EGP/g
+                    </div>
+                  </div>
+                </div>
+
+                {/* Active / Recent Jobs Contributing to Target */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>
+                    Jobs Contributing to Current Week ({weeklyAnalytics.thisWeekOrders.length})
+                  </div>
+
+                  {weeklyAnalytics.thisWeekOrders.length === 0 ? (
+                    <div style={{
+                      padding: '24px 16px',
+                      textAlign: 'center',
+                      background: theme.canvas,
+                      borderRadius: 8,
+                      border: `1px solid ${theme.borderSubtle}`,
+                      fontSize: 12,
+                      color: theme.textSecondary
+                    }}>
+                      No production jobs logged for the current week yet. Any order marked "Printing" or "Done" will immediately register grams here towards your {weeklyAnalytics.goal}g goal.
+                    </div>
+                  ) : (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6
+                    }}>
+                      {weeklyAnalytics.thisWeekOrders.slice(0, 8).map(order => {
+                        const printer = getPrinterFromNotes(order.notes) || 'Unassigned';
+                        const w = Number(order.weightgrams) || 0;
+                        const rev = Number(order.totalprice) || 0;
+                        const orderDate = order.createdat ? new Date(order.createdat) : new Date();
+
+                        return (
+                          <div
+                            key={order.id}
+                            onClick={() => setSelectedOrder(order)}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '10px 14px',
+                              borderRadius: 8,
+                              background: theme.canvas,
+                              border: `1px solid ${theme.borderSubtle}`,
+                              fontSize: 13,
+                              cursor: 'pointer',
+                              transition: 'background 0.15s ease'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <span style={{
+                                width: 7,
+                                height: 7,
+                                borderRadius: '50%',
+                                background: printer === 'CC Abdalla' ? '#2997ff' : (printer === 'CC Mazen' ? '#af52de' : theme.textSecondary)
+                              }} />
+                              <div>
+                                <div style={{ fontWeight: 600, color: theme.text }}>
+                                  {order.ordername || 'Order'}
+                                </div>
+                                <div style={{ fontSize: 11, color: theme.textSecondary }}>
+                                  {order.name} · {printer} · {orderDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontWeight: 700, color: theme.text }}>
+                                {w} g
+                              </div>
+                              <div style={{ fontSize: 11, color: theme.textSecondary }}>
+                                {rev.toFixed(2)} EGP
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
