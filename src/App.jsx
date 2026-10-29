@@ -977,7 +977,7 @@ const DEFAULT_CONFIG = {
   telegram_bot_token: "8667555636:AAHo8iluJWpdDJjwKbo18TfqmRwh9wF_KD0",
   telegram_chat_id: "655459922",
   discord_webhook_url: "",
-  instagram_link: "",
+  instagram_link: "https://www.instagram.com/etba3ly_3d/",
   email_address: "3bdallahhahmed@gmail.com",
   show_socials: true,
   privacy_policy: ""
@@ -1946,6 +1946,10 @@ export default function App() {
 
       const dynamicTags = [
         `[PROFILE:${selectedTier || "standard"}]`,
+        `[TIER:${selectedTier || "standard"}]`,
+        `[QUALITY:${selectedTier || "standard"}]`,
+        `[LAYER:${Number(orderLayerHeight || 0.20).toFixed(2)}mm]`,
+        `[INFILL:${orderInfill || 20}%]`,
         `[SUPPORTS:${enableSupports ? "yes" : "no"}]`,
         `[DELIVERY:${deliveryMode || "pickup"}]`,
         `[DEPOSIT:${depositRequired || 0}]`,
@@ -2066,6 +2070,17 @@ export default function App() {
       : "Pending review";
     const trackUrl = `https://etba3ly.store/#track?id=${encodeURIComponent(trackingCode)}`;
 
+    const notesStr = order.notes || "";
+    const tierMatch = notesStr.match(/\[(?:QUALITY|PROFILE|TIER):([^\]]+)\]/i);
+    const tier = tierMatch ? tierMatch[1].trim().toLowerCase() : "standard";
+    const layerMatch = notesStr.match(/\[LAYER:([^\]]+)\]/i);
+    const layer = layerMatch ? layerMatch[1].trim() : (tier === "economy" ? "0.28mm" : tier === "professional" ? "0.12mm" : "0.20mm");
+    const infillMatch = notesStr.match(/\[INFILL:([^\]]+)\]/i);
+    const infill = infillMatch ? infillMatch[1].trim() : (tier === "economy" ? "15%" : tier === "professional" ? "25%" : "20%");
+    const supportsMatch = notesStr.match(/\[SUPPORTS:([^\]]+)\]/i);
+    const supports = supportsMatch ? supportsMatch[1].trim().toLowerCase() !== "no" : true;
+    const tierLabel = tier === "economy" ? "Economy (Draft 0.28mm)" : tier === "professional" ? "Professional (Fine 0.12mm)" : tier === "custom" ? `Custom (${layer}, ${infill})` : "Standard (0.20mm)";
+
     // 1. Send confirmation & invoice email + cloud Telegram alert via backend edge function
     triggerOrderEmail("INSERT", order);
 
@@ -2079,6 +2094,7 @@ export default function App() {
         `Phone: ${clientPhone}\n` +
         `Part: ${partName}\n` +
         `Material: ${material} (${color})\n` +
+        `Quality Profile: ${tierLabel} • Infill: ${infill} • Supports: ${supports ? "Yes" : "No"}\n` +
         `Weight: ${weight}\n` +
         `Total: ${total}\n\n` +
         (order.fileurl ? `Model / File Link:\n${order.fileurl}\n\n` : '') +
@@ -2106,6 +2122,7 @@ export default function App() {
       const discordFields = [
         { name: "Customer", value: `${clientName} (${clientPhone})`, inline: true },
         { name: "Material", value: `${material} - ${color}`, inline: true },
+        { name: "Quality Profile", value: `${tierLabel} (${infill} infill)`, inline: true },
         { name: "Estimated Weight", value: weight, inline: true },
         { name: "Total Price", value: total, inline: true },
         { name: "Tracking Code", value: trackingCode, inline: true },
@@ -2142,6 +2159,7 @@ export default function App() {
           `Phone: ${clientPhone}\n` +
           `Part: ${partName}\n` +
           `Material: ${material} (${color})\n` +
+          `Quality: ${tierLabel} (${infill} infill)\n` +
           `Weight: ${weight}\n` +
           `Total: ${total}`;
         const botUrl = `https://api.callmebot.com/whatsapp.php?phone=${intlAdminPhone}&text=${encodeURIComponent(alertMsg)}&apikey=${encodeURIComponent(config.whatsapp_api_key.trim())}`;
@@ -3795,17 +3813,13 @@ export default function App() {
             <h4>Connect</h4>
             {config.show_socials !== false ? (
               <div className="social-links">
-                {config.instagram_link && <a href={config.instagram_link} target="_blank" rel="noreferrer" className="social-link"><InstagramIcon /></a>}
-                {config.whatsapp_number && <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="social-link"><WhatsAppIcon /></a>}
-                {config.email_address && <a href={`mailto:${config.email_address}`} className="social-link"><EmailIcon /></a>}
-                {/* Fallbacks if none are provided */}
-                {!config.instagram_link && !config.whatsapp_number && !config.email_address && (
-                  <>
-                    <a href="https://instagram.com" target="_blank" rel="noreferrer" className="social-link"><InstagramIcon /></a>
-                    <a href="https://wa.me/" target="_blank" rel="noreferrer" className="social-link"><WhatsAppIcon /></a>
-                    <a href="mailto:support@etba3ly.store" className="social-link"><EmailIcon /></a>
-                  </>
+                {config.whatsapp_number ? (
+                  <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="social-link" aria-label="WhatsApp" title="WhatsApp"><WhatsAppIcon /></a>
+                ) : (
+                  <a href="https://wa.me/" target="_blank" rel="noreferrer" className="social-link" aria-label="WhatsApp" title="WhatsApp"><WhatsAppIcon /></a>
                 )}
+                <a href={config.instagram_link || "https://www.instagram.com/etba3ly_3d/"} target="_blank" rel="noreferrer" className="social-link" aria-label="Instagram @etba3ly_3d" title="Instagram @etba3ly_3d"><InstagramIcon /></a>
+                <a href={`mailto:${config.email_address || "support@etba3ly.store"}`} className="social-link" aria-label="Email" title="Email"><EmailIcon /></a>
               </div>
             ) : (
               <span style={{ fontSize: 13, color: "rgba(255,255,255,0.3)" }}>Hidden</span>
