@@ -398,11 +398,13 @@ export default function AdminDashboard({
   const [pricingSettings, setPricingSettings] = useState(() => {
     try {
       const cached = localStorage.getItem('etba3ly_pricing_settings');
+      const goalCached = localStorage.getItem('etba3ly_weekly_grams_goal');
       if (cached) {
         const parsed = JSON.parse(cached);
         return {
           ...DEFAULT_PRICING_SETTINGS,
           ...parsed,
+          weekly_grams_goal: goalCached ? Number(goalCached) : (Number(parsed.weekly_grams_goal) || 500),
           setup_fee: 0,
           printing_hourly_rate: 0,
           electricity_hourly_rate: 0,
@@ -410,10 +412,52 @@ export default function AdminDashboard({
           depreciation_hourly_rate: 0,
           failed_print_reserve_pct: 0
         };
+      } else if (goalCached) {
+        return {
+          ...DEFAULT_PRICING_SETTINGS,
+          weekly_grams_goal: Number(goalCached) || 500
+        };
       }
     } catch {}
     return { ...DEFAULT_PRICING_SETTINGS };
   });
+
+  // Weekly Production Goal State (customizable grams per week in the tab)
+  const [weeklyGoalInput, setWeeklyGoalInput] = useState(() => {
+    try {
+      const goalCached = localStorage.getItem('etba3ly_weekly_grams_goal');
+      if (goalCached) return Number(goalCached) || 500;
+    } catch {}
+    return 500;
+  });
+
+  useEffect(() => {
+    if (pricingSettings?.weekly_grams_goal) {
+      setWeeklyGoalInput(pricingSettings.weekly_grams_goal);
+    }
+  }, [pricingSettings?.weekly_grams_goal]);
+
+  const handleUpdateWeeklyGoal = async (newGoal) => {
+    const val = Math.max(10, Math.round(Number(newGoal) || 500));
+    setWeeklyGoalInput(val);
+    const updated = { ...pricingSettings, weekly_grams_goal: val };
+    setPricingSettings(updated);
+    try {
+      localStorage.setItem('etba3ly_weekly_grams_goal', String(val));
+      localStorage.setItem('etba3ly_pricing_settings', JSON.stringify(updated));
+      if (supabase) {
+        await supabase.from('pricing_settings').upsert({
+          id: 'default',
+          ...updated,
+          updated_at: new Date().toISOString()
+        });
+      }
+      addToast(`Weekly production goal updated to ${val} g`, 'success');
+    } catch (err) {
+      console.warn('Error saving weekly goal to cloud:', err);
+      addToast(`Weekly production goal set to ${val} g (cached locally)`, 'info');
+    }
+  };
 
   const [internalMaterials, setInternalMaterials] = useState(() => {
     try {
@@ -539,6 +583,10 @@ export default function AdminDashboard({
     customPrice: '',
     deliveryMode: 'pickup'
   });
+
+  // Apple Email Template Preview Modal
+  const [showEmailPreviewModal, setShowEmailPreviewModal] = useState(false);
+  const [emailPreviewStatus, setEmailPreviewStatus] = useState('queued');
 
   // Sync Remote Settings
   useEffect(() => {
@@ -1147,6 +1195,109 @@ export default function AdminDashboard({
     };
   }, [orders, pricingSettings, materials]);
 
+  // ─────────────────────────────────────────────────────────────
+  // Weekly Production Analytics (Goal Tracking)
+  // ─────────────────────────────────────────────────────────────
+  const weeklyAnalytics = useMemo(() => {
+    const goal = Math.max(10, Number(pricingSettings.weekly_grams_goal) || 500);
+    const now = new Date();
+
+    // Start of current week (Monday 00:00:00.000)
+    const dayOfWeek = now.getDay();
+    const distanceToMonday = (dayOfWeek + 6) % 7;
+    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - distanceToMonday, 0, 0, 0, 0);
+    const startOfWeekMs = startOfWeek.getTime();
+    const endOfWeek = new Date(startOfWeek.getTime() + 7 * 86400000 - 1);
+
+    let thisWeekGrams = 0;
+    let thisWeekAbdallaGrams = 0;
+    let thisWeekMazenGrams = 0;
+    let thisWeekOtherGrams = 0;
+    let thisWeekRevenue = 0;
+    let thisWeekDirectCost = 0;
+    let thisWeekOrders = [];
+
+    // Daily breakdown for current week Mon-Sun (7 days)
+    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const dailyBreakdown = dayLabels.map((name, i) => {
+      const d = new Date(startOfWeek.getTime() + i * 86400000);
+      return {
+        day: name,
+        dateFormatted: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        isToday: d.toDateString() === now.toDateString(),
+        isPastOrToday: d <= now,
+        totalGrams: 0,
+        abdallaGrams: 0,
+        mazenGrams: 0,
+        revenue: 0
+      };
+    });
+
+    orders.forEach(o => {
+      const s = (o.status || '').toLowerCase().trim();
+      const isDone = s === 'done' || s === 'completed' || s === 'delivered';
+      const isPrinting = s === 'printing';
+      if (!isDone && !isPrinting) return;
+
+      const orderDate = o.createdat ? new Date(o.createdat) : (o.created_at ? new Date(o.created_at) : null);
+      const orderMs = (orderDate && !isNaN(orderDate.getTime())) ? orderDate.getTime() : 0;
+      const w = Number(o.weightgrams) || 0;
+      const rev = Number(o.totalprice) || 0;
+      const printer = getPrinterFromNotes(o.notes);
+
+      const matKey = normalizeMaterialKey(o.material);
+      const directMat = Object.values(materials).find(m => m && m.name && m.name.toLowerCase() === String(o.material || '').toLowerCase().trim());
+      const matCostRate = directMat?.cost || materials[matKey]?.cost || 0.66;
+      const directCost = w * matCostRate;
+
+      // Match current week
+      if (orderMs >= startOfWeekMs && orderMs <= endOfWeek.getTime()) {
+        thisWeekGrams += w;
+        thisWeekRevenue += rev;
+        thisWeekDirectCost += directCost;
+        thisWeekOrders.push(o);
+
+        if (printer === 'CC Abdalla') {
+          thisWeekAbdallaGrams += w;
+        } else if (printer === 'CC Mazen') {
+          thisWeekMazenGrams += w;
+        } else {
+          thisWeekOtherGrams += w;
+        }
+
+        const dayIdx = Math.floor((orderMs - startOfWeekMs) / 86400000);
+        if (dayIdx >= 0 && dayIdx < 7) {
+          dailyBreakdown[dayIdx].totalGrams += w;
+          dailyBreakdown[dayIdx].revenue += rev;
+          if (printer === 'CC Abdalla') dailyBreakdown[dayIdx].abdallaGrams += w;
+          else if (printer === 'CC Mazen') dailyBreakdown[dayIdx].mazenGrams += w;
+        }
+      }
+    });
+
+    const percentAchieved = goal > 0 ? Math.min(100, Math.round((thisWeekGrams / goal) * 100)) : 0;
+    const remainingGrams = Math.max(0, goal - thisWeekGrams);
+    const isGoalMet = thisWeekGrams >= goal;
+    const thisWeekProfit = thisWeekRevenue - thisWeekDirectCost;
+
+    return {
+      goal,
+      thisWeekGrams: Math.round(thisWeekGrams * 10) / 10,
+      thisWeekAbdallaGrams: Math.round(thisWeekAbdallaGrams * 10) / 10,
+      thisWeekMazenGrams: Math.round(thisWeekMazenGrams * 10) / 10,
+      thisWeekOtherGrams: Math.round(thisWeekOtherGrams * 10) / 10,
+      percentAchieved,
+      remainingGrams: Math.round(remainingGrams * 10) / 10,
+      isGoalMet,
+      thisWeekRevenue: Math.round(thisWeekRevenue * 100) / 100,
+      thisWeekDirectCost: Math.round(thisWeekDirectCost * 100) / 100,
+      thisWeekProfit: Math.round(thisWeekProfit * 100) / 100,
+      thisWeekOrders: thisWeekOrders.sort((a, b) => new Date(b.createdat || 0) - new Date(a.createdat || 0)),
+      dailyBreakdown,
+      weekRangeFormatted: `${startOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${endOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+    };
+  }, [orders, pricingSettings.weekly_grams_goal, materials]);
+
   // 4 Apple Top Metric Counters
   const orderCounts = useMemo(() => {
     let total = orders.length;
@@ -1408,14 +1559,14 @@ export default function AdminDashboard({
                 <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: 0, color: theme.text }}>
                   {activeNav === 'orders' && 'Orders'}
                   {activeNav === 'fleet' && 'Devices'}
-                  {activeNav === 'partners' && 'Finance & Partner Allocations'}
+                  {activeNav === 'partners' && 'Finance & Production Goals'}
                   {activeNav === 'settings' && 'Workshop Settings'}
                   {activeNav === 'gallery' && 'Showcase Portfolio'}
                 </h1>
                 <span style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2, display: 'inline-block' }}>
                   {activeNav === 'orders' && `${filteredOrders.length} orders configured`}
                   {activeNav === 'fleet' && '2 CoreXY Elegoo Centauri Carbon devices active'}
-                  {activeNav === 'partners' && 'Realized distributions for Mazen and Abdalla'}
+                  {activeNav === 'partners' && `Weekly target: ${weeklyAnalytics.goal}g · Track partner production and direct earnings`}
                   {activeNav === 'settings' && 'Dynamic pricing rates and CMS settings'}
                   {activeNav === 'gallery' && `${galleryItems.length} published products`}
                 </span>
@@ -2122,70 +2273,329 @@ export default function AdminDashboard({
           )}
 
           {/* ───────────────────────────────────────────────────────── */}
-          {/* VIEW: FINANCE & PARTNER ALLOCATIONS */}
+          {/* VIEW: FINANCE & PRODUCTION GOALS */}
           {/* ───────────────────────────────────────────────────────── */}
           {activeNav === 'partners' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {/* Partner Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
-                <div style={{
-                  background: theme.surface,
-                  borderRadius: 12,
-                  border: `1px solid ${theme.border}`,
-                  padding: isMobile ? 18 : 24
-                }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
-                    Partner Abdalla (50% Distributable)
-                  </div>
-                  <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 700, margin: '8px 0', color: theme.text, letterSpacing: '-0.02em' }}>
-                    {fleetData.partnerDistributions.partnerA.payout.toFixed(2)} EGP
-                  </div>
-                  <div style={{ fontSize: 12, color: theme.textSecondary }}>
-                    Direct machine contribution: {fleetData.abdalla.profit.toFixed(2)} EGP
-                  </div>
-                </div>
-
-                <div style={{
-                  background: theme.surface,
-                  borderRadius: 12,
-                  border: `1px solid ${theme.border}`,
-                  padding: isMobile ? 18 : 24
-                }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase' }}>
-                    Partner Mazen (50% Distributable)
-                  </div>
-                  <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 700, margin: '8px 0', color: theme.text, letterSpacing: '-0.02em' }}>
-                    {fleetData.partnerDistributions.partnerB.payout.toFixed(2)} EGP
-                  </div>
-                  <div style={{ fontSize: 12, color: theme.textSecondary }}>
-                    Direct machine contribution: {fleetData.mazen.profit.toFixed(2)} EGP
-                  </div>
-                </div>
-              </div>
-
-              {/* Pool Breakdown Table */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Card 1: Apple Production Target & Interactive Goal Setter */}
               <div style={{
                 background: theme.surface,
-                borderRadius: 12,
+                borderRadius: 14,
                 border: `1px solid ${theme.border}`,
-                padding: '20px 24px'
+                padding: isMobile ? 18 : 24,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 20
               }}>
-                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: theme.text }}>
-                  Realized Net Earnings & Capital Pools
+                {/* Header row with headline and interactive goal input */}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: isMobile ? 'stretch' : 'flex-start',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  gap: 16
+                }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        color: theme.textSecondary
+                      }}>
+                        Weekly Filament Target
+                      </span>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: 980,
+                        background: weeklyAnalytics.isGoalMet ? 'rgba(48, 209, 88, 0.15)' : 'rgba(41, 151, 255, 0.12)',
+                        color: weeklyAnalytics.isGoalMet ? theme.statusGreen : theme.accent
+                      }}>
+                        {weeklyAnalytics.isGoalMet
+                          ? `Goal Met (+${Math.round(weeklyAnalytics.thisWeekGrams - weeklyAnalytics.goal)}g)`
+                          : `${weeklyAnalytics.percentAchieved}% of Target`}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                      <span style={{
+                        fontSize: isMobile ? 30 : 38,
+                        fontWeight: 700,
+                        color: theme.text,
+                        letterSpacing: '-0.02em',
+                        fontVariantNumeric: 'tabular-nums'
+                      }}>
+                        {weeklyAnalytics.thisWeekGrams}
+                      </span>
+                      <span style={{ fontSize: 18, color: theme.textSecondary, fontWeight: 500 }}>
+                        / {weeklyAnalytics.goal} g
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: 13, color: theme.textSecondary, marginTop: 4 }}>
+                      {weeklyAnalytics.isGoalMet
+                        ? 'Target achieved for this week. Excellent output!'
+                        : `${weeklyAnalytics.remainingGrams} g remaining to hit this week's goal`}
+                    </div>
+                  </div>
+
+                  {/* Goal Adjustment Controls */}
+                  <div style={{
+                    background: theme.canvas,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: 12,
+                    padding: '12px 14px',
+                    minWidth: isMobile ? '100%' : 260,
+                    boxSizing: 'border-box'
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 8 }}>
+                      Set Weekly Target (Grams)
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <div style={{ position: 'relative', flex: 1 }}>
+                        <input
+                          type="number"
+                          min="10"
+                          step="50"
+                          value={weeklyGoalInput}
+                          onChange={e => setWeeklyGoalInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdateWeeklyGoal(weeklyGoalInput);
+                            }
+                          }}
+                          placeholder="500"
+                          style={{
+                            width: '100%',
+                            padding: '7px 28px 7px 10px',
+                            borderRadius: 8,
+                            background: theme.surface,
+                            color: theme.text,
+                            border: `1px solid ${theme.border}`,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                        <span style={{
+                          position: 'absolute',
+                          right: 8,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          fontSize: 11,
+                          color: theme.textSecondary,
+                          pointerEvents: 'none',
+                          fontWeight: 600
+                        }}>
+                          g
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateWeeklyGoal(weeklyGoalInput)}
+                        style={{
+                          padding: '7px 14px',
+                          borderRadius: 980,
+                          background: theme.buttonPrimaryBg,
+                          color: theme.buttonPrimaryText,
+                          border: 'none',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          transition: 'opacity 0.15s ease'
+                        }}
+                      >
+                        Save Target
+                      </button>
+                    </div>
+
+                    {/* Presets */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginTop: 10 }}>
+                      <span style={{ fontSize: 10, color: theme.textMuted, fontWeight: 500, marginRight: 2 }}>Presets:</span>
+                      {[250, 500, 750, 1000, 1500].map(val => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => handleUpdateWeeklyGoal(val)}
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: 980,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            border: `1px solid ${weeklyAnalytics.goal === val ? theme.accent : theme.borderSubtle}`,
+                            background: weeklyAnalytics.goal === val ? theme.accent : theme.surface,
+                            color: weeklyAnalytics.goal === val ? '#ffffff' : theme.textSecondary,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          {val}g
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 10 }}>
-                    <span style={{ color: theme.textSecondary }}>Distributable Partner Pool (40%)</span>
-                    <strong style={{ color: theme.statusGreen }}>{fleetData.partnerDistributions.totalDistributionPool.toFixed(2)} EGP</strong>
+                {/* Apple Multi-segment Progress Bar */}
+                <div>
+                  <div style={{
+                    height: 12,
+                    borderRadius: 999,
+                    background: isAppleDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    position: 'relative'
+                  }}>
+                    {/* Abdalla portion */}
+                    <div
+                      title={`Partner Abdalla: ${weeklyAnalytics.thisWeekAbdallaGrams}g`}
+                      style={{
+                        width: `${weeklyAnalytics.goal > 0 ? Math.min(100, (weeklyAnalytics.thisWeekAbdallaGrams / weeklyAnalytics.goal) * 100) : 0}%`,
+                        background: '#2997ff',
+                        transition: 'width 0.4s ease'
+                      }}
+                    />
+                    {/* Mazen portion */}
+                    <div
+                      title={`Partner Mazen: ${weeklyAnalytics.thisWeekMazenGrams}g`}
+                      style={{
+                        width: `${weeklyAnalytics.goal > 0 ? Math.min(100 - (weeklyAnalytics.thisWeekAbdallaGrams / weeklyAnalytics.goal) * 100, (weeklyAnalytics.thisWeekMazenGrams / weeklyAnalytics.goal) * 100) : 0}%`,
+                        background: '#af52de',
+                        transition: 'width 0.4s ease'
+                      }}
+                    />
+                    {/* Other unassigned */}
+                    {weeklyAnalytics.thisWeekOtherGrams > 0 && (
+                      <div
+                        title={`Unassigned: ${weeklyAnalytics.thisWeekOtherGrams}g`}
+                        style={{
+                          width: `${weeklyAnalytics.goal > 0 ? Math.min(100 - ((weeklyAnalytics.thisWeekAbdallaGrams + weeklyAnalytics.thisWeekMazenGrams) / weeklyAnalytics.goal) * 100, (weeklyAnalytics.thisWeekOtherGrams / weeklyAnalytics.goal) * 100) : 0}%`,
+                          background: theme.statusOrange,
+                          transition: 'width 0.4s ease'
+                        }}
+                      />
+                    )}
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: `1px solid ${theme.borderSubtle}`, paddingBottom: 10 }}>
-                    <span style={{ color: theme.textSecondary }}>Business Growth Fund (40%)</span>
-                    <strong style={{ color: theme.accent }}>{fleetData.partnerDistributions.growthFund.toFixed(2)} EGP</strong>
+
+                  {/* Legend below bar */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                    marginTop: 10,
+                    fontSize: 12,
+                    color: theme.textSecondary
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2997ff', display: 'inline-block' }} />
+                        <span>Partner Abdalla: <strong style={{ color: theme.text }}>{weeklyAnalytics.thisWeekAbdallaGrams} g</strong></span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#af52de', display: 'inline-block' }} />
+                        <span>Partner Mazen: <strong style={{ color: theme.text }}>{weeklyAnalytics.thisWeekMazenGrams} g</strong></span>
+                      </div>
+                      {weeklyAnalytics.thisWeekOtherGrams > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: theme.statusOrange, display: 'inline-block' }} />
+                          <span>Other: <strong style={{ color: theme.text }}>{weeklyAnalytics.thisWeekOtherGrams} g</strong></span>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: theme.textMuted }}>
+                      Current Week: {weeklyAnalytics.weekRangeFormatted}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, paddingBottom: 4 }}>
-                    <span style={{ color: theme.textSecondary }}>Emergency Operating Reserves (20%)</span>
-                    <strong style={{ color: theme.statusOrange }}>{fleetData.partnerDistributions.cashReserves.toFixed(2)} EGP</strong>
+                </div>
+
+                {/* Daily Production Activity (Mon - Sun) */}
+                <div style={{
+                  paddingTop: 16,
+                  borderTop: `1px solid ${theme.borderSubtle}`
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 12 }}>
+                    Daily Production Breakdown
+                  </div>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(7, 1fr)',
+                    gap: 8,
+                    alignItems: 'end',
+                    height: 90
+                  }}>
+                    {weeklyAnalytics.dailyBreakdown.map((item, idx) => {
+                      const maxDailyRef = Math.max(100, ...weeklyAnalytics.dailyBreakdown.map(d => d.totalGrams));
+                      const barHeightPct = Math.min(100, Math.round((item.totalGrams / maxDailyRef) * 65));
+                      const abdallaSharePct = item.totalGrams > 0 ? (item.abdallaGrams / item.totalGrams) * 100 : 0;
+                      const mazenSharePct = item.totalGrams > 0 ? (item.mazenGrams / item.totalGrams) * 100 : 0;
+
+                      return (
+                        <div key={idx} style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          height: '100%',
+                          justifyContent: 'flex-end',
+                          gap: 5
+                        }}>
+                          <span style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: item.totalGrams > 0 ? theme.text : theme.textMuted
+                          }}>
+                            {item.totalGrams > 0 ? `${Math.round(item.totalGrams)}g` : '-'}
+                          </span>
+
+                          <div style={{
+                            width: '100%',
+                            maxWidth: 32,
+                            height: 50,
+                            borderRadius: 6,
+                            background: isAppleDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+                            display: 'flex',
+                            flexDirection: 'column-reverse',
+                            overflow: 'hidden',
+                            border: item.isToday ? `1px solid ${theme.accent}` : 'none'
+                          }}>
+                            {item.totalGrams > 0 ? (
+                              <div style={{
+                                height: `${Math.max(14, barHeightPct)}%`,
+                                width: '100%',
+                                display: 'flex',
+                                flexDirection: 'column-reverse',
+                                borderRadius: 4,
+                                overflow: 'hidden'
+                              }}>
+                                <div style={{ height: `${abdallaSharePct}%`, width: '100%', background: '#2997ff' }} />
+                                <div style={{ height: `${mazenSharePct}%`, width: '100%', background: '#af52de' }} />
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <span style={{
+                              fontSize: 11,
+                              fontWeight: item.isToday ? 700 : 500,
+                              color: item.isToday ? theme.accent : theme.textSecondary
+                            }}>
+                              {item.day}
+                            </span>
+                            {item.isToday && (
+                              <span style={{ width: 4, height: 4, borderRadius: '50%', background: theme.accent, display: 'inline-block' }} />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -2741,6 +3151,25 @@ export default function AdminDashboard({
                     style={{ padding: '6px 14px', borderRadius: 980, background: theme.buttonSecondaryBg, color: theme.text, fontSize: 12, fontWeight: 500, border: `1px solid ${theme.border}`, cursor: 'pointer' }}
                   >
                     {isTestingEmail ? 'Testing...' : 'Test Email Alert'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowEmailPreviewModal(true)}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: 980,
+                      background: 'rgba(255, 128, 0, 0.1)',
+                      color: '#FF8000',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      border: '1px solid rgba(255, 128, 0, 0.3)',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6
+                    }}
+                  >
+                    <Icons.Apple /> Preview Apple Email
                   </button>
                 </div>
               </div>
@@ -3848,6 +4277,344 @@ export default function AdminDashboard({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ───────────────────────────────────────────────────────────── */}
+      {/* 5. MODAL: APPLE EMAIL TEMPLATE PREVIEW */}
+      {/* ───────────────────────────────────────────────────────────── */}
+      {showEmailPreviewModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 220,
+          padding: isMobile ? 12 : 24
+        }}>
+          <div style={{
+            background: theme.surface,
+            border: `1px solid ${theme.border}`,
+            borderRadius: 16,
+            maxWidth: 620,
+            width: '100%',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 24px 60px rgba(0, 0, 0, 0.4)'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 20px',
+              borderBottom: `1px solid ${theme.border}`,
+              background: theme.surface
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icons.Apple />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: theme.text }}>
+                    Apple Store Email Preview
+                  </div>
+                  <div style={{ fontSize: 11, color: theme.textSecondary }}>
+                    Centurai Print OS • Orange Accent Edition
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {/* Segmented Control */}
+                <div style={{
+                  display: 'flex',
+                  background: theme.canvas,
+                  borderRadius: 980,
+                  padding: 2,
+                  border: `1px solid ${theme.border}`
+                }}>
+                  {[
+                    { id: 'queued', label: 'Queued', color: '#FF8000' },
+                    { id: 'printing', label: 'Printing', color: '#3B82F6' },
+                    { id: 'done', label: 'Ready', color: '#10B981' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setEmailPreviewStatus(tab.id)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 980,
+                        border: 'none',
+                        background: emailPreviewStatus === tab.id ? (isAppleDark ? '#2C2C2E' : '#FFFFFF') : 'transparent',
+                        color: emailPreviewStatus === tab.id ? tab.color : theme.textSecondary,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        boxShadow: emailPreviewStatus === tab.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowEmailPreviewModal(false)}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 980,
+                    border: `1px solid ${theme.border}`,
+                    background: 'transparent',
+                    color: theme.textSecondary,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Scrollable Apple Card */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: isMobile ? 12 : 24,
+              background: '#ECECF0'
+            }}>
+              <div style={{
+                maxWidth: 540,
+                margin: '0 auto',
+                background: '#F5F5F7',
+                borderRadius: 16,
+                overflow: 'hidden',
+                boxShadow: '0 8px 30px rgba(0,0,0,0.08)',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif'
+              }}>
+                {/* Top Orange Accent */}
+                <div style={{ height: 3, background: '#FF8000' }} />
+
+                {/* Header */}
+                <div style={{ padding: '28px 32px 20px', background: '#FFFFFF', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#1D1D1F', letterSpacing: '-0.02em', marginBottom: 16 }}>
+                    ETBA3LY<span style={{ color: '#FF8000' }}>.STORE</span>
+                  </div>
+                  <div style={{ height: 1, background: '#D2D2D7', margin: '0 auto 16px' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{
+                      padding: '4px 12px',
+                      borderRadius: 20,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      color: emailPreviewStatus === 'done' ? '#10B981' : emailPreviewStatus === 'printing' ? '#3B82F6' : '#FF8000',
+                      background: emailPreviewStatus === 'done' ? 'rgba(16,185,129,0.08)' : emailPreviewStatus === 'printing' ? 'rgba(59,130,246,0.08)' : 'rgba(255,128,0,0.08)',
+                      border: `1px solid ${emailPreviewStatus === 'done' ? 'rgba(16,185,129,0.25)' : emailPreviewStatus === 'printing' ? 'rgba(59,130,246,0.25)' : 'rgba(255,128,0,0.25)'}`
+                    }}>
+                      {emailPreviewStatus === 'done' ? 'Complete' : emailPreviewStatus === 'printing' ? 'Printing' : 'Queued'}
+                    </span>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 13, color: '#86868B' }}>Invoice <strong style={{ color: '#1D1D1F' }}>#JP-TEST99</strong></div>
+                      <div style={{ fontSize: 11, color: '#86868B', marginTop: 2 }}>{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3-Step Stepper */}
+                <div style={{ padding: '20px 32px', background: '#F5F5F7' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
+                    {/* Step 1 */}
+                    <div style={{ textAlign: 'center', zIndex: 1, flex: 1 }}>
+                      <div style={{
+                        width: 22,
+                        height: 22,
+                        lineHeight: '22px',
+                        borderRadius: '50%',
+                        background: '#FF8000',
+                        color: '#FFFFFF',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        margin: '0 auto 4px'
+                      }}>1</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#1D1D1F' }}>Queued</div>
+                    </div>
+
+                    {/* Line 1-2 */}
+                    <div style={{ height: 1, flex: 1, background: emailPreviewStatus !== 'queued' ? '#3B82F6' : '#D2D2D7', margin: '0 -10px 18px' }} />
+
+                    {/* Step 2 */}
+                    <div style={{ textAlign: 'center', zIndex: 1, flex: 1 }}>
+                      <div style={{
+                        width: 22,
+                        height: 22,
+                        lineHeight: '22px',
+                        borderRadius: '50%',
+                        background: emailPreviewStatus !== 'queued' ? '#3B82F6' : '#FFFFFF',
+                        border: emailPreviewStatus !== 'queued' ? 'none' : '1.5px solid #D2D2D7',
+                        color: emailPreviewStatus !== 'queued' ? '#FFFFFF' : '#86868B',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        margin: '0 auto 4px'
+                      }}>2</div>
+                      <div style={{ fontSize: 11, fontWeight: emailPreviewStatus !== 'queued' ? 700 : 500, color: emailPreviewStatus !== 'queued' ? '#1D1D1F' : '#86868B' }}>Printing</div>
+                    </div>
+
+                    {/* Line 2-3 */}
+                    <div style={{ height: 1, flex: 1, background: emailPreviewStatus === 'done' ? '#10B981' : '#D2D2D7', margin: '0 -10px 18px' }} />
+
+                    {/* Step 3 */}
+                    <div style={{ textAlign: 'center', zIndex: 1, flex: 1 }}>
+                      <div style={{
+                        width: 22,
+                        height: 22,
+                        lineHeight: '22px',
+                        borderRadius: '50%',
+                        background: emailPreviewStatus === 'done' ? '#10B981' : '#FFFFFF',
+                        border: emailPreviewStatus === 'done' ? 'none' : '1.5px solid #D2D2D7',
+                        color: emailPreviewStatus === 'done' ? '#FFFFFF' : '#86868B',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        margin: '0 auto 4px'
+                      }}>3</div>
+                      <div style={{ fontSize: 11, fontWeight: emailPreviewStatus === 'done' ? 700 : 500, color: emailPreviewStatus === 'done' ? '#1D1D1F' : '#86868B' }}>Ready</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Announcement Card */}
+                <div style={{ padding: '24px 32px', background: '#FFFFFF' }}>
+                  <div style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em',
+                    color: emailPreviewStatus === 'done' ? '#10B981' : emailPreviewStatus === 'printing' ? '#3B82F6' : '#FF8000',
+                    marginBottom: 6
+                  }}>
+                    {emailPreviewStatus === 'done' ? 'Your print is ready for collection at the campus hub' : emailPreviewStatus === 'printing' ? 'Centurai CC1 3D Printer is manufacturing your part' : 'Your 3D design has entered the production queue'}
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: '#1D1D1F', marginBottom: 8, letterSpacing: '-0.01em' }}>
+                    {emailPreviewStatus === 'done' ? 'Completed & Inspected' : emailPreviewStatus === 'printing' ? 'Production In Progress' : 'Order Received & Queued'}
+                  </div>
+                  <div style={{ fontSize: 13, lineHeight: 1.6, color: '#86868B' }}>
+                    {emailPreviewStatus === 'done'
+                      ? 'Great news! Your 3D print has completed manufacturing, passed post-print dimensional quality control, and is packaged for pickup at E-JUST Dormitory Hub.'
+                      : emailPreviewStatus === 'printing'
+                      ? 'Your design is currently on the build plate! Bed leveling, extrusion flow, and layer bonding calibrated for maximum structural precision.'
+                      : 'Thank you for manufacturing with Etba3ly! We have logged your order, verified the design specifications, and queued it for slicing and production.'}
+                  </div>
+                </div>
+
+                <div style={{ height: 1, background: '#D2D2D7', margin: '0 32px' }} />
+
+                {/* Merged Client + Production Info */}
+                <div style={{ padding: '20px 32px', background: '#FFFFFF' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 20px', fontSize: 13 }}>
+                    <div>
+                      <div style={{ color: '#86868B', fontSize: 11, textTransform: 'uppercase', fontWeight: 600 }}>Client</div>
+                      <div style={{ color: '#1D1D1F', fontWeight: 600, marginTop: 2 }}>Ahmed Hassan</div>
+                    </div>
+                    <div>
+                      <div style={{ color: '#86868B', fontSize: 11, textTransform: 'uppercase', fontWeight: 600 }}>Phone</div>
+                      <div style={{ color: '#1D1D1F', marginTop: 2 }}>01012345678</div>
+                    </div>
+                    <div>
+                      <div style={{ color: '#86868B', fontSize: 11, textTransform: 'uppercase', fontWeight: 600 }}>Material</div>
+                      <div style={{ color: '#1D1D1F', marginTop: 2 }}>PLA (McLaren Orange)</div>
+                    </div>
+                    <div>
+                      <div style={{ color: '#86868B', fontSize: 11, textTransform: 'uppercase', fontWeight: 600 }}>Tracking Code</div>
+                      <div style={{ color: '#FF8000', fontWeight: 700, fontFamily: 'monospace', marginTop: 2 }}>JP-TEST99</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ height: 1, background: '#D2D2D7', margin: '0 32px' }} />
+
+                {/* Invoice Table */}
+                <div style={{ padding: '20px 32px', background: '#FFFFFF' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: '#F5F5F7' }}>
+                        <th style={{ textAlign: 'left', padding: '8px 10px', color: '#86868B', fontWeight: 600, borderBottom: '1px solid #D2D2D7' }}>Item</th>
+                        <th style={{ textAlign: 'center', padding: '8px', color: '#86868B', fontWeight: 600, borderBottom: '1px solid #D2D2D7' }}>Weight</th>
+                        <th style={{ textAlign: 'center', padding: '8px', color: '#86868B', fontWeight: 600, borderBottom: '1px solid #D2D2D7' }}>Rate</th>
+                        <th style={{ textAlign: 'right', padding: '8px 10px', color: '#86868B', fontWeight: 600, borderBottom: '1px solid #D2D2D7' }}>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={{ padding: '12px 10px', borderBottom: '1px solid #D2D2D7' }}>
+                          <div style={{ fontWeight: 600, color: '#1D1D1F' }}>Centurai Calibration Cube (20mm)</div>
+                          <div style={{ color: '#86868B', fontSize: 11 }}>PLA - McLaren Orange</div>
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '12px 8px', borderBottom: '1px solid #D2D2D7', color: '#1D1D1F' }}>45.0 g</td>
+                        <td style={{ textAlign: 'center', padding: '12px 8px', borderBottom: '1px solid #D2D2D7', color: '#86868B' }}>3.00 EGP/g</td>
+                        <td style={{ textAlign: 'right', padding: '12px 10px', borderBottom: '1px solid #D2D2D7', fontWeight: 600, color: '#1D1D1F' }}>135.00 EGP</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={3} style={{ textAlign: 'right', padding: '8px 10px 4px', color: '#86868B' }}>Slicing Fee</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px 4px', color: '#10B981', fontWeight: 600 }}>Waived</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={3} style={{ textAlign: 'right', padding: '10px 10px 4px', fontWeight: 700, color: '#1D1D1F', fontSize: 13 }}>Total</td>
+                        <td style={{ textAlign: 'right', padding: '10px 10px 4px', fontWeight: 700, color: '#FF8000', fontSize: 16, fontFamily: 'monospace' }}>135.00 EGP</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ height: 1, background: '#D2D2D7', margin: '0 32px' }} />
+
+                {/* Tracking CTA */}
+                <div style={{ padding: '24px 32px', background: '#FFFFFF', textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#86868B', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+                    Your Tracking Code
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, fontFamily: 'monospace', color: '#FF8000', letterSpacing: '0.12em', marginBottom: 16 }}>
+                    JP-TEST99
+                  </div>
+                  <div>
+                    <span style={{
+                      display: 'inline-block',
+                      background: '#FF8000',
+                      color: '#FFFFFF',
+                      padding: '12px 32px',
+                      borderRadius: 8,
+                      fontSize: 14,
+                      fontWeight: 600,
+                      boxShadow: '0 2px 8px rgba(255, 128, 0, 0.25)'
+                    }}>
+                      Track Order
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#86868B', marginTop: 12 }}>
+                    Bookmark this code to check progress and pickup notice.
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div style={{ padding: '20px 32px', background: '#F5F5F7', textAlign: 'center', fontSize: 11, color: '#86868B' }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <span style={{ color: '#FF8000', fontWeight: 600 }}>WhatsApp</span>
+                    <span style={{ margin: '0 8px', color: '#D2D2D7' }}>|</span>
+                    <span style={{ color: '#FF8000', fontWeight: 600 }}>Email Support</span>
+                  </div>
+                  <div>Etba3ly 3D Printing • Powered by Centurai Print OS</div>
+                  <div style={{ marginTop: 2 }}>Automated notification sent to customer email</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -294,10 +294,10 @@ Deno.serve(async (req) => {
     const isStepPrinting = currentStatus === 'printing' || currentStatus === 'done';
     const isStepDone = currentStatus === 'done';
 
-    // Status theme colors
+    // Status theme colors (light theme)
     const statusColor = currentStatus === 'done' ? '#10B981' : currentStatus === 'printing' ? '#3B82F6' : '#FF8000';
-    const statusBg = currentStatus === 'done' ? 'rgba(16, 185, 129, 0.12)' : currentStatus === 'printing' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 128, 0, 0.12)';
-    const statusBorder = currentStatus === 'done' ? 'rgba(16, 185, 129, 0.35)' : currentStatus === 'printing' ? 'rgba(59, 130, 246, 0.35)' : 'rgba(255, 128, 0, 0.35)';
+    const statusBg = currentStatus === 'done' ? 'rgba(16, 185, 129, 0.08)' : currentStatus === 'printing' ? 'rgba(59, 130, 246, 0.08)' : 'rgba(255, 128, 0, 0.08)';
+    const statusBorder = currentStatus === 'done' ? 'rgba(16, 185, 129, 0.25)' : currentStatus === 'printing' ? 'rgba(59, 130, 246, 0.25)' : 'rgba(255, 128, 0, 0.25)';
 
     // Model files or link extraction
     const rawFiles = record.fileurl ? String(record.fileurl).split(',').map(s => s.trim()).filter(Boolean) : [];
@@ -317,6 +317,8 @@ Deno.serve(async (req) => {
       return { url, isStorage, label, platform };
     });
 
+    const logoDataUri = 'data:image/png;base64,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';
+
     const htmlContent = `
 <!DOCTYPE html>
 <html lang="en">
@@ -329,7 +331,8 @@ Deno.serve(async (req) => {
     body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
     table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
     img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }
-    body { margin: 0; padding: 0; width: 100% !important; background-color: #07080d; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', Helvetica, Arial, sans-serif; color: #f4f6fb; }
+    body { margin: 0; padding: 0; width: 100% !important; background-color: #FFFFFF; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1D1D1F; }
+    a { color: #FF8000; text-decoration: none; }
     @media only screen and (max-width: 620px) {
       .container-table { width: 100% !important; border-radius: 0 !important; }
       .content-padding { padding-left: 20px !important; padding-right: 20px !important; }
@@ -339,311 +342,46 @@ Deno.serve(async (req) => {
     }
   </style>
 </head>
-<body style="margin: 0; padding: 0; background-color: #07080d; color: #f4f6fb; -webkit-font-smoothing: antialiased;">
-  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #07080d; padding: 32px 12px;">
+<body style="margin: 0; padding: 0; background-color: #FFFFFF; color: #1D1D1F; -webkit-font-smoothing: antialiased;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #FFFFFF; padding: 32px 12px;">
     <tr>
       <td align="center">
         <!-- Main Card Container -->
-        <table class="container-table" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 620px; width: 100%; background-color: #0e121b; border: 1px solid #1e2536; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.85);">
+        <table class="container-table" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; width: 100%; background-color: #F5F5F7; border-radius: 16px; overflow: hidden;">
           
-          <!-- Top Accent Gradient Line -->
+          <!-- Top Accent Bar -->
           <tr>
-            <td style="height: 4px; background: linear-gradient(90deg, #FF8000 0%, #FFA834 50%, #FF8000 100%); line-height: 4px; font-size: 4px;">&nbsp;</td>
+            <td style="height: 3px; background-color: #FF8000; line-height: 3px; font-size: 3px;">&nbsp;</td>
           </tr>
 
-          <!-- Header Section -->
+          <!-- Header: Logo + Invoice Meta -->
           <tr>
-            <td class="content-padding" style="padding: 32px 32px 24px; border-bottom: 1px solid #192030; background-color: #0e121b;">
+            <td class="content-padding" style="padding: 32px 40px 24px; background-color: #FFFFFF;">
               <table width="100%" border="0" cellspacing="0" cellpadding="0">
                 <tr>
-                  <td align="left" style="vertical-align: top;">
-                    <div style="font-size: 24px; font-weight: 900; color: #ffffff; letter-spacing: 0.05em; line-height: 1.1;">
-                      ETBA3LY<span style="color: #FF8000;">.STORE</span>
-                    </div>
-                    <div style="font-size: 10.5px; font-weight: 700; color: #838e9f; text-transform: uppercase; letter-spacing: 0.12em; margin-top: 5px;">
-                      Additive Manufacturing &bull; Centurai Print OS
-                    </div>
-                  </td>
-                  <td align="right" style="vertical-align: top;">
-                    <div style="display: inline-block; padding: 5px 12px; background: ${statusBg}; border: 1px solid ${statusBorder}; border-radius: 20px; font-size: 10.5px; font-weight: 800; color: ${statusColor}; text-transform: uppercase; letter-spacing: 0.08em;">
-                      ${isInvoice ? 'Official Invoice' : 'Production Update'}
-                    </div>
-                    <div style="font-size: 13.5px; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; font-weight: 700; color: #ffffff; margin-top: 8px;">
-                      #INV-${trackCode}
-                    </div>
-                    <div style="font-size: 11.5px; color: #838e9f; margin-top: 2px;">
-                      ${orderDate}
-                    </div>
+                  <td align="center" style="padding-bottom: 20px;">
+                    <img src="${logoDataUri}" alt="Etba3ly" width="160" style="display: block; width: 160px; height: auto;" />
                   </td>
                 </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Visual 3-Step Production Stepper -->
-          <tr>
-            <td class="content-padding" style="padding: 24px 32px; background-color: #0a0d14; border-bottom: 1px solid #192030;">
-              <table width="100%" border="0" cellspacing="0" cellpadding="0">
                 <tr>
-                  <!-- Step 1: Queued -->
-                  <td width="30%" align="center" style="vertical-align: top;">
-                    <div style="width: 28px; height: 28px; line-height: 28px; border-radius: 50%; background: ${isStepQueued ? '#FF8000' : '#192030'}; color: #ffffff; font-size: 12px; font-weight: 800; margin: 0 auto 6px; box-shadow: ${isStepQueued ? '0 0 12px rgba(255,128,0,0.5)' : 'none'};">
-                      1
-                    </div>
-                    <div class="stepper-label" style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: ${isStepQueued ? '#ffffff' : '#626e82'};">
-                      Queued
-                    </div>
-                    <div style="font-size: 9.5px; color: #838e9f; margin-top: 2px;">
-                      Geometry Verified
-                    </div>
-                  </td>
-
-                  <!-- Connector 1-2 -->
-                  <td width="5%" align="center" style="vertical-align: middle; padding-bottom: 22px;">
-                    <div style="height: 2px; background-color: ${isStepPrinting ? '#3B82F6' : '#1e2536'};"></div>
-                  </td>
-
-                  <!-- Step 2: Printing -->
-                  <td width="30%" align="center" style="vertical-align: top;">
-                    <div style="width: 28px; height: 28px; line-height: 28px; border-radius: 50%; background: ${isStepPrinting ? '#3B82F6' : '#151b27'}; border: 1px solid ${isStepPrinting ? '#60a5fa' : '#222c3d'}; color: ${isStepPrinting ? '#ffffff' : '#626e82'}; font-size: 12px; font-weight: 800; margin: 0 auto 6px; box-shadow: ${isStepPrinting ? '0 0 12px rgba(59,130,246,0.5)' : 'none'};">
-                      2
-                    </div>
-                    <div class="stepper-label" style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: ${isStepPrinting ? '#60a5fa' : '#626e82'};">
-                      Printing
-                    </div>
-                    <div style="font-size: 9.5px; color: #838e9f; margin-top: 2px;">
-                      Active on Bed
-                    </div>
-                  </td>
-
-                  <!-- Connector 2-3 -->
-                  <td width="5%" align="center" style="vertical-align: middle; padding-bottom: 22px;">
-                    <div style="height: 2px; background-color: ${isStepDone ? '#10B981' : '#1e2536'};"></div>
-                  </td>
-
-                  <!-- Step 3: Ready -->
-                  <td width="30%" align="center" style="vertical-align: top;">
-                    <div style="width: 28px; height: 28px; line-height: 28px; border-radius: 50%; background: ${isStepDone ? '#10B981' : '#151b27'}; border: 1px solid ${isStepDone ? '#34d399' : '#222c3d'}; color: ${isStepDone ? '#ffffff' : '#626e82'}; font-size: 12px; font-weight: 800; margin: 0 auto 6px; box-shadow: ${isStepDone ? '0 0 12px rgba(16,185,129,0.5)' : 'none'};">
-                      3
-                    </div>
-                    <div class="stepper-label" style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: ${isStepDone ? '#34d399' : '#626e82'};">
-                      Ready
-                    </div>
-                    <div style="font-size: 9.5px; color: #838e9f; margin-top: 2px;">
-                      Campus Collection
-                    </div>
-                  </td>
+                  <td style="height: 1px; background-color: #D2D2D7; line-height: 1px; font-size: 1px;">&nbsp;</td>
                 </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Status Announcement Card -->
-          <tr>
-            <td class="content-padding" style="padding: 28px 32px 20px;">
-              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: ${statusBg}; border: 1px solid ${statusBorder}; border-radius: 12px; padding: 20px;">
                 <tr>
-                  <td>
-                    <div style="font-size: 11px; font-weight: 800; color: ${statusColor}; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;">
-                      ${statusSubtitle}
-                    </div>
-                    <div style="font-size: 20px; font-weight: 900; color: #ffffff; letter-spacing: -0.01em; margin-bottom: 8px;">
-                      ${statusTitle}
-                    </div>
-                    <div style="font-size: 13.5px; line-height: 1.6; color: #b7c1d1;">
-                      ${statusDescription}
-                    </div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Metadata Grid: Billed To & Production Specs -->
-          <tr>
-            <td class="content-padding" style="padding: 10px 32px 24px;">
-              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #121723; border: 1px solid #1f2739; border-radius: 12px;">
-                <tr>
-                  <td class="stack-column" width="50%" style="padding: 20px 24px; vertical-align: top; border-right: 1px solid #1f2739;">
-                    <div style="font-size: 10px; font-weight: 800; color: #838e9f; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">
-                      Client Information
-                    </div>
-                    <div style="font-size: 15px; font-weight: 800; color: #ffffff; margin-bottom: 4px;">
-                      ${record.name || 'Valued Client'}
-                    </div>
-                    <div style="font-size: 13px; color: #9eaab9; margin-bottom: 3px;">
-                      Phone: <strong style="color: #f4f6fb;">${record.phone || 'On file'}</strong>
-                    </div>
-                    ${record.email ? `<div style="font-size: 12px; color: #838e9f;">${record.email}</div>` : ''}
-                  </td>
-                  <td class="stack-column" width="50%" style="padding: 20px 24px; vertical-align: top;">
-                    <div style="font-size: 10px; font-weight: 800; color: #838e9f; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">
-                      Production Specs
-                    </div>
-                    <div style="font-size: 13px; color: #9eaab9; margin-bottom: 4px;">
-                      Material: <strong style="color: #ffffff;">${record.material || 'PLA'}</strong> &bull; Color: <strong style="color: #ffffff;">${record.color || 'Standard'}</strong>
-                    </div>
-                    <div style="font-size: 13px; color: #9eaab9; margin-bottom: 4px;">
-                      Tracking: <strong style="color: #FF8000; font-family: ui-monospace, monospace;">${trackCode}</strong>
-                    </div>
-                    <div style="font-size: 12px; color: #838e9f;">
-                      Campus Hub: <strong style="color: #d1d8e2;">E-JUST Dormitory Hub</strong>
-                    </div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Itemized Invoice Breakdown -->
-          <tr>
-            <td class="content-padding" style="padding: 0 32px 24px;">
-              <div style="font-size: 12px; font-weight: 800; color: #838e9f; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px;">
-                Manufacturing & Cost Breakdown
-              </div>
-              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #0a0d14; border: 1px solid #1f2739; border-radius: 12px; overflow: hidden;">
-                <thead>
-                  <tr style="background-color: #151b27; border-bottom: 1px solid #1f2739;">
-                    <th align="left" style="padding: 12px 18px; font-size: 10.5px; font-weight: 800; color: #838e9f; text-transform: uppercase; letter-spacing: 0.06em;">Specification</th>
-                    <th align="center" style="padding: 12px 10px; font-size: 10.5px; font-weight: 800; color: #838e9f; text-transform: uppercase; letter-spacing: 0.06em;">Est. Weight</th>
-                    <th align="center" style="padding: 12px 10px; font-size: 10.5px; font-weight: 800; color: #838e9f; text-transform: uppercase; letter-spacing: 0.06em;">Rate</th>
-                    <th align="right" style="padding: 12px 18px; font-size: 10.5px; font-weight: 800; color: #838e9f; text-transform: uppercase; letter-spacing: 0.06em;">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td style="padding: 18px; border-bottom: 1px solid #161c29; vertical-align: top;">
-                      <div style="font-size: 14.5px; font-weight: 800; color: #ffffff; margin-bottom: 4px;">
-                        ${record.ordername || 'Custom 3D Print Part'}
-                      </div>
-                      <div style="font-size: 12px; color: #838e9f; line-height: 1.4;">
-                        Filament: <span style="color: #d1d8e2;">${record.material || 'PLA'}</span> (${record.color || 'Standard'})
-                        ${record.notes ? `<br><span style="font-style: italic; color: #6e798d;">Instructions: ${String(record.notes).slice(0, 80)}</span>` : ''}
-                      </div>
-                    </td>
-                    <td align="center" style="padding: 18px 10px; border-bottom: 1px solid #161c29; font-size: 13.5px; font-weight: 700; color: #ffffff; vertical-align: top;">
-                      ${weightGrams}
-                    </td>
-                    <td align="center" style="padding: 18px 10px; border-bottom: 1px solid #161c29; font-size: 13px; color: #9eaab9; vertical-align: top;">
-                      ${pricePerGram}
-                    </td>
-                    <td align="right" style="padding: 18px; border-bottom: 1px solid #161c29; font-size: 14.5px; font-weight: 800; color: #ffffff; vertical-align: top;">
-                      ${totalPrice}
-                    </td>
-                  </tr>
-
-                  <!-- Slicing / Calibration Fee Row -->
-                  <tr>
-                    <td colspan="3" align="right" style="padding: 12px 18px 4px; font-size: 12px; color: #838e9f;">
-                      Slicing & Machine Calibration Fee:
-                    </td>
-                    <td align="right" style="padding: 12px 18px 4px; font-size: 12.5px; font-weight: 700; color: #10B981;">
-                      0.00 EGP (Waived)
-                    </td>
-                  </tr>
-
-                  <!-- Total Amount Payable Row -->
-                  <tr style="background-color: #121723;">
-                    <td colspan="3" align="right" style="padding: 16px 18px; font-size: 13px; font-weight: 900; color: #FF8000; text-transform: uppercase; letter-spacing: 0.05em;">
-                      Total Payable (EGP):
-                    </td>
-                    <td align="right" style="padding: 16px 18px; font-size: 20px; font-weight: 900; color: #FF8000; font-family: ui-monospace, monospace;">
-                      ${totalPrice}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </td>
-          </tr>
-
-          ${fileEntries.length > 0 ? `
-          <!-- Attached 3D CAD or Model Reference Links -->
-          <tr>
-            <td class="content-padding" style="padding: 0 32px 24px;">
-              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #121723; border: 1px solid #1f2739; border-radius: 12px; padding: 16px 20px;">
-                <tr>
-                  <td>
-                    <div style="font-size: 10.5px; font-weight: 800; color: #838e9f; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">
-                      Attached 3D Geometry & Reference Files
-                    </div>
-                    ${fileEntries.map(f => `
-                      <div style="margin-bottom: 6px;">
-                        <a href="${f.url}" target="_blank" rel="noreferrer" style="display: inline-block; padding: 6px 14px; background: rgba(255, 128, 0, 0.1); border: 1px solid rgba(255, 128, 0, 0.3); border-radius: 6px; font-size: 12px; font-weight: 700; color: #FF8000; text-decoration: none;">
-                          ${f.label} (${f.platform}) &rarr;
-                        </a>
-                      </div>
-                    `).join('')}
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          ` : ''}
-
-          <!-- Live Tracking Code Action Card -->
-          <tr>
-            <td class="content-padding" style="padding: 0 32px 28px;">
-              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background: linear-gradient(180deg, #121723 0%, #0b0e16 100%); border: 1px dashed #2b354a; border-radius: 14px; padding: 24px; text-align: center;">
-                <tr>
-                  <td align="center">
-                    <div style="font-size: 11px; font-weight: 800; color: #838e9f; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;">
-                      Your Live Production Tracking Code
-                    </div>
-                    <div style="font-size: 26px; font-weight: 900; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; color: #FF8000; letter-spacing: 0.16em; margin-bottom: 16px;">
-                      ${trackCode}
-                    </div>
-                    <div>
-                      <a href="${trackUrl}" target="_blank" rel="noreferrer" style="display: inline-block; background: linear-gradient(135deg, #FF8000 0%, #FF9E2C 100%); color: #ffffff; text-decoration: none; padding: 13px 32px; border-radius: 8px; font-size: 14px; font-weight: 800; letter-spacing: 0.04em; box-shadow: 0 8px 24px rgba(255, 128, 0, 0.35);">
-                        Track Order Live Status &rarr;
-                      </a>
-                    </div>
-                    <div style="font-size: 11.5px; color: #626e82; margin-top: 12px;">
-                      Bookmark your tracking link to check nozzle temperature, remaining time, and pickup notice.
-                    </div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Collection & Payment Instructions -->
-          <tr>
-            <td class="content-padding" style="padding: 0 32px 24px;">
-              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #0b0e16; border-left: 3px solid #FF8000; padding: 14px 18px; border-radius: 0 8px 8px 0;">
-                <tr>
-                  <td>
-                    <div style="font-size: 12.5px; font-weight: 800; color: #ffffff; margin-bottom: 3px;">
-                      Pickup Hub & Payment Policy
-                    </div>
-                    <div style="font-size: 12px; line-height: 1.5; color: #838e9f;">
-                      Collection is available directly at the E-JUST Student Dormitory Hub. Payment is accepted via <strong>Vodafone Cash</strong> or <strong>Cash on Collection</strong> upon part inspection.
-                    </div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Need Assistance Support Bar -->
-          <tr>
-            <td class="content-padding" style="padding: 0 32px 28px;">
-              <table width="100%" border="0" cellspacing="0" cellpadding="0">
-                <tr>
-                  <td align="center">
-                    <div style="font-size: 11px; font-weight: 800; color: #838e9f; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px;">
-                      Direct Workshop Communication
-                    </div>
-                    <table border="0" cellspacing="0" cellpadding="0">
+                  <td style="padding-top: 16px;">
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0">
                       <tr>
-                        <td style="padding: 0 6px;">
-                          <a href="https://wa.me/201026027552" target="_blank" rel="noreferrer" style="display: inline-block; padding: 8px 18px; background: rgba(37, 211, 102, 0.12); border: 1px solid rgba(37, 211, 102, 0.3); border-radius: 6px; font-size: 12px; font-weight: 700; color: #25D366; text-decoration: none;">
-                            WhatsApp Support
-                          </a>
+                        <td align="left" style="vertical-align: middle;">
+                          <div style="display: inline-block; padding: 4px 14px; background: ${statusBg}; border: 1px solid ${statusBorder}; border-radius: 20px; font-size: 11px; font-weight: 600; color: ${statusColor}; text-transform: uppercase; letter-spacing: 0.06em;">
+                            ${currentStatus === 'done' ? 'Complete' : currentStatus === 'printing' ? 'Printing' : 'Queued'}
+                          </div>
                         </td>
-                        <td style="padding: 0 6px;">
-                          <a href="mailto:support@etba3ly.store" style="display: inline-block; padding: 8px 18px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; font-size: 12px; font-weight: 700; color: #d1d8e2; text-decoration: none;">
-                            Email Workshop
-                          </a>
+                        <td align="right" style="vertical-align: middle;">
+                          <div style="font-size: 13px; color: #86868B;">
+                            Invoice <span style="font-weight: 600; color: #1D1D1F;">#${trackCode}</span>
+                          </div>
+                          <div style="font-size: 12px; color: #86868B; margin-top: 2px;">
+                            ${orderDate}
+                          </div>
                         </td>
                       </tr>
                     </table>
@@ -653,15 +391,255 @@ Deno.serve(async (req) => {
             </td>
           </tr>
 
+          <!-- 3-Step Stepper (Apple style) -->
+          <tr>
+            <td class="content-padding" style="padding: 24px 40px; background-color: #F5F5F7;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <!-- Step 1: Queued -->
+                  <td width="28%" align="center" style="vertical-align: top;">
+                    <div style="width: 24px; height: 24px; line-height: 24px; border-radius: 50%; background: ${isStepQueued ? '#FF8000' : '#FFFFFF'}; border: ${isStepQueued ? 'none' : '1.5px solid #D2D2D7'}; color: ${isStepQueued ? '#FFFFFF' : '#D2D2D7'}; font-size: 11px; font-weight: 700; margin: 0 auto 6px; text-align: center;">
+                      1
+                    </div>
+                    <div class="stepper-label" style="font-size: 11px; font-weight: ${isStepQueued ? '700' : '500'}; color: ${isStepQueued ? '#1D1D1F' : '#86868B'};">
+                      Queued
+                    </div>
+                  </td>
+
+                  <!-- Connector 1-2 -->
+                  <td width="11%" align="center" style="vertical-align: middle; padding-bottom: 18px;">
+                    <div style="height: 1px; background-color: ${isStepPrinting ? '#3B82F6' : '#D2D2D7'};"></div>
+                  </td>
+
+                  <!-- Step 2: Printing -->
+                  <td width="28%" align="center" style="vertical-align: top;">
+                    <div style="width: 24px; height: 24px; line-height: 24px; border-radius: 50%; background: ${isStepPrinting ? '#3B82F6' : '#FFFFFF'}; border: ${isStepPrinting ? 'none' : '1.5px solid #D2D2D7'}; color: ${isStepPrinting ? '#FFFFFF' : '#D2D2D7'}; font-size: 11px; font-weight: 700; margin: 0 auto 6px; text-align: center;">
+                      2
+                    </div>
+                    <div class="stepper-label" style="font-size: 11px; font-weight: ${isStepPrinting ? '700' : '500'}; color: ${isStepPrinting ? '#1D1D1F' : '#86868B'};">
+                      Printing
+                    </div>
+                  </td>
+
+                  <!-- Connector 2-3 -->
+                  <td width="11%" align="center" style="vertical-align: middle; padding-bottom: 18px;">
+                    <div style="height: 1px; background-color: ${isStepDone ? '#10B981' : '#D2D2D7'};"></div>
+                  </td>
+
+                  <!-- Step 3: Ready -->
+                  <td width="28%" align="center" style="vertical-align: top;">
+                    <div style="width: 24px; height: 24px; line-height: 24px; border-radius: 50%; background: ${isStepDone ? '#10B981' : '#FFFFFF'}; border: ${isStepDone ? 'none' : '1.5px solid #D2D2D7'}; color: ${isStepDone ? '#FFFFFF' : '#D2D2D7'}; font-size: 11px; font-weight: 700; margin: 0 auto 6px; text-align: center;">
+                      3
+                    </div>
+                    <div class="stepper-label" style="font-size: 11px; font-weight: ${isStepDone ? '700' : '500'}; color: ${isStepDone ? '#1D1D1F' : '#86868B'};">
+                      Ready
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Status Announcement Card -->
+          <tr>
+            <td class="content-padding" style="padding: 0 40px 24px; background-color: #FFFFFF;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="padding: 24px 0;">
+                <tr>
+                  <td>
+                    <div style="font-size: 10px; font-weight: 700; color: ${statusColor}; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;">
+                      ${statusSubtitle}
+                    </div>
+                    <div style="font-size: 22px; font-weight: 700; color: #1D1D1F; letter-spacing: -0.02em; margin-bottom: 10px; line-height: 1.25;">
+                      ${statusTitle}
+                    </div>
+                    <div style="font-size: 14px; line-height: 1.65; color: #86868B;">
+                      ${statusDescription}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Hairline Divider -->
+          <tr>
+            <td class="content-padding" style="padding: 0 40px; background-color: #FFFFFF;">
+              <div style="height: 1px; background-color: #D2D2D7;"></div>
+            </td>
+          </tr>
+
+          <!-- Merged Client + Production Info -->
+          <tr>
+            <td class="content-padding" style="padding: 24px 40px; background-color: #FFFFFF;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="padding-bottom: 10px;">
+                    <div style="font-size: 13px; color: #86868B; margin-bottom: 2px;">Client</div>
+                    <div style="font-size: 15px; font-weight: 600; color: #1D1D1F;">${record.name || 'Valued Client'}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding-bottom: 10px;">
+                    <div style="font-size: 13px; color: #86868B; margin-bottom: 2px;">Phone</div>
+                    <div style="font-size: 15px; color: #1D1D1F;">${record.phone || 'On file'}</div>
+                  </td>
+                </tr>
+                ${record.email ? `<tr>
+                  <td style="padding-bottom: 10px;">
+                    <div style="font-size: 13px; color: #86868B; margin-bottom: 2px;">Email</div>
+                    <div style="font-size: 15px; color: #1D1D1F;">${record.email}</div>
+                  </td>
+                </tr>` : ''}
+                <tr>
+                  <td style="padding-bottom: 10px;">
+                    <div style="font-size: 13px; color: #86868B; margin-bottom: 2px;">Material</div>
+                    <div style="font-size: 15px; color: #1D1D1F;">${record.material || 'PLA'}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding-bottom: 10px;">
+                    <div style="font-size: 13px; color: #86868B; margin-bottom: 2px;">Color</div>
+                    <div style="font-size: 15px; color: #1D1D1F;">${record.color || 'Standard'}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding-bottom: 10px;">
+                    <div style="font-size: 13px; color: #86868B; margin-bottom: 2px;">Tracking Code</div>
+                    <div style="font-size: 15px; font-weight: 600; font-family: 'SF Mono', ui-monospace, Menlo, Monaco, Consolas, monospace; color: #FF8000;">${trackCode}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <div style="font-size: 13px; color: #86868B; margin-bottom: 2px;">Collection Hub</div>
+                    <div style="font-size: 15px; color: #1D1D1F;">E-JUST Dormitory Hub</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Hairline Divider -->
+          <tr>
+            <td class="content-padding" style="padding: 0 40px; background-color: #FFFFFF;">
+              <div style="height: 1px; background-color: #D2D2D7;"></div>
+            </td>
+          </tr>
+
+          <!-- Invoice Table -->
+          <tr>
+            <td class="content-padding" style="padding: 24px 40px; background-color: #FFFFFF;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                <thead>
+                  <tr style="background-color: #F5F5F7;">
+                    <th align="left" style="padding: 10px 12px; font-size: 10px; font-weight: 600; color: #86868B; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #D2D2D7;">Item</th>
+                    <th align="center" style="padding: 10px 8px; font-size: 10px; font-weight: 600; color: #86868B; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #D2D2D7;">Weight</th>
+                    <th align="center" style="padding: 10px 8px; font-size: 10px; font-weight: 600; color: #86868B; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #D2D2D7;">Rate</th>
+                    <th align="right" style="padding: 10px 12px; font-size: 10px; font-weight: 600; color: #86868B; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #D2D2D7;">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding: 14px 12px; border-bottom: 1px solid #D2D2D7; vertical-align: top;">
+                      <div style="font-size: 14px; font-weight: 600; color: #1D1D1F; margin-bottom: 3px;">
+                        ${record.ordername || 'Custom 3D Print Part'}
+                      </div>
+                      <div style="font-size: 12px; color: #86868B; line-height: 1.4;">
+                        ${record.material || 'PLA'} - ${record.color || 'Standard'}
+                        ${record.notes ? `<br><span style="font-style: italic;">${String(record.notes).slice(0, 80)}</span>` : ''}
+                      </div>
+                    </td>
+                    <td align="center" style="padding: 14px 8px; border-bottom: 1px solid #D2D2D7; font-size: 13px; color: #1D1D1F; vertical-align: top;">
+                      ${weightGrams}
+                    </td>
+                    <td align="center" style="padding: 14px 8px; border-bottom: 1px solid #D2D2D7; font-size: 13px; color: #86868B; vertical-align: top;">
+                      ${pricePerGram}
+                    </td>
+                    <td align="right" style="padding: 14px 12px; border-bottom: 1px solid #D2D2D7; font-size: 14px; font-weight: 600; color: #1D1D1F; vertical-align: top;">
+                      ${totalPrice}
+                    </td>
+                  </tr>
+
+                  <!-- Slicing Fee Row -->
+                  <tr>
+                    <td colspan="3" align="right" style="padding: 10px 12px 4px; font-size: 13px; color: #86868B;">
+                      Slicing Fee
+                    </td>
+                    <td align="right" style="padding: 10px 12px 4px; font-size: 13px; font-weight: 600; color: #10B981;">
+                      Waived
+                    </td>
+                  </tr>
+
+                  <!-- Total Row -->
+                  <tr>
+                    <td colspan="3" align="right" style="padding: 12px 12px 4px; font-size: 14px; font-weight: 700; color: #1D1D1F;">
+                      Total
+                    </td>
+                    <td align="right" style="padding: 12px 12px 4px; font-size: 18px; font-weight: 700; color: #FF8000; font-family: 'SF Mono', ui-monospace, Menlo, Monaco, Consolas, monospace;">
+                      ${totalPrice}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </td>
+          </tr>
+
+          ${fileEntries.length > 0 ? `
+          <!-- File Links -->
+          <tr>
+            <td class="content-padding" style="padding: 0 40px 20px; background-color: #FFFFFF;">
+              <div style="font-size: 13px; color: #86868B; margin-bottom: 8px;">Attached Files</div>
+              ${fileEntries.map(f => `
+                <div style="margin-bottom: 4px;">
+                  <a href="${f.url}" target="_blank" rel="noreferrer" style="font-size: 13px; color: #FF8000; text-decoration: none;">
+                    ${f.label} (${f.platform})
+                  </a>
+                </div>
+              `).join('')}
+            </td>
+          </tr>
+          ` : ''}
+
+          <!-- Hairline Divider -->
+          <tr>
+            <td class="content-padding" style="padding: 0 40px; background-color: #FFFFFF;">
+              <div style="height: 1px; background-color: #D2D2D7;"></div>
+            </td>
+          </tr>
+
+          <!-- Tracking CTA -->
+          <tr>
+            <td class="content-padding" style="padding: 32px 40px; background-color: #FFFFFF; text-align: center;">
+              <div style="font-size: 10px; font-weight: 600; color: #86868B; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px;">
+                Your Tracking Code
+              </div>
+              <div style="font-size: 28px; font-weight: 700; font-family: 'SF Mono', ui-monospace, Menlo, Monaco, Consolas, monospace; color: #FF8000; letter-spacing: 0.12em; margin-bottom: 20px;">
+                ${trackCode}
+              </div>
+              <div>
+                <a href="${trackUrl}" target="_blank" rel="noreferrer" style="display: inline-block; background-color: #FF8000; color: #FFFFFF; text-decoration: none; padding: 14px 36px; border-radius: 8px; font-size: 15px; font-weight: 600; letter-spacing: 0.02em; box-shadow: 0 2px 8px rgba(255, 128, 0, 0.25);">
+                  Track Order
+                </a>
+              </div>
+              <div style="font-size: 12px; color: #86868B; margin-top: 14px;">
+                Use this code or button to check your order status anytime.
+              </div>
+            </td>
+          </tr>
+
           <!-- Footer -->
           <tr>
-            <td class="content-padding" style="background-color: #07090f; padding: 22px 32px; text-align: center; border-top: 1px solid #161c29;">
-              <p style="font-size: 12px; font-weight: 700; color: #838e9f; margin: 0 0 4px 0;">
-                Etba3ly 3D Printing & Prototyping Hub &bull; Powered by Centurai Print OS
-              </p>
-              <p style="font-size: 11px; color: #505a6b; margin: 0;">
-                Automated notification sent to ${recipient}. Please retain this invoice for order collection verification.
-              </p>
+            <td class="content-padding" style="background-color: #F5F5F7; padding: 24px 40px; text-align: center;">
+              <div style="margin-bottom: 12px;">
+                <a href="https://wa.me/201026027552" target="_blank" rel="noreferrer" style="font-size: 12px; color: #FF8000; text-decoration: none;">WhatsApp</a>
+                <span style="color: #D2D2D7; margin: 0 8px;">|</span>
+                <a href="mailto:support@etba3ly.store" style="font-size: 12px; color: #FF8000; text-decoration: none;">Email Support</a>
+              </div>
+              <div style="font-size: 12px; color: #86868B; margin-bottom: 4px;">
+                Etba3ly 3D Printing | Powered by Centurai Print OS
+              </div>
+              <div style="font-size: 11px; color: #86868B;">
+                Automated notification sent to ${recipient}
+              </div>
             </td>
           </tr>
 
@@ -675,10 +653,8 @@ Deno.serve(async (req) => {
 
     // Plain text alternative for anti-spam deliverability
     const textContent = `
-===================================================================
-ETBA3LY.STORE | CENTURAI PRINT OS
-Additive Manufacturing & Prototyping Hub
-===================================================================
+ETBA3LY - 3D PRINTING
+========================================
 
 ${statusTitle.toUpperCase()}
 ${statusSubtitle}
@@ -687,38 +663,44 @@ Hello ${record.name || 'Customer'},
 
 ${statusDescription}
 
--------------------------------------------------------------------
-ORDER SPECIFICATIONS & INVOICE
--------------------------------------------------------------------
-Invoice / Tracking Code: ${trackCode}
-Date: ${orderDate}
-Client Name: ${record.name || 'Valued Client'}
-Client Phone: ${record.phone || 'On file'}
-Project Part: ${record.ordername || '3D Print Part'}
-Manufacturing Status: ${currentStatus.toUpperCase()}
-Material: ${record.material || 'PLA'} (${record.color || 'Standard'})
-Estimated Weight: ${weightGrams}
-Unit Rate: ${pricePerGram}
-Calibration / Slicing Fee: 0.00 EGP (Waived)
--------------------------------------------------------------------
-TOTAL AMOUNT PAYABLE: ${totalPrice}
--------------------------------------------------------------------
+----------------------------------------
+ORDER DETAILS
+----------------------------------------
+Invoice:          #${trackCode}
+Date:             ${orderDate}
+Status:           ${currentStatus.toUpperCase()}
 
-LIVE PRODUCTION TRACKING:
+Client:           ${record.name || 'Valued Client'}
+Phone:            ${record.phone || 'On file'}
+Material:         ${record.material || 'PLA'}
+Color:            ${record.color || 'Standard'}
+Tracking Code:    ${trackCode}
+Collection Hub:   E-JUST Dormitory Hub
+
+----------------------------------------
+INVOICE
+----------------------------------------
+${record.ordername || 'Custom 3D Print Part'}
+Weight: ${weightGrams}  |  Rate: ${pricePerGram}
+Slicing Fee: Waived
+
+TOTAL: ${totalPrice}
+----------------------------------------
+
+Track your order:
 ${trackUrl}
 
-COLLECTION & PAYMENT POLICY:
-Orders are collected at the E-JUST Student Dormitory Hub.
-Payment is accepted via Vodafone Cash or Cash on Collection upon inspection.
+Collection & Payment:
+Pickup at E-JUST Student Dormitory Hub.
+Payment via Vodafone Cash or Cash on Collection.
 
-Need assistance?
+Need help?
 WhatsApp: https://wa.me/201026027552
 Email: support@etba3ly.store
-Website: ${siteUrl}
+Web: ${siteUrl}
 
-===================================================================
-Centurai Print OS • Powered by Elegoo Centauri Carbon CC1
-===================================================================
+Etba3ly 3D Printing | Powered by Centurai Print OS
+Automated notification sent to ${recipient}
 `.trim();
 
     // Send email using Resend API
