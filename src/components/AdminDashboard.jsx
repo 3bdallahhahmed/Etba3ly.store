@@ -584,6 +584,10 @@ export default function AdminDashboard({
     deliveryMode: 'pickup'
   });
 
+  // Apple Email Template Preview Modal
+  const [showEmailPreviewModal, setShowEmailPreviewModal] = useState(false);
+  const [emailPreviewStatus, setEmailPreviewStatus] = useState('queued');
+
   // Sync Remote Settings
   useEffect(() => {
     let isMounted = true;
@@ -3517,6 +3521,25 @@ export default function AdminDashboard({
                   >
                     {isTestingEmail ? 'Testing...' : 'Test Email Alert'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowEmailPreviewModal(true)}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: 980,
+                      background: 'rgba(255, 128, 0, 0.1)',
+                      color: '#FF8000',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      border: '1px solid rgba(255, 128, 0, 0.3)',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6
+                    }}
+                  >
+                    <Icons.Apple /> Preview Apple Email
+                  </button>
                 </div>
               </div>
             </div>
@@ -4623,6 +4646,344 @@ export default function AdminDashboard({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ───────────────────────────────────────────────────────────── */}
+      {/* 5. MODAL: APPLE EMAIL TEMPLATE PREVIEW */}
+      {/* ───────────────────────────────────────────────────────────── */}
+      {showEmailPreviewModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 220,
+          padding: isMobile ? 12 : 24
+        }}>
+          <div style={{
+            background: theme.surface,
+            border: `1px solid ${theme.border}`,
+            borderRadius: 16,
+            maxWidth: 620,
+            width: '100%',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 24px 60px rgba(0, 0, 0, 0.4)'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 20px',
+              borderBottom: `1px solid ${theme.border}`,
+              background: theme.surface
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icons.Apple />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: theme.text }}>
+                    Apple Store Email Preview
+                  </div>
+                  <div style={{ fontSize: 11, color: theme.textSecondary }}>
+                    Centurai Print OS • Orange Accent Edition
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {/* Segmented Control */}
+                <div style={{
+                  display: 'flex',
+                  background: theme.canvas,
+                  borderRadius: 980,
+                  padding: 2,
+                  border: `1px solid ${theme.border}`
+                }}>
+                  {[
+                    { id: 'queued', label: 'Queued', color: '#FF8000' },
+                    { id: 'printing', label: 'Printing', color: '#3B82F6' },
+                    { id: 'done', label: 'Ready', color: '#10B981' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setEmailPreviewStatus(tab.id)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 980,
+                        border: 'none',
+                        background: emailPreviewStatus === tab.id ? (isAppleDark ? '#2C2C2E' : '#FFFFFF') : 'transparent',
+                        color: emailPreviewStatus === tab.id ? tab.color : theme.textSecondary,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        boxShadow: emailPreviewStatus === tab.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowEmailPreviewModal(false)}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 980,
+                    border: `1px solid ${theme.border}`,
+                    background: 'transparent',
+                    color: theme.textSecondary,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Scrollable Apple Card */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: isMobile ? 12 : 24,
+              background: '#ECECF0'
+            }}>
+              <div style={{
+                maxWidth: 540,
+                margin: '0 auto',
+                background: '#F5F5F7',
+                borderRadius: 16,
+                overflow: 'hidden',
+                boxShadow: '0 8px 30px rgba(0,0,0,0.08)',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif'
+              }}>
+                {/* Top Orange Accent */}
+                <div style={{ height: 3, background: '#FF8000' }} />
+
+                {/* Header */}
+                <div style={{ padding: '28px 32px 20px', background: '#FFFFFF', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: '#1D1D1F', letterSpacing: '-0.02em', marginBottom: 16 }}>
+                    ETBA3LY<span style={{ color: '#FF8000' }}>.STORE</span>
+                  </div>
+                  <div style={{ height: 1, background: '#D2D2D7', margin: '0 auto 16px' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{
+                      padding: '4px 12px',
+                      borderRadius: 20,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      color: emailPreviewStatus === 'done' ? '#10B981' : emailPreviewStatus === 'printing' ? '#3B82F6' : '#FF8000',
+                      background: emailPreviewStatus === 'done' ? 'rgba(16,185,129,0.08)' : emailPreviewStatus === 'printing' ? 'rgba(59,130,246,0.08)' : 'rgba(255,128,0,0.08)',
+                      border: `1px solid ${emailPreviewStatus === 'done' ? 'rgba(16,185,129,0.25)' : emailPreviewStatus === 'printing' ? 'rgba(59,130,246,0.25)' : 'rgba(255,128,0,0.25)'}`
+                    }}>
+                      {emailPreviewStatus === 'done' ? 'Complete' : emailPreviewStatus === 'printing' ? 'Printing' : 'Queued'}
+                    </span>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 13, color: '#86868B' }}>Invoice <strong style={{ color: '#1D1D1F' }}>#JP-TEST99</strong></div>
+                      <div style={{ fontSize: 11, color: '#86868B', marginTop: 2 }}>{new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3-Step Stepper */}
+                <div style={{ padding: '20px 32px', background: '#F5F5F7' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
+                    {/* Step 1 */}
+                    <div style={{ textAlign: 'center', zIndex: 1, flex: 1 }}>
+                      <div style={{
+                        width: 22,
+                        height: 22,
+                        lineHeight: '22px',
+                        borderRadius: '50%',
+                        background: '#FF8000',
+                        color: '#FFFFFF',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        margin: '0 auto 4px'
+                      }}>1</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#1D1D1F' }}>Queued</div>
+                    </div>
+
+                    {/* Line 1-2 */}
+                    <div style={{ height: 1, flex: 1, background: emailPreviewStatus !== 'queued' ? '#3B82F6' : '#D2D2D7', margin: '0 -10px 18px' }} />
+
+                    {/* Step 2 */}
+                    <div style={{ textAlign: 'center', zIndex: 1, flex: 1 }}>
+                      <div style={{
+                        width: 22,
+                        height: 22,
+                        lineHeight: '22px',
+                        borderRadius: '50%',
+                        background: emailPreviewStatus !== 'queued' ? '#3B82F6' : '#FFFFFF',
+                        border: emailPreviewStatus !== 'queued' ? 'none' : '1.5px solid #D2D2D7',
+                        color: emailPreviewStatus !== 'queued' ? '#FFFFFF' : '#86868B',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        margin: '0 auto 4px'
+                      }}>2</div>
+                      <div style={{ fontSize: 11, fontWeight: emailPreviewStatus !== 'queued' ? 700 : 500, color: emailPreviewStatus !== 'queued' ? '#1D1D1F' : '#86868B' }}>Printing</div>
+                    </div>
+
+                    {/* Line 2-3 */}
+                    <div style={{ height: 1, flex: 1, background: emailPreviewStatus === 'done' ? '#10B981' : '#D2D2D7', margin: '0 -10px 18px' }} />
+
+                    {/* Step 3 */}
+                    <div style={{ textAlign: 'center', zIndex: 1, flex: 1 }}>
+                      <div style={{
+                        width: 22,
+                        height: 22,
+                        lineHeight: '22px',
+                        borderRadius: '50%',
+                        background: emailPreviewStatus === 'done' ? '#10B981' : '#FFFFFF',
+                        border: emailPreviewStatus === 'done' ? 'none' : '1.5px solid #D2D2D7',
+                        color: emailPreviewStatus === 'done' ? '#FFFFFF' : '#86868B',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        margin: '0 auto 4px'
+                      }}>3</div>
+                      <div style={{ fontSize: 11, fontWeight: emailPreviewStatus === 'done' ? 700 : 500, color: emailPreviewStatus === 'done' ? '#1D1D1F' : '#86868B' }}>Ready</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Announcement Card */}
+                <div style={{ padding: '24px 32px', background: '#FFFFFF' }}>
+                  <div style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em',
+                    color: emailPreviewStatus === 'done' ? '#10B981' : emailPreviewStatus === 'printing' ? '#3B82F6' : '#FF8000',
+                    marginBottom: 6
+                  }}>
+                    {emailPreviewStatus === 'done' ? 'Your print is ready for collection at the campus hub' : emailPreviewStatus === 'printing' ? 'Centurai CC1 3D Printer is manufacturing your part' : 'Your 3D design has entered the production queue'}
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: '#1D1D1F', marginBottom: 8, letterSpacing: '-0.01em' }}>
+                    {emailPreviewStatus === 'done' ? 'Completed & Inspected' : emailPreviewStatus === 'printing' ? 'Production In Progress' : 'Order Received & Queued'}
+                  </div>
+                  <div style={{ fontSize: 13, lineHeight: 1.6, color: '#86868B' }}>
+                    {emailPreviewStatus === 'done'
+                      ? 'Great news! Your 3D print has completed manufacturing, passed post-print dimensional quality control, and is packaged for pickup at E-JUST Dormitory Hub.'
+                      : emailPreviewStatus === 'printing'
+                      ? 'Your design is currently on the build plate! Bed leveling, extrusion flow, and layer bonding calibrated for maximum structural precision.'
+                      : 'Thank you for manufacturing with Etba3ly! We have logged your order, verified the design specifications, and queued it for slicing and production.'}
+                  </div>
+                </div>
+
+                <div style={{ height: 1, background: '#D2D2D7', margin: '0 32px' }} />
+
+                {/* Merged Client + Production Info */}
+                <div style={{ padding: '20px 32px', background: '#FFFFFF' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 20px', fontSize: 13 }}>
+                    <div>
+                      <div style={{ color: '#86868B', fontSize: 11, textTransform: 'uppercase', fontWeight: 600 }}>Client</div>
+                      <div style={{ color: '#1D1D1F', fontWeight: 600, marginTop: 2 }}>Ahmed Hassan</div>
+                    </div>
+                    <div>
+                      <div style={{ color: '#86868B', fontSize: 11, textTransform: 'uppercase', fontWeight: 600 }}>Phone</div>
+                      <div style={{ color: '#1D1D1F', marginTop: 2 }}>01012345678</div>
+                    </div>
+                    <div>
+                      <div style={{ color: '#86868B', fontSize: 11, textTransform: 'uppercase', fontWeight: 600 }}>Material</div>
+                      <div style={{ color: '#1D1D1F', marginTop: 2 }}>PLA (McLaren Orange)</div>
+                    </div>
+                    <div>
+                      <div style={{ color: '#86868B', fontSize: 11, textTransform: 'uppercase', fontWeight: 600 }}>Tracking Code</div>
+                      <div style={{ color: '#FF8000', fontWeight: 700, fontFamily: 'monospace', marginTop: 2 }}>JP-TEST99</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ height: 1, background: '#D2D2D7', margin: '0 32px' }} />
+
+                {/* Invoice Table */}
+                <div style={{ padding: '20px 32px', background: '#FFFFFF' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: '#F5F5F7' }}>
+                        <th style={{ textAlign: 'left', padding: '8px 10px', color: '#86868B', fontWeight: 600, borderBottom: '1px solid #D2D2D7' }}>Item</th>
+                        <th style={{ textAlign: 'center', padding: '8px', color: '#86868B', fontWeight: 600, borderBottom: '1px solid #D2D2D7' }}>Weight</th>
+                        <th style={{ textAlign: 'center', padding: '8px', color: '#86868B', fontWeight: 600, borderBottom: '1px solid #D2D2D7' }}>Rate</th>
+                        <th style={{ textAlign: 'right', padding: '8px 10px', color: '#86868B', fontWeight: 600, borderBottom: '1px solid #D2D2D7' }}>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={{ padding: '12px 10px', borderBottom: '1px solid #D2D2D7' }}>
+                          <div style={{ fontWeight: 600, color: '#1D1D1F' }}>Centurai Calibration Cube (20mm)</div>
+                          <div style={{ color: '#86868B', fontSize: 11 }}>PLA - McLaren Orange</div>
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '12px 8px', borderBottom: '1px solid #D2D2D7', color: '#1D1D1F' }}>45.0 g</td>
+                        <td style={{ textAlign: 'center', padding: '12px 8px', borderBottom: '1px solid #D2D2D7', color: '#86868B' }}>3.00 EGP/g</td>
+                        <td style={{ textAlign: 'right', padding: '12px 10px', borderBottom: '1px solid #D2D2D7', fontWeight: 600, color: '#1D1D1F' }}>135.00 EGP</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={3} style={{ textAlign: 'right', padding: '8px 10px 4px', color: '#86868B' }}>Slicing Fee</td>
+                        <td style={{ textAlign: 'right', padding: '8px 10px 4px', color: '#10B981', fontWeight: 600 }}>Waived</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={3} style={{ textAlign: 'right', padding: '10px 10px 4px', fontWeight: 700, color: '#1D1D1F', fontSize: 13 }}>Total</td>
+                        <td style={{ textAlign: 'right', padding: '10px 10px 4px', fontWeight: 700, color: '#FF8000', fontSize: 16, fontFamily: 'monospace' }}>135.00 EGP</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ height: 1, background: '#D2D2D7', margin: '0 32px' }} />
+
+                {/* Tracking CTA */}
+                <div style={{ padding: '24px 32px', background: '#FFFFFF', textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#86868B', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+                    Your Tracking Code
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, fontFamily: 'monospace', color: '#FF8000', letterSpacing: '0.12em', marginBottom: 16 }}>
+                    JP-TEST99
+                  </div>
+                  <div>
+                    <span style={{
+                      display: 'inline-block',
+                      background: '#FF8000',
+                      color: '#FFFFFF',
+                      padding: '12px 32px',
+                      borderRadius: 8,
+                      fontSize: 14,
+                      fontWeight: 600,
+                      boxShadow: '0 2px 8px rgba(255, 128, 0, 0.25)'
+                    }}>
+                      Track Order
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#86868B', marginTop: 12 }}>
+                    Bookmark this code to check progress and pickup notice.
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div style={{ padding: '20px 32px', background: '#F5F5F7', textAlign: 'center', fontSize: 11, color: '#86868B' }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <span style={{ color: '#FF8000', fontWeight: 600 }}>WhatsApp</span>
+                    <span style={{ margin: '0 8px', color: '#D2D2D7' }}>|</span>
+                    <span style={{ color: '#FF8000', fontWeight: 600 }}>Email Support</span>
+                  </div>
+                  <div>Etba3ly 3D Printing • Powered by Centurai Print OS</div>
+                  <div style={{ marginTop: 2 }}>Automated notification sent to customer email</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
