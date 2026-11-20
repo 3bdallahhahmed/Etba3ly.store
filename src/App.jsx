@@ -695,17 +695,23 @@ function PrintScene() {
     const frustumHalfWidth = frustumHalfHeight * aspect;
 
     const desktopBaseScale = Math.min(0.95, Math.max(0.65, aspect * 0.55));
-    const scale = isMobile
+    const baseScale = isMobile
       ? (isSmallPhone ? 0.48 : 0.55)
       : desktopBaseScale * (1 - progress * 0.35);
 
-    const maxSafePosX = Math.max(0.9, frustumHalfWidth - 2.35 * scale);
+    // Smoothly scale down and push back the Torus knot when scrolling into the slicer section
+    const scrollY = typeof window !== "undefined" ? window.scrollY : 0;
+    const heroExit = Math.min(1, Math.max(0, (scrollY - 80) / 450));
+    const finalScale = isMobile ? baseScale : baseScale * (1 - heroExit * 0.40);
+    const posZ = isMobile ? 0 : -heroExit * 2.8;
+
+    const maxSafePosX = Math.max(0.9, frustumHalfWidth - 2.35 * finalScale);
     const posX = isMobile ? 0 : Math.min(2.2 + progress * 0.6, maxSafePosX);
     const posY = isMobile ? (isSmallPhone ? 1.05 : 1.18) : 0;
     const rotY = progress * Math.PI * 0.5;
 
-    groupRef.current.scale.lerp(new THREE.Vector3(scale, scale, scale), 0.08);
-    groupRef.current.position.lerp(new THREE.Vector3(posX, posY, 0), 0.08);
+    groupRef.current.scale.lerp(new THREE.Vector3(finalScale, finalScale, finalScale), 0.08);
+    groupRef.current.position.lerp(new THREE.Vector3(posX, posY, posZ), 0.08);
     const targetQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rotY, 0));
     groupRef.current.quaternion.slerp(targetQuat, 0.08);
   });
@@ -1166,7 +1172,7 @@ function SlicerPreviewSection({ config, navigateTo, onFileReady }) {
             >
               <div className="slicer-overlay-top-badge">
                 <span className="slicer-overlay-pulse-dot" />
-                <span>Flexi-Rex Interactive Demo</span>
+                <span>Flexi-Rex 3D Demo</span>
               </div>
 
               <div className="slicer-overlay-action-card">
@@ -1187,16 +1193,17 @@ function SlicerPreviewSection({ config, navigateTo, onFileReady }) {
                 </div>
                 <div className="slicer-overlay-text-wrap">
                   <strong className="slicer-overlay-heading">
-                    {dragOver ? "Drop .STL File Here" : "Drop your .STL file here"}
+                    {dragOver ? "Drop .STL File to Slice" : "Drop your .STL file here"}
                   </strong>
                   <span className="slicer-overlay-hint">
-                    {dragOver ? "Release to slice model" : "or click anywhere on Rex to browse"}
+                    {dragOver ? "Release to analyze model metrics" : "or click anywhere to browse from device"}
                   </span>
                 </div>
               </div>
 
-              <div className="slicer-overlay-bottom-hint">
-                <span>Instant weight, duration, and price analysis</span>
+              <div className="slicer-overlay-idle-chip">
+                <span className="slicer-overlay-pulse-dot" />
+                <span>Hover or Drop .STL to Upload</span>
               </div>
             </div>
           )}
@@ -1278,6 +1285,42 @@ function SlicerPreviewSection({ config, navigateTo, onFileReady }) {
                 <line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
               <span>{estimateError}</span>
+            </div>
+          )}
+
+          {/* Secondary actions when in uploaded mode without active estimate card (e.g. error recovery) */}
+          {!isDemoMode && !estimateResult && !isEstimating && (
+            <div className="slicer-secondary-actions" style={{ marginTop: 14 }}>
+              <button
+                type="button"
+                className="btn btn-glass btn-sm slicer-change-model-btn"
+                onClick={() => fileInputRef.current?.click()}
+                title="Choose a different .STL file to preview"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ width: 14, height: 14, marginRight: 6 }}
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Upload Another Model
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm slicer-reset-btn"
+                onClick={handleResetDemo}
+                title="Reset back to Flexi-Rex demo"
+              >
+                Reset Demo
+              </button>
             </div>
           )}
 
