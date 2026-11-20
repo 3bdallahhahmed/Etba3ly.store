@@ -1086,11 +1086,34 @@ function SlicerPreviewSection({ config, navigateTo, onFileReady }) {
     }
   }
 
+  function handleResetDemo() {
+    setPreviewFile(null);
+    setIsDemoMode(true);
+    setEstimateResult(null);
+    setEstimateError(null);
+    setDragOver(false);
+    if (onFileReady) onFileReady(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
   return (
     <section id="preview" className="slicer-preview-section reveal">
+      {/* Hidden file input controlled by overlay and secondary buttons */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".stl"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+        }}
+      />
+
       <div className="slicer-preview-container">
-        {/* LEFT: 3D Viewer */}
-        <div className="slicer-preview-viewer">
+        {/* LEFT: 3D Viewer with Rex or Uploaded Model */}
+        <div
+          className={`slicer-preview-viewer ${isDemoMode ? "is-demo-viewer" : "is-active-viewer"}`}
+        >
           <STLViewer
             file={isDemoMode ? null : previewFile}
             fileUrl={isDemoMode ? demoModelUrl : null}
@@ -1108,81 +1131,161 @@ function SlicerPreviewSection({ config, navigateTo, onFileReady }) {
               }
             }}
           />
-        </div>
 
-        {/* RIGHT: Info + Upload Card */}
-        <div className="slicer-preview-info">
-          <h2>See Your Print Before You Order</h2>
-          <p className="slicer-preview-subtitle">
-            Upload your 3D model to get an instant estimated price range
-          </p>
-
-          {/* Upload Drop Zone */}
-          <div
-            className={`slicer-upload-zone ${dragOver ? "drag-over" : ""}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setDragOver(true);
-            }}
-            onDragLeave={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setDragOver(false);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setDragOver(false);
-              const f = e.dataTransfer.files?.[0];
-              if (f) handleFileUpload(f);
-            }}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".stl"
-              style={{ display: "none" }}
-              onChange={(e) => {
-                if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+          {/* OVERLAY ON TOP OF REX: Only active in initial demo mode */}
+          {isDemoMode && (
+            <div
+              className={`slicer-viewer-upload-overlay ${dragOver ? "drag-over" : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragOver(true);
               }}
-            />
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+              onDragLeave={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragOver(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f) handleFileUpload(f);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+              title="Click or drop an .STL file to preview your 3D model"
             >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-            <div>
-              <strong>
-                {previewFile ? previewFile.name : "Drop your .STL file here"}
-              </strong>
-              <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4 }}>
-                {previewFile
-                  ? "Click to choose a different STL model"
-                  : "or click to browse from your device"}
+              <div className="slicer-overlay-top-badge">
+                <span className="slicer-overlay-pulse-dot" />
+                <span>Flexi-Rex Interactive Demo</span>
+              </div>
+
+              <div className="slicer-overlay-action-card">
+                <div className="slicer-overlay-icon-wrap">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="slicer-overlay-svg-icon"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                </div>
+                <div className="slicer-overlay-text-wrap">
+                  <strong className="slicer-overlay-heading">
+                    {dragOver ? "Drop .STL File Here" : "Drop your .STL file here"}
+                  </strong>
+                  <span className="slicer-overlay-hint">
+                    {dragOver ? "Release to slice model" : "or click anywhere on Rex to browse"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="slicer-overlay-bottom-hint">
+                <span>Instant weight, duration, and price analysis</span>
               </div>
             </div>
-          </div>
+          )}
 
+          {/* Tag shown when viewing custom uploaded model */}
+          {!isDemoMode && previewFile && (
+            <div className="slicer-viewer-active-tag">
+              <span className="slicer-active-dot" />
+              <span className="slicer-active-name" title={previewFile.name}>
+                {previewFile.name}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* RIGHT: Info + Estimate Panel */}
+        <div className="slicer-preview-info">
+          <h2>
+            {isDemoMode ? "See Your Print Before You Order" : "3D Model Slicer Analysis"}
+          </h2>
+          <p className="slicer-preview-subtitle">
+            {isDemoMode
+              ? "Upload your 3D model directly onto the viewer to get instant dormitory pricing and weight estimation."
+              : "Review your volumetric slicer metrics below. You can inspect your model in 3D or proceed to order."}
+          </p>
+
+          {/* Demo Mode: Informational Feature Highlights */}
+          {isDemoMode && (
+            <div className="slicer-demo-features">
+              <div className="slicer-feature-point">
+                <div className="slicer-feature-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                    <line x1="12" y1="22.08" x2="12" y2="12" />
+                  </svg>
+                </div>
+                <div className="slicer-feature-desc">
+                  <strong>Accurate Slicer Geometry</strong>
+                  <span>True volumetric shell and gyroid infill calculations</span>
+                </div>
+              </div>
+
+              <div className="slicer-feature-point">
+                <div className="slicer-feature-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                    <line x1="8" y1="21" x2="16" y2="21" />
+                    <line x1="12" y1="17" x2="12" y2="21" />
+                  </svg>
+                </div>
+                <div className="slicer-feature-desc">
+                  <strong>Elegoo Centauri Carbon Calibrated</strong>
+                  <span>Tuned for 0.4mm nozzle with quiet dorm parameters</span>
+                </div>
+              </div>
+
+              <div className="slicer-feature-point">
+                <div className="slicer-feature-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 6v6l4 2" />
+                  </svg>
+                </div>
+                <div className="slicer-feature-desc">
+                  <strong>Instant Student Rate</strong>
+                  <span>Fixed price per gram in EGP with transparent pricing</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Error Message */}
           {estimateError && (
-            <div style={{ color: "#FF3B30", fontSize: 13, textAlign: "center" }}>
-              {estimateError}
+            <div className="slicer-error-banner">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 18, height: 18, flexShrink: 0 }}>
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span>{estimateError}</span>
             </div>
           )}
 
           {/* Loading state */}
           {isEstimating && (
-            <div className="slicer-estimate-card" style={{ textAlign: "center", padding: "28px 20px" }}>
+            <div className="slicer-estimate-card slicer-card-loading">
               <div className="slicer-loading-pulse" />
-              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", marginTop: 12, display: "block" }}>
+              <span className="slicer-loading-text">
                 Analyzing 3D geometry...
               </span>
             </div>
@@ -1191,19 +1294,72 @@ function SlicerPreviewSection({ config, navigateTo, onFileReady }) {
           {/* Estimate Results (shown after upload) */}
           {estimateResult && !isEstimating && (
             <div className="slicer-estimate-card">
+              {estimateResult.metrics && (
+                <div className="slicer-model-dimensions-row">
+                  <span className="slicer-dim-label">Dimensions</span>
+                  <span className="slicer-dim-val">
+                    {Math.round(estimateResult.metrics.width)} × {Math.round(estimateResult.metrics.depth)} × {Math.round(estimateResult.metrics.height)} mm
+                  </span>
+                </div>
+              )}
+
               <div className="slicer-estimate-row">
                 <span>Estimated Weight</span>
                 <strong>~{Math.round(estimateResult.totalWeightGrams ?? estimateResult.weightGrams ?? 0)}g</strong>
               </div>
+
               <div className="slicer-estimate-row">
                 <span>Estimated Price</span>
                 <strong className="slicer-price">
                   ~{estimateResult.quotedPrice} EGP
                 </strong>
               </div>
+
+              {estimateResult.printTimeFormatted && (
+                <div className="slicer-estimate-row">
+                  <span>Estimated Print Time</span>
+                  <strong>~{estimateResult.printTimeFormatted}</strong>
+                </div>
+              )}
+
               <p className="slicer-estimate-note">
-                Estimate based on standard PLA+ infill. Custom materials, colors, and layer precision available on the order workstation.
+                Estimate based on standard PLA infill. Custom materials, colors, and layer precision available on the order workstation.
               </p>
+
+              {/* Secondary action buttons: Upload Another Model & Reset Demo */}
+              <div className="slicer-secondary-actions">
+                <button
+                  type="button"
+                  className="btn btn-glass btn-sm slicer-change-model-btn"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Choose a different .STL file to preview"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ width: 14, height: 14, marginRight: 6 }}
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  Upload Another Model
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm slicer-reset-btn"
+                  onClick={handleResetDemo}
+                  title="Reset back to Flexi-Rex demo"
+                >
+                  Reset Demo
+                </button>
+              </div>
+
               <button
                 type="button"
                 className="btn btn-accent slicer-order-btn"
