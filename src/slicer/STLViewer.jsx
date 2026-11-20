@@ -48,7 +48,9 @@ const STLViewer = forwardRef(function STLViewer({
   onMetricsChange,
   showSlicerControls = false,
   height = '280px',
-  compact = false
+  compact = false,
+  transparent = false,
+  autoRotate = false
 }, ref) {
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
@@ -107,7 +109,7 @@ const STLViewer = forwardRef(function STLViewer({
 
     // Scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0c0f14);
+    scene.background = transparent ? null : new THREE.Color(0x0c0f14);
     sceneRef.current = scene;
 
     // Camera
@@ -132,6 +134,13 @@ const STLViewer = forwardRef(function STLViewer({
     controls.minDistance = 20;
     controls.maxDistance = 1200;
     controls.target.set(0, 15, 0);
+    if (autoRotate) {
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 1.2;
+      controls.addEventListener('start', () => {
+        controls.autoRotate = false;
+      });
+    }
     controlsRef.current = controls;
 
     // Lighting
@@ -228,7 +237,14 @@ const STLViewer = forwardRef(function STLViewer({
       }
       renderer.dispose();
     };
-  }, [height]);
+  }, [height, transparent]);
+
+  // Keep autoRotate in sync if prop changes
+  useEffect(() => {
+    if (controlsRef.current) {
+      controlsRef.current.autoRotate = autoRotate;
+    }
+  }, [autoRotate]);
 
   // Load and Parse STL File
   useEffect(() => {
@@ -580,7 +596,16 @@ const STLViewer = forwardRef(function STLViewer({
   const totalG = liveMetrics ? Number(liveMetrics.totalWeightGrams ?? (modelG + supportG)) : 0;
 
   return (
-    <div style={{ position: 'relative', width: '100%', height, minHeight: typeof height === 'number' ? height : undefined, borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border-glass)', background: 'rgba(10, 12, 16, 0.85)' }}>
+    <div style={{
+      position: 'relative',
+      width: '100%',
+      height,
+      minHeight: typeof height === 'number' ? height : undefined,
+      borderRadius: 'var(--radius-sm)',
+      overflow: 'hidden',
+      border: transparent ? 'none' : '1px solid var(--border-glass)',
+      background: transparent ? 'transparent' : 'rgba(10, 12, 16, 0.85)'
+    }}>
       {/* 3D Canvas Mount Point */}
       <div ref={mountRef} style={{ width: '100%', height: '100%', minHeight: '100%' }} />
 
@@ -593,56 +618,58 @@ const STLViewer = forwardRef(function STLViewer({
       )}
 
       {/* Top Floating Controls Bar */}
-      <div style={{ position: 'absolute', top: 12, left: 12, right: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', pointerEvents: 'none', zIndex: 5, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ pointerEvents: 'auto', display: 'flex', gap: 6, background: 'rgba(20, 25, 35, 0.8)', backdropFilter: 'blur(12px)', padding: '4px 8px', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-glass)' }}>
-          <button
-            type="button"
-            className="btn btn-sm"
-            style={{ padding: '4px 10px', fontSize: 11, background: viewMode === 'model' ? 'var(--accent)' : 'transparent', color: viewMode === 'model' ? '#000' : 'var(--text-primary)', border: 'none', borderRadius: 'var(--radius-full)', fontWeight: 700 }}
-            onClick={() => handleToggleMode('model')}
-          >
-            3D Model
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm"
-            style={{ padding: '4px 10px', fontSize: 11, background: viewMode === 'toolpath' ? 'var(--accent)' : 'transparent', color: viewMode === 'toolpath' ? '#000' : 'var(--text-primary)', border: 'none', borderRadius: 'var(--radius-full)', fontWeight: 700 }}
-            onClick={() => handleToggleMode('toolpath')}
-          >
-            {sliceData ? 'Toolpath' : 'Slice Preview'}
-          </button>
-        </div>
+      {showSlicerControls && (
+        <div style={{ position: 'absolute', top: 12, left: 12, right: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', pointerEvents: 'none', zIndex: 5, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ pointerEvents: 'auto', display: 'flex', gap: 6, background: 'rgba(20, 25, 35, 0.8)', backdropFilter: 'blur(12px)', padding: '4px 8px', borderRadius: 'var(--radius-full)', border: '1px solid var(--border-glass)' }}>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ padding: '4px 10px', fontSize: 11, background: viewMode === 'model' ? 'var(--accent)' : 'transparent', color: viewMode === 'model' ? '#000' : 'var(--text-primary)', border: 'none', borderRadius: 'var(--radius-full)', fontWeight: 700 }}
+              onClick={() => handleToggleMode('model')}
+            >
+              3D Model
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ padding: '4px 10px', fontSize: 11, background: viewMode === 'toolpath' ? 'var(--accent)' : 'transparent', color: viewMode === 'toolpath' ? '#000' : 'var(--text-primary)', border: 'none', borderRadius: 'var(--radius-full)', fontWeight: 700 }}
+              onClick={() => handleToggleMode('toolpath')}
+            >
+              {sliceData ? 'Toolpath' : 'Slice Preview'}
+            </button>
+          </div>
 
-        <div style={{ pointerEvents: 'auto', display: 'flex', gap: 6 }}>
-          <button
-            type="button"
-            className="btn btn-sm btn-glass"
-            style={{ padding: '4px 10px', fontSize: 11, borderRadius: 'var(--radius-full)' }}
-            onClick={handleAutoOrient}
-            title="Auto Print Surface: Place largest flat face on bed"
-          >
-            Auto Orient
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm btn-glass"
-            style={{ padding: '4px 10px', fontSize: 11, borderRadius: 'var(--radius-full)' }}
-            onClick={handleRotate90}
-            title="Rotate model 90 degrees around X"
-          >
-            Rotate 90°
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm btn-glass"
-            style={{ padding: '4px 10px', fontSize: 11, borderRadius: 'var(--radius-full)' }}
-            onClick={handleResetCamera}
-            title="Reset Camera & Center Model"
-          >
-            Reset View
-          </button>
+          <div style={{ pointerEvents: 'auto', display: 'flex', gap: 6 }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-glass"
+              style={{ padding: '4px 10px', fontSize: 11, borderRadius: 'var(--radius-full)' }}
+              onClick={handleAutoOrient}
+              title="Auto Print Surface: Place largest flat face on bed"
+            >
+              Auto Orient
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-glass"
+              style={{ padding: '4px 10px', fontSize: 11, borderRadius: 'var(--radius-full)' }}
+              onClick={handleRotate90}
+              title="Rotate model 90 degrees around X"
+            >
+              Rotate 90°
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-glass"
+              style={{ padding: '4px 10px', fontSize: 11, borderRadius: 'var(--radius-full)' }}
+              onClick={handleResetCamera}
+              title="Reset Camera & Center Model"
+            >
+              Reset View
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Bottom Slicer Telemetry Badge (Oriented Dimensions, Model Mass & Support Mass) */}
       {liveMetrics && mDims && viewMode === 'model' && !compact && (

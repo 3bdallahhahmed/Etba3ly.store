@@ -15,7 +15,9 @@ import { createClient } from "@supabase/supabase-js";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Float, Html, useProgress, useGLTF, useEnvironment } from "@react-three/drei";
 import * as THREE from "three";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import STLViewer from "./slicer/STLViewer.jsx";
+import { estimatePrintMetrics } from "./slicer/slicerEngine.js";
 import GalleryStudioUploader from "./utils/GalleryStudioUploader.jsx";
 import { processPartImageFile } from "./utils/partImageProcessor.js";
 import { upscaleImageFile } from "./utils/imageUpscaler.js";
@@ -1031,6 +1033,195 @@ function FullGalleryView({ items, onItemClick, onGoHome }) {
   );
 }
 
+function SlicerPreviewSection({ config, navigateTo, onFileReady }) {
+  const [previewFile, setPreviewFile] = useState(null);
+  const [isDemoMode, setIsDemoMode] = useState(true);
+  const [demoColor, setDemoColor] = useState("Orange");
+  const [estimateResult, setEstimateResult] = useState(null);
+  const [isEstimating, setIsEstimating] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [estimateError, setEstimateError] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const demoModelUrl = useMemo(() => getAssetPath("flexi-rex.stl"), []);
+
+  useEffect(() => {
+    const colors = ["#FF8000", "#00A8FF", "#2ECC71", "#FF3B30", "#A855F7"];
+    const pick = colors[Math.floor(Math.random() * colors.length)];
+    setDemoColor(pick);
+  }, []);
+
+  async function handleFileUpload(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".stl")) {
+      setEstimateError("Please upload an .STL 3D model file.");
+      return;
+    }
+    setEstimateError(null);
+    setPreviewFile(file);
+    setIsDemoMode(false);
+    setIsEstimating(true);
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const loader = new STLLoader();
+      const geometry = loader.parse(buffer);
+
+      const result = estimatePrintMetrics(geometry, {
+        materialKey: "pla",
+        infillPercent: 20,
+        layerHeight: 0.20,
+        nozzleSize: 0.40,
+        enableSupports: true,
+        pricePerGram: config?.price_per_gram || 3.5
+      });
+
+      setEstimateResult(result);
+      if (onFileReady) onFileReady(file);
+    } catch (err) {
+      console.error("Preview slicer estimation error:", err);
+      setEstimateError("Could not parse 3D file. Please check file format.");
+    } finally {
+      setIsEstimating(false);
+    }
+  }
+
+  return (
+    <section id="preview" className="slicer-preview-section reveal">
+      <div className="slicer-preview-container">
+        {/* LEFT: 3D Viewer */}
+        <div className="slicer-preview-viewer">
+          <STLViewer
+            file={isDemoMode ? null : previewFile}
+            fileUrl={isDemoMode ? demoModelUrl : null}
+            color={isDemoMode ? demoColor : "Orange"}
+            height="380px"
+            compact={true}
+            transparent={true}
+            autoRotate={isDemoMode}
+            showSlicerControls={false}
+            pricePerGram={config?.price_per_gram || 3.5}
+            onMetricsChange={(metrics) => {
+              if (!isDemoMode && metrics) {
+                setEstimateResult(metrics);
+                setIsEstimating(false);
+              }
+            }}
+          />
+        </div>
+
+        {/* RIGHT: Info + Upload Card */}
+        <div className="slicer-preview-info">
+          <h2>See Your Print Before You Order</h2>
+          <p className="slicer-preview-subtitle">
+            Upload your 3D model to get an instant estimated price range
+          </p>
+
+          {/* Upload Drop Zone */}
+          <div
+            className={`slicer-upload-zone ${dragOver ? "drag-over" : ""}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragOver(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragOver(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragOver(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f) handleFileUpload(f);
+            }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".stl"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+              }}
+            />
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            <div>
+              <strong>
+                {previewFile ? previewFile.name : "Drop your .STL file here"}
+              </strong>
+              <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4 }}>
+                {previewFile
+                  ? "Click to choose a different STL model"
+                  : "or click to browse from your device"}
+              </div>
+            </div>
+          </div>
+
+          {estimateError && (
+            <div style={{ color: "#FF3B30", fontSize: 13, textAlign: "center" }}>
+              {estimateError}
+            </div>
+          )}
+
+          {/* Loading state */}
+          {isEstimating && (
+            <div className="slicer-estimate-card" style={{ textAlign: "center", padding: "28px 20px" }}>
+              <div className="slicer-loading-pulse" />
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)", marginTop: 12, display: "block" }}>
+                Analyzing 3D geometry...
+              </span>
+            </div>
+          )}
+
+          {/* Estimate Results (shown after upload) */}
+          {estimateResult && !isEstimating && (
+            <div className="slicer-estimate-card">
+              <div className="slicer-estimate-row">
+                <span>Estimated Weight</span>
+                <strong>~{Math.round(estimateResult.totalWeightGrams ?? estimateResult.weightGrams ?? 0)}g</strong>
+              </div>
+              <div className="slicer-estimate-row">
+                <span>Estimated Price</span>
+                <strong className="slicer-price">
+                  ~{estimateResult.quotedPrice} EGP
+                </strong>
+              </div>
+              <p className="slicer-estimate-note">
+                Estimate based on standard PLA+ infill. Custom materials, colors, and layer precision available on the order workstation.
+              </p>
+              <button
+                type="button"
+                className="btn btn-accent slicer-order-btn"
+                onClick={() => {
+                  if (onFileReady && previewFile) onFileReady(previewFile);
+                  navigateTo("order");
+                }}
+              >
+                Place Full Order
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   // Capture ElectraGo referral code from URL (?ref=electrago)
   useEffect(() => {
@@ -1149,6 +1340,17 @@ export default function App() {
   const [fileError, setFileError] = useState("");
   const [formErrors, setFormErrors] = useState({});
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [preUploadedFile, setPreUploadedFile] = useState(null);
+
+  useEffect(() => {
+    if (preUploadedFile && (currentRoute === "order" || hash === "#order")) {
+      setSelectedFiles([preUploadedFile]);
+      setNewOrder(p => ({ ...p, fileName: preUploadedFile.name }));
+      setOrderSourceTab("file");
+      setFormErrors(prev => ({ ...prev, file: null, fileLink: null }));
+      setPreUploadedFile(null);
+    }
+  }, [currentRoute, hash, preUploadedFile]);
   const [trackSearch, setTrackSearch] = useState("");
   const [trackResults, setTrackResults] = useState(null);
   const [adminTab, setAdminTab] = useState("orders");
@@ -3716,6 +3918,13 @@ export default function App() {
               <a href="/track" className="btn btn-glass" onClick={(e) => { e.preventDefault(); navigateTo("track"); }}>Track Order</a>
             </div>
           </section>
+
+          {/* -- SLICER PREVIEW -- */}
+          <SlicerPreviewSection
+            config={config}
+            navigateTo={navigateTo}
+            onFileReady={setPreUploadedFile}
+          />
 
           {/* -- WHY US -- */}
           <section id="why" className="section-container reveal">

@@ -2294,3 +2294,198 @@ label {
   transform: translateY(-2px);
   border-color: rgba(255, 255, 255, 0.16) !important;
 }
+
+/* =============================================================
+   SLICER PREVIEW SECTION
+   ============================================================= */
+.slicer-preview-section {
+  padding: 40px 24px 80px;
+  position: relative;
+  z-index: 10;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.slicer-preview-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  align-items: center;
+}
+
+/* 3D Viewer Card */
+.slicer-preview-viewer {
+  background: var(--bg-glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-glass);
+  overflow: hidden;
+  position: relative;
+  min-height: 380px;
+}
+
+/* Info Panel */
+.slicer-preview-info {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.slicer-preview-info h2 {
+  font-size: clamp(24px, 4vw, 36px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.slicer-preview-subtitle {
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.6;
+  max-width: 400px;
+}
+
+/* Upload Drop Zone */
+.slicer-upload-zone {
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 2px dashed var(--border-glass-strong);
+  border-radius: var(--radius-sm);
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.3s var(--ease-smooth);
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: center;
+  width: 100%;
+}
+
+.slicer-upload-zone:hover,
+.slicer-upload-zone.drag-over {
+  border-color: var(--accent);
+  background: rgba(255, 128, 0, 0.08);
+  color: var(--text-primary);
+  box-shadow: 0 0 32px rgba(255, 128, 0, 0.1);
+}
+
+.slicer-upload-zone svg {
+  width: 36px;
+  height: 36px;
+  opacity: 0.5;
+  transition: opacity 0.3s;
+}
+
+.slicer-upload-zone:hover svg,
+.slicer-upload-zone.drag-over svg {
+  opacity: 0.9;
+  color: var(--accent);
+}
+
+/* Estimate Results Card */
+.slicer-estimate-card {
+  background: var(--bg-glass-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 24px;
+  box-shadow: var(--shadow-glass);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: slicerFadeSlideUp 0.4s var(--ease-spring);
+  width: 100%;
+}
+
+.slicer-estimate-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 15px;
+}
+
+.slicer-estimate-row span {
+  color: var(--text-secondary);
+}
+
+.slicer-estimate-row strong {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.slicer-price {
+  color: var(--accent) !important;
+  font-size: 22px !important;
+}
+
+.slicer-estimate-note {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.slicer-order-btn {
+  margin-top: 4px;
+  width: 100%;
+}
+
+/* Loading pulse animation */
+.slicer-loading-pulse {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent-gradient);
+  animation: slicerPulse 1.2s ease-in-out infinite;
+  margin: 0 auto;
+}
+
+@keyframes slicerFadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slicerPulse {
+  0%, 100% { transform: scale(0.8); opacity: 0.5; }
+  50% { transform: scale(1.1); opacity: 1; }
+}
+
+/* Mobile stacked layout */
+@media (max-width: 1024px) {
+  .slicer-preview-section {
+    padding: 20px 20px 60px;
+  }
+  .slicer-preview-container {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .slicer-preview-viewer {
+    min-height: 300px;
+  }
+  .slicer-preview-info {
+    text-align: center;
+    align-items: center;
+  }
+  .slicer-preview-subtitle {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .slicer-preview-viewer {
+    min-height: 260px;
+  }
+}
