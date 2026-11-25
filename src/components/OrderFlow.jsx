@@ -391,9 +391,8 @@ export default function OrderFlow({
       <div className="order-page-shell">
         {/* Header & 4-Step Progress Indicator */}
         <header className="order-header">
-          <div className="order-header-top">
-            <span className="order-eyebrow">ETBA3LY PRINT STUDIO</span>
-            {orderStep === 1 && (
+          {orderStep === 1 && (
+            <div className="order-header-top">
               <a
                 href="/home"
                 className="order-home-link"
@@ -404,8 +403,8 @@ export default function OrderFlow({
               >
                 &larr; Back to Home
               </a>
-            )}
-          </div>
+            </div>
+          )}
           <h1 ref={stepHeadingRef} tabIndex={-1} className="order-title">
             {headingByStep[orderStep]}
           </h1>
@@ -768,7 +767,7 @@ export default function OrderFlow({
               {/* Quality Presets */}
               <fieldset className="order-fieldset">
                 <legend className="order-field-legend">Quality</legend>
-                <div className="order-quality-grid">
+                <div className="order-quality-grid order-segmented-tray">
                   {QUALITY_OPTIONS.map((opt) => {
                     const isSelected = selectedTier === opt.id;
                     return (
@@ -802,7 +801,7 @@ export default function OrderFlow({
                     <div className="order-advanced-drawer">
                       <div className="order-adv-row">
                         <span className="order-adv-label">Strength (Infill)</span>
-                        <div className="order-adv-chips">
+                        <div className="order-adv-chips order-segmented-tray">
                           {[15, 20, 30, 50, 100].map((val) => (
                             <button
                               key={val}
@@ -822,7 +821,7 @@ export default function OrderFlow({
 
                       <div className="order-adv-row">
                         <span className="order-adv-label">Detail (Layer Height)</span>
-                        <div className="order-adv-chips">
+                        <div className="order-adv-chips order-segmented-tray">
                           {[
                             { val: 0.28, label: "0.28mm" },
                             { val: 0.20, label: "0.20mm" },
@@ -847,14 +846,24 @@ export default function OrderFlow({
 
                       <div className="order-adv-row order-adv-row-inline">
                         <span className="order-adv-label">Auto Supports</span>
-                        <button
-                          type="button"
-                          aria-pressed={enableSupports}
-                          onClick={() => setEnableSupports(!enableSupports)}
-                          className={`order-mini-chip ${enableSupports ? "selected" : ""}`}
-                        >
-                          {enableSupports ? "On (Recommended)" : "Off"}
-                        </button>
+                        <div className="order-segmented-tray order-segmented-tray-inline">
+                          <button
+                            type="button"
+                            aria-pressed={enableSupports}
+                            onClick={() => setEnableSupports(true)}
+                            className={`order-mini-chip ${enableSupports ? "selected" : ""}`}
+                          >
+                            On
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={!enableSupports}
+                            onClick={() => setEnableSupports(false)}
+                            className={`order-mini-chip ${!enableSupports ? "selected" : ""}`}
+                          >
+                            Off
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
