@@ -1,11 +1,9 @@
 import AdminDashboard from "./components/AdminDashboard";
-import ServiceTierSelector, { SERVICE_TIERS } from "./components/ServiceTierSelector";
-import ReviewInvoiceCard from "./components/ReviewInvoiceCard";
+import OrderFlow from "./components/OrderFlow";
 import {
   calculateOrderQuote,
   DEFAULT_PRICING_SETTINGS,
   DEFAULT_MATERIAL_RATES,
-  DEFAULT_SHIPPING_ZONES,
   parseFilamentCatalog,
   serializeFilamentCatalog,
   normalizeMaterialKey
@@ -16,6 +14,8 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Float, Html, useProgress, useGLTF, useEnvironment } from "@react-three/drei";
 import * as THREE from "three";
 import STLViewer from "./slicer/STLViewer.jsx";
+import { estimatePrintMetrics } from "./slicer/slicerEngine.js";
+import { parseAndOrientStlFile, renderStlThumbnail } from "./slicer/stlThumbnail.js";
 import GalleryStudioUploader from "./utils/GalleryStudioUploader.jsx";
 import { processPartImageFile } from "./utils/partImageProcessor.js";
 import { upscaleImageFile } from "./utils/imageUpscaler.js";
@@ -1145,10 +1145,10 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("jp_user_info") || "{}"); } catch { return {}; }
   }, []);
   const [newOrder, setNewOrder] = useState({ name: savedUserInfo.name || "", phone: savedUserInfo.phone || "", email: savedUserInfo.email || "", orderName: "", material: "", color: "", notes: "", fileName: "", fileLink: "" });
-  const [orderSourceTab, setOrderSourceTab] = useState("file");
   const [fileError, setFileError] = useState("");
   const [formErrors, setFormErrors] = useState({});
-  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [orderItems, setOrderItems] = useState([]);
+  const [preUploadedFile, setPreUploadedFile] = useState(null);
   const [trackSearch, setTrackSearch] = useState("");
   const [trackResults, setTrackResults] = useState(null);
   const [adminTab, setAdminTab] = useState("orders");
@@ -1185,7 +1185,123 @@ export default function App() {
   const [orderInfill, setOrderInfill] = useState(20);
   const [orderLayerHeight, setOrderLayerHeight] = useState(0.20);
   const [orderNozzle, setOrderNozzle] = useState(0.40);
-  const [clientMetrics, setClientMetrics] = useState(null);
+
+  const activeOrderRate = useMemo(() => {
+    const nk = normalizeMaterialKey(newOrder.material || "pla");
+    const baseR = parseFloat(config.price_per_gram) || 3.5;
+    const md = (materialRates && (materialRates[nk] || materialRates[newOrder.material?.toLowerCase()])) || { selling_rate: baseR };
+    let r = Number(md.selling_rate) || baseR;
+    if ((nk === "pla" || nk === "pla_plus") && (r < baseR || r <= 2.0)) {
+      r = baseR;
+    }
+    return r;
+  }, [newOrder.material, materialRates, config.price_per_gram]);
+
+  const itemEstimates = useMemo(() => {
+    return orderItems.map((item) => {
+      if (item.kind !== "stl" || !item.geometry) {
+        return { id: item.id, estimate: null };
+      }
+      const estimate = estimatePrintMetrics(item.geometry, {
+        infillPercent: orderInfill,
+        layerHeight: orderLayerHeight,
+        nozzleSize: orderNozzle || (orderLayerHeight <= 0.10 ? 0.20 : 0.40),
+        enableSupports,
+        materialKey: newOrder.material || "pla",
+        pricePerGram: activeOrderRate
+      });
+      return { id: item.id, estimate };
+    });
+  }, [orderItems, orderInfill, orderLayerHeight, orderNozzle, enableSupports, newOrder.material, activeOrderRate]);
+
+  const orderSummary = useMemo(() => {
+    let totalPieces = 0;
+    let totalModelGrams = 0;
+    let totalSupportGrams = 0;
+    let totalModelSeconds = 0;
+    let stlCount = 0;
+    let archiveCount = 0;
+    let firstDims = null;
+
+    orderItems.forEach((item, idx) => {
+      const qty = Math.max(1, Number(item.quantity) || 1);
+      totalPieces += qty;
+      if (item.kind === "archive") {
+        archiveCount += 1;
+        return;
+      }
+      const entry = itemEstimates[idx];
+      const est = entry?.estimate;
+      if (est) {
+        stlCount += 1;
+        const unitModelG = Number(est.modelWeightGrams ?? est.weightGrams ?? 0);
+        const unitSupportG = enableSupports ? Number(est.supportWeightGrams ?? 0) : 0;
+        totalModelGrams += unitModelG * qty;
+        totalSupportGrams += unitSupportG * qty;
+        const unitModelSec = Number(est.modelPrintTimeSeconds || Math.max(60, (est.totalSeconds || 0) - 90));
+        totalModelSeconds += unitModelSec * qty;
+        if (!firstDims && est.metrics) {
+          firstDims = est.metrics;
+        }
+      }
+    });
+
+    const totalWeightGrams = Math.round((totalModelGrams + totalSupportGrams) * 100) / 100;
+    const totalSeconds = stlCount > 0 ? Math.ceil(totalModelSeconds + 90) : 0;
+    const microThreshold = parseFloat(config.micro_order_weight_threshold) || 17.0;
+    const microFlatPrice = parseFloat(config.micro_order_flat_price) || 50.0;
+    const hasSlicedWeight = totalWeightGrams > 0;
+    const isMicroOrder = hasSlicedWeight && totalWeightGrams < microThreshold;
+    const estimatedTotal = hasSlicedWeight
+      ? (isMicroOrder ? microFlatPrice : Math.ceil(totalWeightGrams * activeOrderRate))
+      : 0;
+    const depositRequired = Math.ceil(estimatedTotal * 0.5);
+    const remainingBalance = Math.max(0, estimatedTotal - depositRequired);
+    const hasLink = Boolean((newOrder.fileLink || "").trim());
+
+    return {
+      totalPieces,
+      totalModelGrams: Math.round(totalModelGrams * 100) / 100,
+      totalSupportGrams: Math.round(totalSupportGrams * 100) / 100,
+      totalWeightGrams,
+      totalSeconds,
+      activeRate: activeOrderRate,
+      microThreshold,
+      microFlatPrice,
+      hasSlicedWeight,
+      isMicroOrder,
+      estimatedTotal,
+      depositRequired,
+      remainingBalance,
+      hasPendingQuoteItems: archiveCount > 0 || hasLink,
+      firstDims
+    };
+  }, [orderItems, itemEstimates, enableSupports, config.micro_order_weight_threshold, config.micro_order_flat_price, activeOrderRate, newOrder.fileLink]);
+
+  useEffect(() => {
+    if (orderItems.length === 0) return;
+    let cancelled = false;
+    const frameId = requestAnimationFrame(() => {
+      if (cancelled) return;
+      const activeColor = newOrder.color || "Orange";
+      setOrderItems((prev) => {
+        let changed = false;
+        const next = prev.map((item) => {
+          if (item.kind !== "stl" || !item.geometry || item.thumbColor === activeColor) {
+            return item;
+          }
+          const nextThumb = renderStlThumbnail(item.geometry, activeColor);
+          changed = true;
+          return { ...item, thumbnail: nextThumb, thumbColor: activeColor };
+        });
+        return changed ? next : prev;
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+    };
+  }, [newOrder.color, orderItems.length]);
   const [copiedTrackingCode, setCopiedTrackingCode] = useState(false);
   const [adminSlicerOrder, setAdminSlicerOrder] = useState(null);
   const [moonrakerOrder, setMoonrakerOrder] = useState(null);
@@ -1800,8 +1916,8 @@ export default function App() {
     if (error) setLoginError(error.message);
   }
 
-  async function handleFileChange(e) {
-    const files = Array.from(e.target.files || []);
+  async function appendFilesToOrder(incomingFiles) {
+    const files = Array.from(incomingFiles || []);
     if (files.length === 0) return;
     const invalid = files.filter(f => {
       const name = f.name.toLowerCase();
@@ -1812,23 +1928,164 @@ export default function App() {
       return;
     }
 
-    // Inspect archives for STL models
+    // Validate archives contain STL files before appending
     for (const file of files) {
       const lower = file.name.toLowerCase();
       if (lower.endsWith(".zip") || lower.endsWith(".rar")) {
         const inspection = await inspectArchiveForStl(file);
         if (!inspection.hasStl) {
           setFileError(`No .stl 3D model files found inside archive "${file.name}". Please ensure your archive contains at least one .stl file.`);
-          setSelectedFiles([]);
-          setNewOrder(p => ({ ...p, fileName: "" }));
           return;
         }
       }
     }
 
+    const activeColor = newOrder.color || "Orange";
+    const parsedEntries = [];
+    for (const file of files) {
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith(".stl")) {
+        try {
+          const geometry = await parseAndOrientStlFile(file);
+          const thumbnail = renderStlThumbnail(geometry, activeColor);
+          parsedEntries.push({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            file,
+            name: file.name,
+            size: file.size,
+            kind: "stl",
+            quantity: 1,
+            geometry,
+            thumbnail,
+            thumbColor: activeColor,
+            parseError: null
+          });
+        } catch (err) {
+          console.warn("STL parse warning:", err);
+          parsedEntries.push({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            file,
+            name: file.name,
+            size: file.size,
+            kind: "stl",
+            quantity: 1,
+            geometry: null,
+            thumbnail: null,
+            thumbColor: activeColor,
+            parseError: "Could not parse STL preview"
+          });
+        }
+      } else {
+        parsedEntries.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          file,
+          name: file.name,
+          size: file.size,
+          kind: "archive",
+          quantity: 1,
+          geometry: null,
+          thumbnail: null,
+          thumbColor: activeColor,
+          parseError: null
+        });
+      }
+    }
+
+    let incrementedName = null;
+    setOrderItems((prev) => {
+      const next = [...prev];
+      parsedEntries.forEach((entry) => {
+        const existingIdx = next.findIndex(
+          (item) => item.name === entry.name && item.size === entry.size
+        );
+        if (existingIdx >= 0) {
+          next[existingIdx] = {
+            ...next[existingIdx],
+            quantity: next[existingIdx].quantity + 1
+          };
+          incrementedName = entry.name;
+        } else {
+          next.push(entry);
+        }
+      });
+      return next;
+    });
+
+    if (incrementedName) {
+      addToast(`Increased quantity for ${incrementedName}`, "info");
+    }
+
     setFileError("");
-    setSelectedFiles(files);
-    setNewOrder(p => ({ ...p, fileName: files.map(f => f.name).join(", ") }));
+    setFormErrors((prev) => ({ ...prev, file: null }));
+    setNewOrder((p) => ({
+      ...p,
+      fileName: [...orderItems.map((i) => i.name), ...files.map((f) => f.name)].join(", ")
+    }));
+  }
+
+  useEffect(() => {
+    if (!preUploadedFile || (currentRoute !== "order" && hash !== "#order")) return;
+    let cancelled = false;
+    const fileToLoad = preUploadedFile;
+    void (async () => {
+      await appendFilesToOrder([fileToLoad]);
+      if (!cancelled) {
+        setPreUploadedFile(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentRoute, hash, preUploadedFile]);
+
+  async function handleFileChange(e) {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    await appendFilesToOrder(files);
+  }
+
+  function handleUpdateItemQty(itemId, nextQty) {
+    const clamped = Math.max(1, Math.min(999, parseInt(nextQty, 10) || 1));
+    setOrderItems((prev) =>
+      prev.map((item) => (item.id === itemId ? { ...item, quantity: clamped } : item))
+    );
+  }
+
+  function handleRemoveItem(itemId) {
+    setOrderItems((prev) => {
+      const next = prev.filter((item) => item.id !== itemId);
+      setNewOrder((p) => ({ ...p, fileName: next.map((i) => i.name).join(", ") }));
+      return next;
+    });
+  }
+
+  function handleClearItems() {
+    setOrderItems([]);
+    setFileError("");
+    setNewOrder((p) => ({ ...p, fileName: "" }));
+  }
+
+  function handleResetOrderFlow() {
+    const firstAvailable = Object.values(materialRates).find((m) => m && m.in_stock !== false);
+    const defMat = firstAvailable ? firstAvailable.name : (config.materials ? config.materials.split(",")[0].trim() : "PLA");
+    const defCol = config.colors ? config.colors.split(",")[0].trim() : "White";
+    setOrderItems([]);
+    setFileError("");
+    setFormErrors({});
+    setSelectedTier("standard");
+    setEnableSupports(true);
+    setOrderInfill(20);
+    setOrderLayerHeight(0.20);
+    setOrderNozzle(0.40);
+    setNewOrder((p) => ({
+      ...p,
+      orderName: "",
+      material: defMat,
+      color: defCol,
+      notes: "",
+      fileName: "",
+      fileLink: ""
+    }));
   }
 
   const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
@@ -1837,7 +2094,7 @@ export default function App() {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleFileChange({ target: { files: e.dataTransfer.files } });
+      appendFilesToOrder(e.dataTransfer.files);
     }
   };
 
@@ -1857,9 +2114,9 @@ export default function App() {
     else if (!isValidEmail(newOrder.email)) errors.email = "Please enter a valid email.";
     if (!newOrder.phone) errors.phone = "Phone is required.";
     else if (!isValidEgyptPhone(newOrder.phone)) errors.phone = "Enter a valid Egyptian number (e.g. 01012345678).";
-    
+
     const cleanLink = (newOrder.fileLink || "").trim();
-    const hasFiles = selectedFiles.length > 0;
+    const hasFiles = orderItems.length > 0;
     const hasLink = Boolean(cleanLink);
 
     if (!hasFiles && !hasLink) {
@@ -1872,13 +2129,13 @@ export default function App() {
     if (Object.keys(errors).length > 0) return;
 
     setIsUploading(true);
-    const totalBytes = selectedFiles.reduce((acc, f) => acc + (f.size || 0), 0);
+    const totalBytes = orderItems.reduce((acc, item) => acc + (item.file?.size || 0), 0);
     setUploadProgress({
       active: true,
       percent: hasFiles ? 5 : 50,
-      currentFile: hasFiles ? (selectedFiles[0]?.name || "") : "Saving model link...",
+      currentFile: hasFiles ? (orderItems[0]?.name || "") : "Saving model link...",
       fileIndex: 1,
-      totalFiles: selectedFiles.length || 1,
+      totalFiles: orderItems.length || 1,
       loadedBytes: 0,
       totalBytes: totalBytes || 1,
       stage: hasFiles ? "uploading" : "saving"
@@ -1889,8 +2146,8 @@ export default function App() {
       let uploadedBytesSoFar = 0;
       const urls = [];
 
-      for (let i = 0; i < selectedFiles.length; i++) {
-        const file = selectedFiles[i];
+      for (let i = 0; i < orderItems.length; i++) {
+        const file = orderItems[i].file;
         const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
 
         await uploadFileWithProgress(file, fileName, (filePercent, fileLoaded) => {
@@ -1901,7 +2158,7 @@ export default function App() {
             percent: Math.max(5, overallPercent),
             currentFile: file.name,
             fileIndex: i + 1,
-            totalFiles: selectedFiles.length,
+            totalFiles: orderItems.length,
             loadedBytes: currentTotal,
             totalBytes,
             stage: "uploading"
@@ -1921,17 +2178,11 @@ export default function App() {
       setUploadProgress(prev => ({ ...prev, percent: 98, stage: "saving" }));
 
       const trackingCode = generateTrackingCode();
-      const modelWeightGrams = clientMetrics
-        ? Number(clientMetrics.modelWeightGrams ?? clientMetrics.weightGrams ?? clientMetrics.filamentWeightGrams ?? 0)
-        : 0;
-      const supportWeightGrams = clientMetrics && enableSupports
-        ? Number(clientMetrics.supportWeightGrams ?? 0)
-        : 0;
-      const weightGrams = clientMetrics
-        ? Math.round((modelWeightGrams + (enableSupports ? supportWeightGrams : 0)) * 100) / 100
-        : 0;
-      const printHours = clientMetrics && clientMetrics.printingTimeSeconds
-        ? (clientMetrics.printingTimeSeconds / 3600)
+      const modelWeightGrams = orderSummary.totalModelGrams || 0;
+      const supportWeightGrams = orderSummary.totalSupportGrams || 0;
+      const weightGrams = orderSummary.totalWeightGrams || 0;
+      const printHours = orderSummary.totalSeconds > 0
+        ? (orderSummary.totalSeconds / 3600)
         : (weightGrams > 0 ? (weightGrams / 35) : 0.2);
       const deliveryMode = newOrder.deliveryMode || "pickup";
       const referralCode = typeof window !== "undefined" ? (localStorage.getItem("etba3ly_referral") || null) : null;
@@ -1967,9 +2218,9 @@ export default function App() {
       const isMicro = weightGrams > 0 && weightGrams < microThreshold;
       const calculatedTotal = deliveryMode === "shipping"
         ? quote.customerTotal
-        : (weightGrams > 0 ? (isMicro ? microFlatPrice : Math.ceil(weightGrams * resolvedRate)) : microFlatPrice);
+        : (weightGrams > 0 ? (isMicro ? microFlatPrice : Math.ceil(weightGrams * resolvedRate)) : 0);
       const depositRequired = Math.ceil(calculatedTotal * 0.5);
-      const remainingBalance = calculatedTotal - depositRequired;
+      const remainingBalance = Math.max(0, calculatedTotal - depositRequired);
       const cleanNotes = (newOrder.notes || "").trim();
 
       const firstAvailable = Object.values(materialRates).find(m => m && m.in_stock !== false);
@@ -1977,12 +2228,35 @@ export default function App() {
       const defCol = config.colors ? config.colors.split(',')[0].trim() : "White";
       const finalMaterial = (newOrder.material || defMat).trim();
       const finalColor = (newOrder.color || defCol).trim();
-      const fallbackName = hasLink && !hasFiles ? `${getPlatformFromUrl(cleanLink)?.name || 'Online'} 3D Model` : "Untitled Part";
-      const orientedDimsStr = clientMetrics?.metrics
-        ? `${clientMetrics.metrics.width}x${clientMetrics.metrics.depth}x${clientMetrics.metrics.height}mm`
+
+      let autoOrderName = "Untitled Part";
+      if (orderItems.length === 1) {
+        const base = orderItems[0].name.replace(/\.[^.]+$/, "");
+        autoOrderName = orderItems[0].quantity > 1 ? `${base} (x${orderItems[0].quantity})` : base;
+      } else if (orderItems.length > 1) {
+        const firstBase = orderItems[0].name.replace(/\.[^.]+$/, "");
+        const firstPart = orderItems[0].quantity > 1 ? `${firstBase} x${orderItems[0].quantity}` : firstBase;
+        autoOrderName = `${firstPart} + ${orderItems.length - 1} more (${orderSummary.totalPieces} pcs)`;
+      } else if (hasLink) {
+        autoOrderName = `${getPlatformFromUrl(cleanLink)?.name || "Online"} 3D Model`;
+      }
+
+      const orientedDimsStr = orderSummary.firstDims
+        ? `${orderSummary.firstDims.width}x${orderSummary.firstDims.depth}x${orderSummary.firstDims.height}mm`
+        : null;
+
+      const partsSummaryTag = orderItems.length > 0
+        ? `[PARTS:${orderItems.map((it, idx) => {
+            const est = itemEstimates[idx]?.estimate;
+            const unitW = est ? Number(est.totalWeightGrams ?? est.weightGrams ?? 0) : 0;
+            const lineW = Math.round(unitW * it.quantity * 100) / 100;
+            return `${it.name} x${it.quantity}${lineW > 0 ? ` (${lineW}g)` : ""}`;
+          }).join(" | ")}]`
         : null;
 
       const dynamicTags = [
+        partsSummaryTag,
+        orderItems.length > 0 ? `[QTY:${orderSummary.totalPieces}]` : null,
         `[PROFILE:${selectedTier || "standard"}]`,
         `[TIER:${selectedTier || "standard"}]`,
         `[QUALITY:${selectedTier || "standard"}]`,
@@ -2006,7 +2280,7 @@ export default function App() {
         name: newOrder.name,
         phone: newOrder.phone.replace(/[\s\-()]/g, ""),
         email: newOrder.email || null,
-        ordername: newOrder.orderName || fallbackName,
+        ordername: (newOrder.orderName || "").trim() || autoOrderName,
         material: finalMaterial,
         color: finalColor,
         notes: fullNotes,
@@ -2040,6 +2314,7 @@ export default function App() {
       setLastSubmittedQuote({
         orderName: payload.ordername,
         trackingCode,
+        totalPieces: orderSummary.totalPieces,
         weightGrams,
         modelWeightGrams,
         supportWeightGrams,
@@ -2057,14 +2332,13 @@ export default function App() {
       setSuccessModal(trackingCode);
       setCopiedTrackingCode(false);
       setNewOrder({ name: newOrder.name, phone: newOrder.phone, email: newOrder.email, orderName: "", material: defMat, color: defCol, notes: "", fileName: "", fileLink: "" });
-      setClientMetrics(null);
       setSelectedTier("standard");
       setEnableSupports(true);
       setOrderInfill(20);
       setOrderLayerHeight(0.20);
       setOrderNozzle(0.40);
       setFormErrors({});
-      setSelectedFiles([]);
+      setOrderItems([]);
       fetchOrders();
     } catch (err) {
       console.error(err);
@@ -2970,579 +3244,55 @@ export default function App() {
         {hash === "#full-gallery" && <FullGalleryView items={galleryItems} onGoHome={() => navigateTo("home")} onItemClick={(item) => { setActiveGalleryItem(item); setActiveMediaIndex(0); }} />}
         
         {hash === "#order" && (
-          <section className="section-container animate-in" style={{ paddingTop: 130, minHeight: "100vh", position: "relative", zIndex: 10 }}>
-            <div style={{ textAlign: "center", marginBottom: 32 }}>
-              <div className="eyebrow-tag">3D SLICER & ORDER WORKSTATION</div>
-              <h1 style={{ fontSize: "clamp(32px, 5vw, 48px)", marginBottom: 8 }}>{orderStep === 4 ? "Order Dispatched" : "Configure Your 3D Print"}</h1>
-              {orderStep < 4 && <p style={{ margin: 0 }}>Step {orderStep} of 3 -- Instant STL Geometry & Weight Analysis</p>}
-              {orderStep === 1 && <a href="/home" onClick={(e) => { e.preventDefault(); navigateTo("home"); }} style={{ display: "inline-block", marginTop: 10, fontSize: 13, color: "var(--text-tertiary)", textDecoration: "none", fontWeight: 600 }}>Return to Studio Home</a>}
-            </div>
-            
-            {orderStep < 4 && (
-              <div className="stepper" style={{ marginBottom: 40, maxWidth: 500, margin: "0 auto 40px" }}>
-                <div className={`stepper-step ${orderStep > 1 ? "completed" : ""} ${orderStep === 1 ? "active" : ""}`}>
-                  <div className="stepper-dot">{orderStep > 1 ? <CheckIcon /> : "1"}</div>
-                  <span className="stepper-label">Contact</span>
-                </div>
-                <div className={`stepper-line ${orderStep > 1 ? "filled" : ""}`} />
-                <div className={`stepper-step ${orderStep > 2 ? "completed" : ""} ${orderStep === 2 ? "active" : ""}`}>
-                  <div className="stepper-dot">{orderStep > 2 ? <CheckIcon /> : "2"}</div>
-                  <span className="stepper-label">CAD & Slicer</span>
-                </div>
-                <div className={`stepper-line ${orderStep > 2 ? "filled" : ""}`} />
-                <div className={`stepper-step ${orderStep > 3 ? "completed" : ""} ${orderStep === 3 ? "active" : ""}`}>
-                  <div className="stepper-dot">{orderStep > 3 ? <CheckIcon /> : "3"}</div>
-                  <span className="stepper-label">Review</span>
-                </div>
-              </div>
-            )}
-
-            <div className="card" style={{ maxWidth: 640, margin: "0 auto", width: "100%" }}>
-              {orderStep === 1 && (
-                <div className="animate-in">
-                  <div className="form-row">
-                    <div>
-                      <label>Name *</label>
-                      <input value={newOrder.name} onChange={e => setNewOrder(p => ({ ...p, name: e.target.value }))} placeholder="Your name" style={formErrors.name ? { borderColor: '#FF3B30' } : {}} />
-                      {formErrors.name && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 6, fontWeight: 600 }}>{formErrors.name}</div>}
-                    </div>
-                    <div>
-                      <label>Email *</label>
-                      <input type="email" value={newOrder.email} onChange={e => setNewOrder(p => ({ ...p, email: e.target.value }))} placeholder="you@example.com" style={formErrors.email ? { borderColor: '#FF3B30' } : {}} />
-                      {formErrors.email && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 6, fontWeight: 600 }}>{formErrors.email}</div>}
-                    </div>
-                  </div>
-                  <div className="form-row">
-                    <div>
-                      <label>Phone (Egypt) *</label>
-                      <input value={newOrder.phone} onChange={handlePhoneChange} placeholder="010 1234 5678" style={formErrors.phone ? { borderColor: '#FF3B30' } : {}} />
-                      {formErrors.phone && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 6, fontWeight: 600 }}>{formErrors.phone}</div>}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
-                    <button className="btn btn-accent" onClick={() => {
-                      const errors = {};
-                      if (!newOrder.name) errors.name = "Name is required.";
-                      if (!newOrder.email) errors.email = "Email is required.";
-                      else if (!isValidEmail(newOrder.email)) errors.email = "Please enter a valid email.";
-                      if (!newOrder.phone) errors.phone = "Phone is required.";
-                      else if (!isValidEgyptPhone(newOrder.phone)) errors.phone = "Enter a valid Egyptian number (e.g. 01012345678).";
-                      setFormErrors(errors);
-                      if (Object.keys(errors).length === 0) setOrderStep(2);
-                    }}>Continue to CAD Upload</button>
-                  </div>
-                </div>
-              )}
-
-              {orderStep === 2 && (
-                <div className="animate-in">
-                  <div className="form-row">
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <label>Project Name</label>
-                      <input value={newOrder.orderName} onChange={e => setNewOrder(p => ({ ...p, orderName: e.target.value }))} placeholder="My Part" />
-                    </div>
-                  </div>
-                  
-                  <div className="form-row" style={{ marginBottom: 16 }}>
-                    <div style={{ width: "100%" }}>
-                      <label>Material</label>
-                      <select value={newOrder.material} onChange={e => setNewOrder(p => ({ ...p, material: e.target.value }))}>
-                        {materialRates && Object.keys(materialRates).length > 0 ? (
-                          Object.entries(materialRates).map(([k, m]) => {
-                            const isRestocking = m.in_stock === false;
-                            return (
-                              <option key={k} value={m.name} disabled={isRestocking}>
-                                {m.name}{isRestocking ? ' (Restocking soon)' : ''}
-                              </option>
-                            );
-                          })
-                        ) : config.materials ? (
-                          config.materials.split(',').map(m => {
-                            const raw = m.trim();
-                            const isRestocking = raw.toLowerCase().includes('[restocking]');
-                            const cleanName = raw
-                              .replace(/\[restocking\]/gi, '')
-                              .replace(/\[rate:[\d.]+\]/gi, '')
-                              .replace(/\[cost:[\d.]+\]/gi, '')
-                              .trim();
-                            if (!cleanName) return null;
-                            return (
-                              <option key={cleanName} value={cleanName} disabled={isRestocking}>
-                                {cleanName}{isRestocking ? ' (Restocking soon)' : ''}
-                              </option>
-                            );
-                          })
-                        ) : <option value="PLA">PLA</option>}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Visual Filament Color Swatches */}
-                  <div style={{ marginBottom: 20 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <label style={{ margin: 0 }}>Filament Color</label>
-                      <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 800 }}>{newOrder.color || "Select Color"}</span>
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {(config.colors || "White, Black, Silver, Red").split(',').map(c => {
-                        const colorName = c.trim();
-                        if (!colorName) return null;
-                        const hex = getColorHex(colorName);
-                        const isSelected = (newOrder.color || "").toLowerCase().trim() === colorName.toLowerCase().trim();
-                        return (
-                          <button
-                            key={colorName}
-                            type="button"
-                            onClick={() => setNewOrder(p => ({ ...p, color: colorName }))}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 8,
-                              padding: "7px 14px",
-                              borderRadius: "var(--radius-full)",
-                              background: isSelected ? "rgba(255,128,0,0.15)" : "var(--bg-glass-strong)",
-                              border: isSelected ? "2px solid var(--accent)" : "1px solid var(--border-glass-strong)",
-                              color: isSelected ? "var(--accent)" : "var(--text-primary)",
-                              fontWeight: isSelected ? 800 : 500,
-                              fontSize: 13,
-                              cursor: "pointer",
-                              transition: "all 0.2s ease",
-                              boxShadow: isSelected ? "0 0 12px rgba(255,128,0,0.3)" : "none",
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: 14,
-                                height: 14,
-                                borderRadius: "50%",
-                                background: hex,
-                                border: "1px solid rgba(255,255,255,0.4)",
-                                boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-                                display: "inline-block",
-                                flexShrink: 0
-                              }}
-                            />
-                            <span>{colorName}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Service Tier Selection */}
-                  <ServiceTierSelector
-                    selectedTier={selectedTier}
-                    onSelectTier={(tierKey) => setSelectedTier(tierKey)}
-                    orderInfill={orderInfill}
-                    setOrderInfill={setOrderInfill}
-                    orderLayerHeight={orderLayerHeight}
-                    setOrderLayerHeight={setOrderLayerHeight}
-                    orderNozzle={orderNozzle}
-                    setOrderNozzle={setOrderNozzle}
-                    enableSupports={enableSupports}
-                    setEnableSupports={setEnableSupports}
-                  />
-
-                  <div style={{ marginBottom: 20 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <label>Notes / Special Instructions</label>
-                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>{newOrder.notes.length}/500</span>
-                    </div>
-                    <textarea value={newOrder.notes} maxLength={500} onChange={e => setNewOrder(p => ({ ...p, notes: e.target.value }))} placeholder="Orientation, special tolerances, requests..." rows="3" />
-                  </div>
-
-                  <div style={{ marginBottom: 24 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                      <label style={{ margin: 0 }}>Provide 3D Model *</label>
-                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                        Choose file upload or paste an online design link
-                      </span>
-                    </div>
-
-                    {/* Mode Toggle Buttons */}
-                    <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                      <button
-                        type="button"
-                        onClick={() => setOrderSourceTab("file")}
-                        className={`btn btn-sm ${orderSourceTab === "file" ? "btn-accent" : "btn-glass"}`}
-                        style={{ flex: 1, padding: "9px 14px", fontSize: 13, fontWeight: 700 }}
-                      >
-                        Upload File (.stl, .zip, .rar) {selectedFiles.length > 0 ? `(${selectedFiles.length})` : ''}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setOrderSourceTab("link")}
-                        className={`btn btn-sm ${orderSourceTab === "link" ? "btn-accent" : "btn-glass"}`}
-                        style={{ flex: 1, padding: "9px 14px", fontSize: 13, fontWeight: 700 }}
-                      >
-                        Share Model Link {newOrder.fileLink ? "(Added)" : ""}
-                      </button>
-                    </div>
-
-                    {orderSourceTab === "file" && (
-                      <div>
-                        <div className={`drop-zone ${isDragging ? 'active' : ''}`} 
-                             onDragOver={handleDragOver} 
-                             onDragLeave={handleDragLeave} 
-                             onDrop={handleDrop}
-                             style={{ padding: "36px 20px", border: formErrors.file ? "2px dashed #FF3B30" : "2px dashed var(--border-glass-strong)", borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.03)", textAlign: "center", cursor: "pointer" }}>
-                          <input type="file" multiple accept=".stl,.zip,.rar" onChange={handleFileChange} style={{ display: 'none' }} id="fileInput" />
-                          <label htmlFor="fileInput" style={{ cursor: 'pointer', display: 'block', margin: 0 }}>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>
-                              {selectedFiles.length > 0 ? selectedFiles.map(f => f.name).join(", ") : "Drag & Drop .STL, .ZIP, or .RAR File(s) or Click to Browse"}
-                            </div>
-                            <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
-                              Supports direct single STL models or multi-part archives (.zip / .rar)
-                            </div>
-                          </label>
-                        </div>
-                        {selectedFiles.length > 0 && (
-                          <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: 12, color: "var(--status-done)", fontWeight: 700 }}>
-                              {selectedFiles.length} file(s) attached
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => { setSelectedFiles([]); setNewOrder(p => ({ ...p, fileName: "" })); }}
-                              style={{ background: "transparent", border: "none", color: "#FF3B30", fontSize: 12, cursor: "pointer", fontWeight: 700 }}
-                            >
-                              Clear Files
-                            </button>
-                          </div>
-                        )}
-                        <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-tertiary)", display: "flex", alignItems: "center", gap: 6 }}>
-                          <span>Prefer an online repository?</span>
-                          <button
-                            type="button"
-                            onClick={() => setOrderSourceTab("link")}
-                            style={{ background: "transparent", border: "none", color: "var(--accent)", padding: 0, cursor: "pointer", fontWeight: 700, textDecoration: "underline" }}
-                          >
-                            Paste link instead
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {orderSourceTab === "link" && (
-                      <div style={{ padding: "18px", background: "rgba(255,255,255,0.02)", border: formErrors.fileLink || formErrors.file ? "1px solid #FF3B30" : "1px solid var(--border-glass)", borderRadius: "var(--radius-sm)" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                          <label style={{ margin: 0, fontSize: 12.5, fontWeight: 700 }}>3D Model or Cloud URL</label>
-                          {Boolean(newOrder.fileLink && isValidUrl(newOrder.fileLink)) && (
-                            <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "rgba(255,128,0,0.15)", color: getPlatformFromUrl(newOrder.fileLink)?.color || "var(--accent)", fontWeight: 800 }}>
-                              {getPlatformFromUrl(newOrder.fileLink)?.name || "Web Link"}
-                            </span>
-                          )}
-                        </div>
-                        <input
-                          type="url"
-                          value={newOrder.fileLink}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setNewOrder(p => ({
-                              ...p,
-                              fileLink: val,
-                              fileName: p.fileName || (val ? `Link: ${val.slice(0, 40)}` : "")
-                            }));
-                            if (formErrors.file || formErrors.fileLink) {
-                              setFormErrors(prev => ({ ...prev, file: null, fileLink: null }));
-                            }
-                          }}
-                          placeholder="https://www.printables.com/model/... or Thingiverse, MakerWorld, Drive"
-                          style={{ width: "100%", marginBottom: 8, borderColor: (formErrors.fileLink || formErrors.file) ? '#FF3B30' : undefined }}
-                        />
-                        <div style={{ fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
-                          Supports links from <strong>Printables</strong>, <strong>Thingiverse</strong>, <strong>MakerWorld</strong>, <strong>Google Drive</strong>, <strong>Dropbox</strong>, or any public 3D CAD URL. Our workshop team will inspect and slice your model upon review.
-                        </div>
-                        {newOrder.fileLink && (
-                          <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <a href={normalizeUrl(newOrder.fileLink)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "var(--accent)", textDecoration: "underline" }}>
-                              Preview external link &rarr;
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => setNewOrder(p => ({ ...p, fileLink: "" }))}
-                              style={{ background: "transparent", border: "none", color: "#FF3B30", fontSize: 12, cursor: "pointer", fontWeight: 700 }}
-                            >
-                              Remove Link
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {fileError && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 8 }}>{fileError}</div>}
-                    {formErrors.file && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 8, fontWeight: 600 }}>{formErrors.file}</div>}
-                    {formErrors.fileLink && <div style={{ color: "#FF3B30", fontSize: 12, marginTop: 8, fontWeight: 600 }}>{formErrors.fileLink}</div>}
-                    {selectedFiles.some(f => f.name.toLowerCase().endsWith(".zip") || f.name.toLowerCase().endsWith(".rar")) && (
-                      <div style={{ marginTop: 12, padding: "12px 16px", background: "rgba(255,128,0,0.08)", border: "1px solid rgba(255,128,0,0.2)", borderRadius: "var(--radius-sm)", fontSize: 12.5, color: "var(--text-secondary)" }}>
-                        <strong style={{ color: "var(--accent)" }}>Archive Uploaded:</strong> Multiple 3D files detected. Contained .stl models verified. Final weight and quote will be calculated and confirmed upon operator review (Standard Rate: <strong>{config.price_per_gram} EGP/g</strong>).
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 3D STL Object Preview & Slicer Estimation */}
-                  {Boolean(selectedFiles.find(f => f.name.toLowerCase().endsWith(".stl"))) && (
-                    <div style={{ marginBottom: 24 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-                        <label style={{ margin: 0 }}>3D Model & Build Plate Preview</label>
-                        {clientMetrics && (
-                          <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-full)", background: clientMetrics.fitsBed ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)", color: clientMetrics.fitsBed ? "var(--status-done)" : "#ef4444", fontWeight: 700, border: `1px solid ${clientMetrics.fitsBed ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
-                            {clientMetrics.fitsBed ? "Fits Centauri Bed (256x256mm)" : "Exceeds Bed Envelope"}
-                          </span>
-                        )}
-                      </div>
-
-                      <STLViewer
-                        file={selectedFiles.find(f => f.name.toLowerCase().endsWith(".stl"))}
-                        color={newOrder.color}
-                        infillPercent={orderInfill}
-                        layerHeight={orderLayerHeight}
-                        nozzleSize={orderNozzle}
-                        enableSupports={enableSupports}
-                        materialKey={newOrder.material || "pla"}
-                        pricePerGram={(() => {
-                          const nk = normalizeMaterialKey(newOrder.material || "pla");
-                          const baseR = parseFloat(config.price_per_gram) || 3.5;
-                          const md = (materialRates && (materialRates[nk] || materialRates[newOrder.material?.toLowerCase()])) || { selling_rate: baseR };
-                          let r = Number(md.selling_rate) || baseR;
-                          if ((nk === "pla" || nk === "pla_plus") && (r < baseR || r <= 2.0)) r = baseR;
-                          return r;
-                        })()}
-                        onMetricsChange={setClientMetrics}
-                        height="260px"
-                      />
-
-                      {clientMetrics && clientMetrics.metrics && (
-                        <div style={{ marginTop: 8, marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "var(--text-secondary)", padding: "8px 14px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)", flexWrap: "wrap", gap: 8 }}>
-                          <span>Oriented Dimensions: <strong>{clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm</strong></span>
-                          <span>
-                            Model: <strong>{Number(clientMetrics.modelWeightGrams ?? clientMetrics.weightGrams ?? 0).toFixed(1)}g</strong>
-                            {" | "}
-                            Tree Supports: <strong>{enableSupports ? `${Number(clientMetrics.supportWeightGrams ?? 0).toFixed(1)}g` : "Disabled (0g)"}</strong>
-                          </span>
-                          {clientMetrics.filamentLengthMeters && (
-                            <span>Filament: <strong>{clientMetrics.filamentLengthMeters}m</strong></span>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Live Review Invoice Card */}
-                      <ReviewInvoiceCard
-                        clientMetrics={clientMetrics}
-                        materialKey={newOrder.material || "pla"}
-                        materialName={newOrder.material || "PLA"}
-                        serviceTier={selectedTier}
-                        config={config}
-                        materialRates={materialRates}
-                        enableSupports={enableSupports}
-                        orderData={newOrder}
-                        showDepositInfo={false}
-                      />
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
-                    <button className="btn btn-glass" onClick={() => setOrderStep(1)}>Back</button>
-                    <button className="btn btn-accent" onClick={() => {
-                      const errors = {};
-                      const cleanLink = (newOrder.fileLink || "").trim();
-                      const hasFiles = selectedFiles.length > 0;
-                      const hasLink = Boolean(cleanLink);
-
-                      if (!hasFiles && !hasLink) {
-                        errors.file = "Please upload a 3D file (.stl, .zip, .rar) or provide a model/cloud link.";
-                      }
-                      if (hasLink && !isValidUrl(cleanLink)) {
-                        errors.fileLink = "Please enter a valid URL (starting with http:// or https://)";
-                      }
-                      setFormErrors(errors);
-                      if (Object.keys(errors).length === 0) setOrderStep(3);
-                    }}>Review Order</button>
-                  </div>
-                </div>
-              )}
-
-              {orderStep === 3 && (
-                <div className="animate-in">
-                  <h3 style={{ marginBottom: 16 }}>Order Summary</h3>
-                  <div className="review-summary-card" style={{ marginBottom: 20 }}>
-                    <div className="review-item">
-                      <span className="review-item-label">Client Name</span>
-                      <span className="review-item-value">{newOrder.name}</span>
-                    </div>
-                    <div className="review-item">
-                      <span className="review-item-label">Phone</span>
-                      <span className="review-item-value">{newOrder.phone}</span>
-                    </div>
-                    <div className="review-item">
-                      <span className="review-item-label">Email</span>
-                      <span className="review-item-value">{newOrder.email}</span>
-                    </div>
-                    <div style={{ margin: "6px 0", borderTop: "1px solid var(--border-glass)" }}></div>
-                    <div className="review-item">
-                      <span className="review-item-label">Project</span>
-                      <span className="review-item-value">{newOrder.orderName || "Untitled"}</span>
-                    </div>
-                    <div className="review-item">
-                      <span className="review-item-label">Service Tier</span>
-                      <span className="review-item-value" style={{ fontWeight: 800, color: "var(--accent)" }}>
-                        {selectedTier === "economy" ? "Economy (Draft 0.28mm, 15% Infill)" : selectedTier === "professional" ? "Professional (Fine 0.12mm, 25% Infill)" : selectedTier === "custom" ? `Custom (${Number(orderLayerHeight).toFixed(2)}mm, ${orderInfill}% Infill)` : "Standard (0.20mm, 20% Infill)"}
-                      </span>
-                    </div>
-                    <div className="review-item">
-                      <span className="review-item-label">Tree Supports</span>
-                      <span className="review-item-value" style={{ fontWeight: 700, color: enableSupports ? "#34d399" : "var(--text-secondary)" }}>
-                        {enableSupports
-                          ? `Enabled (${clientMetrics ? `${Number(clientMetrics.supportWeightGrams ?? 0).toFixed(2)}g` : "Auto >45 deg"})`
-                          : "Disabled (0g)"}
-                      </span>
-                    </div>
-                    {clientMetrics && clientMetrics.metrics && (
-                      <div className="review-item">
-                        <span className="review-item-label">Oriented Bounds</span>
-                        <span className="review-item-value">
-                          {clientMetrics.metrics.width} x {clientMetrics.metrics.depth} x {clientMetrics.metrics.height} mm
-                        </span>
-                      </div>
-                    )}
-                    <div className="review-item">
-                      <span className="review-item-label">Material & Color</span>
-                      <span className="review-item-value" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ width: 10, height: 10, borderRadius: "50%", background: getColorHex(newOrder.color), border: "1px solid rgba(255,255,255,0.4)", display: "inline-block" }} />
-                        {newOrder.material?.toUpperCase()} ({newOrder.color})
-                      </span>
-                    </div>
-                    <div className="review-item">
-                      <span className="review-item-label">Model Source</span>
-                      <span className="review-item-value" style={{ wordBreak: "break-all" }}>
-                        {selectedFiles.length > 0 && <div>{selectedFiles.map(f => f.name).join(", ")}</div>}
-                        {newOrder.fileLink && (
-                          <div style={{ marginTop: selectedFiles.length > 0 ? 4 : 0 }}>
-                            <a href={normalizeUrl(newOrder.fileLink)} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                              <span>{getPlatformFromUrl(newOrder.fileLink)?.name || "External Link"}:</span> {newOrder.fileLink}
-                            </a>
-                          </div>
-                        )}
-                        {!selectedFiles.length && !newOrder.fileLink && "No file or link"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Pricing Breakdown Card */}
-                  <div style={{ marginBottom: 24 }}>
-                    <ReviewInvoiceCard
-                      clientMetrics={clientMetrics}
-                      materialKey={newOrder.material || "pla"}
-                      materialName={newOrder.material || "PLA"}
-                      serviceTier={selectedTier}
-                      config={config}
-                      materialRates={materialRates}
-                      enableSupports={enableSupports}
-                      orderData={newOrder}
-                      showDepositInfo={true}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
-                    <button className="btn btn-glass" onClick={() => setOrderStep(2)}>Back</button>
-                    <button className="btn btn-primary" style={{ opacity: isUploading ? 0.7 : 1 }} disabled={isUploading} onClick={handleOrderSubmit}>
-                      {isUploading ? "Uploading..." : "Submit Order"}
-                    </button>
-                  </div>
-                </div>
-              )}
-              
-              {orderStep === 4 && (
-                <div className="animate-in" style={{ textAlign: 'center', padding: "20px 0" }}>
-                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 64, height: 64, color: "var(--status-done)"}}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                  </div>
-                  <h2 style={{ marginBottom: 12 }}>Upload Successful!</h2>
-                  <p>Your files have been securely uploaded to our print queue.</p>
-                  <p>Save this tracking code to check your order status:</p>
-                  
-                  <div 
-                    className={`tracking-code-display ${copiedTrackingCode ? 'copied' : ''}`} 
-                    onClick={async () => { 
-                      const success = await copyToClipboard(successModal); 
-                      if (success !== false) {
-                        setCopiedTrackingCode(true);
-                        addToast("Tracking code copied to clipboard!", "success");
-                        setTimeout(() => setCopiedTrackingCode(false), 3000);
-                      }
-                    }} 
-                    style={{ margin: "24px auto", maxWidth: 340, cursor: "pointer" }}
-                  >
-                    <span className="code">{successModal}</span>
-                    <span className="copy-hint">{copiedTrackingCode ? "Copied to clipboard!" : "Tap to copy"}</span>
-                  </div>
-
-                  {lastSubmittedQuote && (
-                    <div className="review-summary-card" style={{ maxWidth: 440, margin: "24px auto", textAlign: "left", background: "rgba(255,255,255,0.02)" }}>
-                      <div className="review-item">
-                        <span className="review-item-label">Part Name</span>
-                        <span className="review-item-value">{lastSubmittedQuote.orderName}</span>
-                      </div>
-                      {lastSubmittedQuote.tier && (
-                        <div className="review-item">
-                          <span className="review-item-label">Service Tier</span>
-                          <span className="review-item-value" style={{ fontWeight: 700, color: "var(--accent)" }}>
-                            {lastSubmittedQuote.tier === "economy" ? "Economy (Draft 0.28mm)" : lastSubmittedQuote.tier === "professional" ? "Professional (Fine 0.12mm)" : "Standard (Standard 0.20mm)"}
-                          </span>
-                        </div>
-                      )}
-                      <div className="review-item">
-                        <span className="review-item-label">Material & Color</span>
-                        <span className="review-item-value" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ width: 10, height: 10, borderRadius: "50%", background: getColorHex(lastSubmittedQuote.color), display: "inline-block" }} />
-                          {lastSubmittedQuote.material?.toUpperCase()} ({lastSubmittedQuote.color})
-                        </span>
-                      </div>
-                      {lastSubmittedQuote.weightGrams > 0 && (
-                        <div className="review-item">
-                          <span className="review-item-label">Est. Weight</span>
-                          <span className="review-item-value">{lastSubmittedQuote.weightGrams.toFixed(1)} g</span>
-                        </div>
-                      )}
-                      <div className="review-item" style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid var(--border-glass)" }}>
-                        <span className="review-item-label" style={{ fontWeight: 700 }}>Est. Amount</span>
-                        {lastSubmittedQuote && lastSubmittedQuote.totalPrice > (parseFloat(config.price_review_threshold) || 300) ? (
-                          <span style={{ fontSize: 15, fontWeight: 800, color: "var(--accent)" }}>
-                            Pending Operator Review
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: 18, fontWeight: 900, color: "var(--accent)" }}>
-                            {lastSubmittedQuote.totalPrice > 0 ? `${lastSubmittedQuote.totalPrice.toFixed(2)} EGP` : `Calculated upon slicing (${config.price_per_gram} EGP/g)`}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {config.whatsapp_number && (
-                    <div style={{ marginTop: 20 }}>
-                      <a
-                        href={`https://wa.me/${(config.whatsapp_number || "").replace(/\D/g, "").startsWith("0") ? "2" + (config.whatsapp_number || "").replace(/\D/g, "") : (config.whatsapp_number || "").replace(/\D/g, "")}?text=${encodeURIComponent(
-                          `Hello Etba3ly! I just submitted an order:\n- Tracking: ${successModal}\n- Part: ${lastSubmittedQuote?.orderName || "Custom 3D Print"}\n- Specs: ${lastSubmittedQuote?.material || "PLA"} (${lastSubmittedQuote?.color || "Standard"})\n- Total: ${lastSubmittedQuote && lastSubmittedQuote.totalPrice > (parseFloat(config.price_review_threshold) || 300) ? "Pending operator review" : (lastSubmittedQuote && lastSubmittedQuote.totalPrice > 0 ? `${lastSubmittedQuote.totalPrice.toFixed(2)} EGP` : 'Pending quote')}\n- Client: ${lastSubmittedQuote?.name || ""}`
-                        )}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="btn btn-accent"
-                        style={{ width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#25D366", borderColor: "#25D366", color: "#ffffff", fontWeight: 700 }}
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 18, height: 18 }}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-                        Send Order to Workshop on WhatsApp
-                      </a>
-                    </div>
-                  )}
-                  
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
-                    <a href="/track" className="btn btn-accent" style={{ width: "100%" }} onClick={(e) => { e.preventDefault(); setOrderStep(1); navigateTo("track"); }}>Go Track Your Order</a>
-                    <a href="/home" className="btn btn-glass" style={{ width: "100%" }} onClick={(e) => { e.preventDefault(); setOrderStep(1); navigateTo("home"); }}>Back to Studio Home</a>
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
+          <OrderFlow
+            orderStep={orderStep}
+            setOrderStep={setOrderStep}
+            orderItems={orderItems}
+            itemEstimates={itemEstimates}
+            orderSummary={orderSummary}
+            newOrder={newOrder}
+            setNewOrder={setNewOrder}
+            config={config}
+            materialRates={materialRates}
+            selectedTier={selectedTier}
+            setSelectedTier={setSelectedTier}
+            orderInfill={orderInfill}
+            setOrderInfill={setOrderInfill}
+            orderLayerHeight={orderLayerHeight}
+            setOrderLayerHeight={setOrderLayerHeight}
+            orderNozzle={orderNozzle}
+            setOrderNozzle={setOrderNozzle}
+            enableSupports={enableSupports}
+            setEnableSupports={setEnableSupports}
+            isDragging={isDragging}
+            handleDragOver={handleDragOver}
+            handleDragLeave={handleDragLeave}
+            handleDrop={handleDrop}
+            handleFileChange={handleFileChange}
+            onUpdateItemQty={handleUpdateItemQty}
+            onRemoveItem={handleRemoveItem}
+            onClearItems={handleClearItems}
+            fileError={fileError}
+            formErrors={formErrors}
+            setFormErrors={setFormErrors}
+            handlePhoneChange={handlePhoneChange}
+            handleOrderSubmit={handleOrderSubmit}
+            isUploading={isUploading}
+            successModal={successModal}
+            lastSubmittedQuote={lastSubmittedQuote}
+            copiedTrackingCode={copiedTrackingCode}
+            setCopiedTrackingCode={setCopiedTrackingCode}
+            copyToClipboard={copyToClipboard}
+            addToast={addToast}
+            navigateTo={navigateTo}
+            getColorHex={getColorHex}
+            isValidEmail={isValidEmail}
+            isValidEgyptPhone={isValidEgyptPhone}
+            isValidUrl={isValidUrl}
+            normalizeUrl={normalizeUrl}
+            getPlatformFromUrl={getPlatformFromUrl}
+            onResetOrderFlow={handleResetOrderFlow}
+          />
         )}
 
         {hash === "#track" && (
