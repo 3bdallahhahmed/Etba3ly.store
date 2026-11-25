@@ -381,9 +381,7 @@ export default function OrderFlow({
   };
 
   const compactSummaryPriceText = orderSummary.hasSlicedWeight
-    ? orderSummary.isReviewRequired
-      ? `~${orderSummary.estimatedTotal} EGP (Review)`
-      : `${orderSummary.estimatedTotal} EGP`
+    ? `${orderSummary.estimatedTotal} EGP`
     : orderSummary.hasPendingQuoteItems
     ? "Quote on review"
     : "--";
@@ -893,8 +891,6 @@ export default function OrderFlow({
                       {orderSummary.hasSlicedWeight ? (
                         orderSummary.isMicroOrder ? (
                           `Minimum order rate (< ${orderSummary.microThreshold}g)`
-                        ) : orderSummary.isReviewRequired ? (
-                          "Workshop will confirm exact quote"
                         ) : (
                           `${orderSummary.activeRate.toFixed(2)} EGP/g (${newOrder.material || "PLA"})`
                         )
@@ -1258,16 +1254,14 @@ export default function OrderFlow({
 
                 <div className="order-invoice-total">
                   <span>Estimated Total</span>
-                  {orderSummary.isReviewRequired ? (
-                    <strong>Engineer Review Required</strong>
-                  ) : orderSummary.hasSlicedWeight ? (
+                  {orderSummary.hasSlicedWeight ? (
                     <strong className="order-accent-price">{orderSummary.estimatedTotal} EGP</strong>
                   ) : (
                     <strong>Confirmed After Review</strong>
                   )}
                 </div>
 
-                {orderSummary.hasSlicedWeight && !orderSummary.isReviewRequired && (
+                {orderSummary.hasSlicedWeight && (
                   <div className="order-deposit-strip">
                     <span>
                       50% Deposit: <strong>{orderSummary.depositRequired} EGP</strong>
@@ -1279,7 +1273,7 @@ export default function OrderFlow({
                 )}
 
                 <p className="order-invoice-note">
-                  1:1 Elegoo Centauri Carbon calibration. Final price is confirmed upon workshop review before printing.
+                  Calibrated for our 256 &times; 256 &times; 256 mm build plate. Final price is confirmed upon workshop review before printing.
                 </p>
               </div>
 
@@ -1362,9 +1356,7 @@ export default function OrderFlow({
                   <div className="order-kv order-kv-strong">
                     <span>Est. Total</span>
                     <strong className="order-accent-price">
-                      {lastSubmittedQuote.totalPrice > (parseFloat(config.price_review_threshold) || 300)
-                        ? "Pending Operator Review"
-                        : lastSubmittedQuote.totalPrice > 0
+                      {lastSubmittedQuote.totalPrice > 0
                         ? `${lastSubmittedQuote.totalPrice} EGP`
                         : "Calculated upon slicing"}
                     </strong>
@@ -1377,7 +1369,7 @@ export default function OrderFlow({
               {config.whatsapp_number && (
                 <a
                   href={`https://wa.me/${(config.whatsapp_number || "").replace(/\D/g, "").startsWith("0") ? "2" + (config.whatsapp_number || "").replace(/\D/g, "") : (config.whatsapp_number || "").replace(/\D/g, "")}?text=${encodeURIComponent(
-                    `Hello Etba3ly! I just submitted an order:\n- Tracking: ${successModal}\n- Order: ${lastSubmittedQuote?.orderName || "Custom 3D Print"}\n- Specs: ${lastSubmittedQuote?.material || "PLA"} (${lastSubmittedQuote?.color || "Standard"})\n- Total: ${lastSubmittedQuote && lastSubmittedQuote.totalPrice > (parseFloat(config.price_review_threshold) || 300) ? "Pending operator review" : lastSubmittedQuote && lastSubmittedQuote.totalPrice > 0 ? `${lastSubmittedQuote.totalPrice} EGP` : "Pending quote"}\n- Client: ${lastSubmittedQuote?.name || ""}`
+                    `Hello Etba3ly! I just submitted an order:\n- Tracking: ${successModal}\n- Order: ${lastSubmittedQuote?.orderName || "Custom 3D Print"}\n- Specs: ${lastSubmittedQuote?.material || "PLA"} (${lastSubmittedQuote?.color || "Standard"})\n- Total: ${lastSubmittedQuote && lastSubmittedQuote.totalPrice > 0 ? `${lastSubmittedQuote.totalPrice} EGP` : "Pending quote"}\n- Client: ${lastSubmittedQuote?.name || ""}`
                   )}`}
                   target="_blank"
                   rel="noreferrer"
@@ -1441,7 +1433,7 @@ export default function OrderFlow({
                   {inspectingItem.name}
                 </h1>
                 <p className="order-preview-dialog-sub">
-                  256 &times; 256 mm Elegoo Centauri Carbon Build Plate
+                  256 &times; 256 &times; 256 mm Build Plate Preview
                 </p>
               </div>
               <button

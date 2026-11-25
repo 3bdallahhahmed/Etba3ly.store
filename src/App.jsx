@@ -1257,8 +1257,6 @@ export default function App() {
       : 0;
     const depositRequired = Math.ceil(estimatedTotal * 0.5);
     const remainingBalance = Math.max(0, estimatedTotal - depositRequired);
-    const reviewThreshold = parseFloat(config.price_review_threshold) || 300;
-    const isReviewRequired = hasSlicedWeight && estimatedTotal > reviewThreshold;
     const hasLink = Boolean((newOrder.fileLink || "").trim());
 
     return {
@@ -1275,11 +1273,10 @@ export default function App() {
       estimatedTotal,
       depositRequired,
       remainingBalance,
-      isReviewRequired,
       hasPendingQuoteItems: archiveCount > 0 || hasLink,
       firstDims
     };
-  }, [orderItems, itemEstimates, enableSupports, config.micro_order_weight_threshold, config.micro_order_flat_price, config.price_review_threshold, activeOrderRate, newOrder.fileLink]);
+  }, [orderItems, itemEstimates, enableSupports, config.micro_order_weight_threshold, config.micro_order_flat_price, activeOrderRate, newOrder.fileLink]);
 
   useEffect(() => {
     if (orderItems.length === 0) return;

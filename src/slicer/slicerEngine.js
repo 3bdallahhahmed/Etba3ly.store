@@ -98,21 +98,124 @@ export function resolveMaterialProfile(rawKey = "pla") {
 }
 
 // ============================================================================
-// 2.A. AUTO-ORIENTATION & BED PLACEMENT ENGINE (Tashkeel Pro Mechanism)
-// 1. Clusters coplanar facet normals across the mesh (angular tolerance ~0.15 rad / 8.6 deg).
-// 2. Selects the planar cluster with the LARGEST TOTAL FLAT SURFACE AREA (maximum bed adhesion).
-// 3. Rotates the geometry so that this largest flat face normal points directly DOWN [0, -1, 0] onto the bed.
-// 4. Grounds the lowest point at Y = 0 (bed level) and centers horizontally at (0, 0) on the 256 x 256 mm bed.
+// 2.A. MULTI-CRITERIA FDM AUTO-ORIENTATION & BUILD-PLATE PLACEMENT ENGINE
+// Evaluates candidate downward directions (6 cardinal axes + top planar clusters)
+// scoring actual bed-contact area, footprint stability, center-of-mass balance,
+// >45 deg overhang support penalty, and 256 x 256 x 256 mm build envelope fit.
+// Optionally aligns diagonally exported CAD models to bed X/Z axes via 2D hull,
+// then grounds min.y = 0 and centers (X, Z) at (0, 0).
 // ============================================================================
-export function autoOrientForPrinting(geometry) {
+function computeConvexHull2D(points) {
+  if (points.length <= 3) return points;
+  const sorted = points.slice().sort((a, b) => (a.x !== b.x ? a.x - b.x : a.z - b.z));
+  const cross = (o, a, b) => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
+
+  const lower = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const p = sorted[i];
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+
+  const upper = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+function alignDiagonalFootprintYaw(geometry) {
+  const pos = geometry.attributes.position;
+  if (!pos || pos.count < 3) return;
+
+  geometry.computeBoundingBox();
+  const bbox = geometry.boundingBox;
+  if (!bbox) return;
+  const origW = Math.max(0.1, bbox.max.x - bbox.min.x);
+  const origD = Math.max(0.1, bbox.max.z - bbox.min.z);
+  const origArea = origW * origD;
+
+  // Sample up to 3000 vertices on XZ plane for fast 2D convex hull
+  const step = pos.count > 3000 ? Math.ceil(pos.count / 3000) : 1;
+  const pts = [];
+  for (let i = 0; i < pos.count; i += step) {
+    pts.push({ x: pos.getX(i), z: pos.getZ(i) });
+  }
+  const hull = computeConvexHull2D(pts);
+  if (hull.length < 3) return;
+
+  let bestArea = origArea;
+  let bestAngle = 0;
+
+  for (let i = 0; i < hull.length; i++) {
+    const p1 = hull[i];
+    const p2 = hull[(i + 1) % hull.length];
+    const dx = p2.x - p1.x;
+    const dz = p2.z - p1.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-6) continue;
+
+    // Angle to rotate edge parallel to X-axis
+    const angle = Math.atan2(dz, dx);
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+
+    let minX = Infinity, maxX = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    for (let j = 0; j < hull.length; j++) {
+      const rx = hull[j].x * cosA - hull[j].z * sinA;
+      const rz = hull[j].x * sinA + hull[j].z * cosA;
+      if (rx < minX) minX = rx;
+      if (rx > maxX) maxX = rx;
+      if (rz < minZ) minZ = rz;
+      if (rz > maxZ) maxZ = rz;
+    }
+
+    const rectArea = Math.max(0.1, (maxX - minX) * (maxZ - minZ));
+    if (rectArea < bestArea) {
+      bestArea = rectArea;
+      bestAngle = angle;
+    }
+  }
+
+  // Only rotate yaw if model was meaningfully diagonal (saves >= 10% bounding box area)
+  if (bestArea < origArea * 0.90 && Math.abs(bestAngle) > 0.03) {
+    geometry.rotateY(-bestAngle);
+  }
+}
+
+export function autoOrientForPrinting(geometry, bedSize = { x: 256, y: 256, z: 256 }) {
   if (!geometry || !geometry.attributes || !geometry.attributes.position) return geometry;
 
   const pos = geometry.attributes.position;
-  const count = pos.count;
-  if (count < 3) return geometry;
+  const vertCount = pos.count;
+  const triCount = Math.floor(vertCount / 3);
+  if (triCount < 1) return geometry;
 
-  const tolRad = 0.15; // ~8.6 degrees tolerance for coplanar normal clustering (Tashkeel mechanism)
+  // 1. Single fast pass over triangles: compute planar clusters, area-weighted & volume centroids
+  const tolRad = 0.12; // ~6.9 degrees tolerance for coplanar normal clustering
   const clusters = [];
+
+  let totalArea = 0;
+  let signedVolSum = 0;
+  let volCentroidX = 0, volCentroidY = 0, volCentroidZ = 0;
+  let areaCentroidX = 0, areaCentroidY = 0, areaCentroidZ = 0;
+
+  const sampleStep = triCount > 10000 ? Math.ceil(triCount / 8000) : 1;
+  const sampledCount = Math.ceil(triCount / sampleStep);
+  const sNormals = new Float32Array(sampledCount * 3);
+  const sCentroids = new Float32Array(sampledCount * 3);
+  const sAreas = new Float32Array(sampledCount);
+  let sIdx = 0;
 
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
@@ -121,8 +224,8 @@ export function autoOrientForPrinting(geometry) {
   const ac = new THREE.Vector3();
   const normal = new THREE.Vector3();
 
-  // Accumulate planar facet areas
-  for (let i = 0; i < count; i += 3) {
+  for (let t = 0; t < triCount; t++) {
+    const i = t * 3;
     a.fromBufferAttribute(pos, i);
     b.fromBufferAttribute(pos, i + 1);
     c.fromBufferAttribute(pos, i + 2);
@@ -130,56 +233,243 @@ export function autoOrientForPrinting(geometry) {
     ab.subVectors(b, a);
     ac.subVectors(c, a);
     normal.crossVectors(ab, ac);
-    const area = normal.length() / 2;
-    if (area < 1e-8) continue;
-    normal.normalize();
+    const crossLen = normal.length();
+    if (crossLen < 1e-8) continue;
 
-    let matched = false;
-    for (const cl of clusters) {
-      if (normal.angleTo(cl.normal) < tolRad) {
-        cl.totalArea += area;
-        cl.sumX += normal.x * area;
-        cl.sumY += normal.y * area;
-        cl.sumZ += normal.z * area;
-        matched = true;
-        break;
-      }
+    const area = crossLen * 0.5;
+    normal.divideScalar(crossLen);
+    totalArea += area;
+
+    const cx = (a.x + b.x + c.x) / 3.0;
+    const cy = (a.y + b.y + c.y) / 3.0;
+    const cz = (a.z + b.z + c.z) / 3.0;
+
+    areaCentroidX += cx * area;
+    areaCentroidY += cy * area;
+    areaCentroidZ += cz * area;
+
+    const tetVol = (
+      a.x * (b.y * c.z - c.y * b.z) -
+      a.y * (b.x * c.z - c.x * b.z) +
+      a.z * (b.x * c.y - c.x * b.y)
+    ) / 6.0;
+    signedVolSum += tetVol;
+    volCentroidX += (a.x + b.x + c.x) * 0.25 * tetVol;
+    volCentroidY += (a.y + b.y + c.y) * 0.25 * tetVol;
+    volCentroidZ += (a.z + b.z + c.z) * 0.25 * tetVol;
+
+    if (t % sampleStep === 0 && sIdx < sampledCount) {
+      sNormals[sIdx * 3] = normal.x;
+      sNormals[sIdx * 3 + 1] = normal.y;
+      sNormals[sIdx * 3 + 2] = normal.z;
+      sCentroids[sIdx * 3] = cx;
+      sCentroids[sIdx * 3 + 1] = cy;
+      sCentroids[sIdx * 3 + 2] = cz;
+      sAreas[sIdx] = area * sampleStep;
+      sIdx++;
     }
-    if (!matched) {
-      clusters.push({
-        normal: normal.clone(),
-        totalArea: area,
-        sumX: normal.x * area,
-        sumY: normal.y * area,
-        sumZ: normal.z * area
-      });
+
+    if (t % sampleStep === 0) {
+      let matched = false;
+      for (let k = 0; k < clusters.length; k++) {
+        const cl = clusters[k];
+        if (normal.angleTo(cl.normal) < tolRad) {
+          cl.totalArea += area;
+          cl.sumX += normal.x * area;
+          cl.sumY += normal.y * area;
+          cl.sumZ += normal.z * area;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched && clusters.length < 48) {
+        clusters.push({
+          normal: normal.clone(),
+          totalArea: area,
+          sumX: normal.x * area,
+          sumY: normal.y * area,
+          sumZ: normal.z * area
+        });
+      }
     }
   }
 
-  if (clusters.length === 0) return geometry;
+  if (totalArea <= 1e-8) return geometry;
 
-  // Refine cluster average normal vectors
+  // Refine cluster average normals and sort descending by area
   for (const cl of clusters) {
     const len = Math.hypot(cl.sumX, cl.sumY, cl.sumZ);
     if (len > 1e-6) {
       cl.normal.set(cl.sumX / len, cl.sumY / len, cl.sumZ / len);
     }
   }
-
-  // Find the planar face cluster with the largest total flat area (Tashkeel mechanism)
   clusters.sort((x, y) => y.totalArea - x.totalArea);
-  const bestCluster = clusters[0];
 
-  // Target downward vector in Three.js world space is [0, -1, 0] (downward onto the build plate)
+  // Center of mass (prefer watertight volume centroid; fallback to area centroid)
+  const useVolCom = Math.abs(signedVolSum) > 1e-3;
+  const comX = useVolCom ? (volCentroidX / signedVolSum) : (areaCentroidX / totalArea);
+  const comY = useVolCom ? (volCentroidY / signedVolSum) : (areaCentroidY / totalArea);
+  const comZ = useVolCom ? (volCentroidZ / signedVolSum) : (areaCentroidZ / totalArea);
+
+  geometry.computeBoundingBox();
+  const origBBox = geometry.boundingBox;
+  const maxDimAll = origBBox
+    ? Math.max(1, origBBox.max.x - origBBox.min.x, origBBox.max.y - origBBox.min.y, origBBox.max.z - origBBox.min.z)
+    : 50;
+
+  // 2. Build deduplicated list of candidate downward directions
+  const candidates = [];
+  const addCandidate = (vec, tieBonus = 0) => {
+    const len = vec.length();
+    if (len < 1e-6) return;
+    const normVec = vec.clone().divideScalar(len);
+    for (let i = 0; i < candidates.length; i++) {
+      if (normVec.angleTo(candidates[i].dir) < 0.14) {
+        if (tieBonus > candidates[i].tieBonus) candidates[i].tieBonus = tieBonus;
+        return;
+      }
+    }
+    candidates.push({ dir: normVec, tieBonus });
+  };
+
+  // Prefer CAD Z-up upright (0, 0, -1) and Three.js Y-up upright (0, -1, 0) on exact ties
+  addCandidate(new THREE.Vector3(0, 0, -1), 0.018);
+  addCandidate(new THREE.Vector3(0, -1, 0), 0.012);
+  addCandidate(new THREE.Vector3(0, 0, 1), 0);
+  addCandidate(new THREE.Vector3(0, 1, 0), 0);
+  addCandidate(new THREE.Vector3(1, 0, 0), 0);
+  addCandidate(new THREE.Vector3(-1, 0, 0), 0);
+
+  for (let i = 0; i < Math.min(8, clusters.length); i++) {
+    addCandidate(clusters[i].normal, 0);
+  }
+
+  // 3. Evaluate each candidate orientation across FDM printability metrics
+  let bestScore = -Infinity;
+  let bestCandidate = candidates[0];
+  const vertStep = vertCount > 45000 ? 2 : 1;
+  const cos45 = Math.SQRT1_2;
+  const bedTolMm = Math.min(0.45, Math.max(0.20, maxDimAll * 0.008));
+
+  const uVec = new THREE.Vector3();
+  const wVec = new THREE.Vector3();
+  const upVec = new THREE.Vector3();
+  const refVec = new THREE.Vector3();
+
+  for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
+    const cand = candidates[cIdx];
+    const dx = cand.dir.x, dy = cand.dir.y, dz = cand.dir.z;
+
+    // Orthonormal horizontal basis (uVec, wVec) perpendicular to candidate downward vector d
+    upVec.set(-dx, -dy, -dz);
+    refVec.set(Math.abs(upVec.y) < 0.9 ? 0 : 1, Math.abs(upVec.y) < 0.9 ? 1 : 0, 0);
+    uVec.crossVectors(refVec, upVec).normalize();
+    wVec.crossVectors(upVec, uVec).normalize();
+
+    const ux = uVec.x, uy = uVec.y, uz = uVec.z;
+    const wx = wVec.x, wy = wVec.y, wz = wVec.z;
+
+    let minProj = Infinity, maxProj = -Infinity;
+    let minU = Infinity, maxU = -Infinity;
+    let minW = Infinity, maxW = -Infinity;
+
+    for (let v = 0; v < vertCount; v += vertStep) {
+      const vx = pos.getX(v), vy = pos.getY(v), vz = pos.getZ(v);
+      const p = vx * dx + vy * dy + vz * dz;
+      const u = vx * ux + vy * uy + vz * uz;
+      const w = vx * wx + vy * wy + vz * wz;
+      if (p < minProj) minProj = p;
+      if (p > maxProj) maxProj = p;
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+      if (w < minW) minW = w;
+      if (w > maxW) maxW = w;
+    }
+
+    const height = Math.max(0.1, maxProj - minProj);
+    const extentU = Math.max(0.1, maxU - minU);
+    const extentW = Math.max(0.1, maxW - minW);
+
+    // Bed-touching footprint bounding box from vertices near maxProj
+    let bedMinU = Infinity, bedMaxU = -Infinity;
+    let bedMinW = Infinity, bedMaxW = -Infinity;
+    for (let v = 0; v < vertCount; v += vertStep) {
+      const vx = pos.getX(v), vy = pos.getY(v), vz = pos.getZ(v);
+      const p = vx * dx + vy * dy + vz * dz;
+      if (maxProj - p <= bedTolMm) {
+        const u = vx * ux + vy * uy + vz * uz;
+        const w = vx * wx + vy * wy + vz * wz;
+        if (u < bedMinU) bedMinU = u;
+        if (u > bedMaxU) bedMaxU = u;
+        if (w < bedMinW) bedMinW = w;
+        if (w > bedMaxW) bedMaxW = w;
+      }
+    }
+
+    const bedSpanU = bedMaxU > bedMinU ? (bedMaxU - bedMinU) : 0;
+    const bedSpanW = bedMaxW > bedMinW ? (bedMaxW - bedMinW) : 0;
+
+    // Accumulate true bed-contact area & overhang support penalty
+    let bedContactArea = 0;
+    let overhangPenalty = 0;
+
+    for (let s = 0; s < sIdx; s++) {
+      const nx = sNormals[s * 3], ny = sNormals[s * 3 + 1], nz = sNormals[s * 3 + 2];
+      const nd = nx * dx + ny * dy + nz * dz;
+      if (nd <= cos45) continue; // Only downward-facing surfaces (>45 deg) matter here
+
+      const cx = sCentroids[s * 3], cy = sCentroids[s * 3 + 1], cz = sCentroids[s * 3 + 2];
+      const hCent = maxProj - (cx * dx + cy * dy + cz * dz);
+      const area = sAreas[s];
+
+      if (hCent <= bedTolMm && nd > 0.88) {
+        bedContactArea += area;
+      } else if (hCent > bedTolMm) {
+        const steepness = (nd - cos45) / (1.0 - cos45);
+        const heightWeight = 0.45 + 0.55 * Math.min(1.0, hCent / Math.max(10.0, height * 0.5));
+        overhangPenalty += area * (0.4 + 0.6 * steepness) * heightWeight;
+      }
+    }
+
+    const comU = comX * ux + comY * uy + comZ * uz;
+    const comW = comX * wx + comY * wy + comZ * wz;
+    const comH = Math.max(0, maxProj - (comX * dx + comY * dy + comZ * dz));
+
+    const tipsOver = bedMaxU > bedMinU
+      ? (comU < bedMinU - 1.5 || comU > bedMaxU + 1.5 || comW < bedMinW - 1.5 || comW > bedMaxW + 1.5)
+      : true;
+
+    const fitsBed = (
+      height <= bedSize.z &&
+      Math.min(extentU, extentW) <= Math.min(bedSize.x, bedSize.y) &&
+      Math.max(extentU, extentW) <= Math.max(bedSize.x, bedSize.y)
+    );
+
+    const contactScore = (bedContactArea / totalArea) * 3.0;
+    const footprintScore = Math.min(1.0, (bedSpanU * bedSpanW) / Math.max(1.0, extentU * extentW)) * 0.75;
+    const overhangScore = (overhangPenalty / totalArea) * 4.2;
+    const heightPenalty = (comH / maxDimAll) * 0.35;
+    const tipPenalty = tipsOver ? 1.5 : 0;
+    const fitPenalty = fitsBed ? 0 : 100.0;
+
+    const score = contactScore + footprintScore - overhangScore - heightPenalty - tipPenalty - fitPenalty + cand.tieBonus;
+    if (score > bestScore) {
+      bestScore = score;
+      bestCandidate = cand;
+    }
+  }
+
+  // 4. Rotate chosen downward vector to Three.js world down [0, -1, 0]
   const targetDown = new THREE.Vector3(0, -1, 0);
-
-  // If not already pointing directly down, apply rotation quaternion
-  if (bestCluster.normal.dot(targetDown) < 0.999) {
-    const quat = new THREE.Quaternion().setFromUnitVectors(bestCluster.normal, targetDown);
+  if (bestCandidate && bestCandidate.dir.dot(targetDown) < 0.9999) {
+    const quat = new THREE.Quaternion().setFromUnitVectors(bestCandidate.dir, targetDown);
     geometry.applyQuaternion(quat);
   }
 
-  // Ground lowest point at Y = 0 (bed surface) and center horizontally at (0, 0)
+  // 5. Snap diagonally oriented parts cleanly onto bed X/Z axes
+  alignDiagonalFootprintYaw(geometry);
+
+  // 6. Ground lowest point at Y = 0 and center horizontally at (0, 0)
   geometry.computeBoundingBox();
   const bbox = geometry.boundingBox;
   if (bbox) {

@@ -79,11 +79,11 @@ const STLViewer = forwardRef(function STLViewer({
     const sz = Math.max(1, bbox.max.z - bbox.min.z);
     const modelMax = Math.max(sx, sy, sz);
 
-    const targetY = Math.max(6, sy * 0.4);
+    const targetY = Math.max(2, sy * 0.45);
     controlsRef.current.target.set(0, targetY, 0);
 
-    // Position camera so model fills 60-70% of the viewport prominently
-    const dist = Math.max(85, modelMax * 1.55);
+    // Position camera so both small and large models frame cleanly inside the viewport
+    const dist = Math.max(24, modelMax * 1.85);
     cameraRef.current.position.set(dist * 0.72, dist * 0.65, dist * 0.82);
     cameraRef.current.near = 1;
     cameraRef.current.far = 4000;

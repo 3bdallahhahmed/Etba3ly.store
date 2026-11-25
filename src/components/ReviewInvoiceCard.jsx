@@ -77,7 +77,7 @@ export default function ReviewInvoiceCard({
   const depositRequired = Math.ceil(quotedPrice * 0.5);
   const remainingBalance = quotedPrice - depositRequired;
 
-  const isReviewRequired = hasMetrics && quotedPrice > (parseFloat(config?.price_review_threshold) || 300);
+  const isReviewRequired = false;
 
   return (
     <div
@@ -528,7 +528,7 @@ export default function ReviewInvoiceCard({
               Due to part volume and geometry, our workshop team will review the 3D model for optimal machine orientation and confirm exact pricing before printing.
             </span>
           ) : (
-            "1:1 Elegoo Centauri Carbon slicer calibration. Final price confirmed upon workshop review."
+            "Calibrated for our 256 x 256 x 256 mm build plate. Final price confirmed upon workshop review."
           )}
         </div>
       </div>
