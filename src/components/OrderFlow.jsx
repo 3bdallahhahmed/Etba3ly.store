@@ -414,7 +414,7 @@ export default function OrderFlow({
           <p className="order-subtitle">{subtitleByStep[orderStep]}</p>
 
           <nav aria-label="Order progress" className="order-stepper-nav">
-            <ol className="order-stepper">
+            <ol className="stepper order-classic-stepper">
               {stepsMeta.map((st, idx) => {
                 const isCompleted = orderStep > st.num || (orderStep === 4 && st.num === 4);
                 const isActive = orderStep === st.num && orderStep < 4;
@@ -424,31 +424,31 @@ export default function OrderFlow({
                     {idx > 0 && (
                       <li
                         aria-hidden="true"
-                        className={`order-step-connector ${orderStep > st.num - 1 ? "filled" : ""}`}
+                        className={`stepper-line ${orderStep > st.num - 1 ? "filled" : ""}`}
                       />
                     )}
                     <li
-                      className={`order-step-item ${isCompleted ? "completed" : ""} ${isActive ? "active" : ""}`}
+                      className={`stepper-step ${isCompleted ? "completed" : ""} ${isActive ? "active" : ""}`}
                       aria-current={orderStep === st.num ? "step" : undefined}
                     >
                       {canJumpBack ? (
                         <button
                           type="button"
-                          className="order-step-btn"
+                          className="stepper-step-trigger"
                           onClick={() => setOrderStep(st.num)}
                         >
-                          <span className="order-step-box">
+                          <span className="stepper-dot">
                             <CheckMarkIcon />
                           </span>
-                          <span className="order-step-label">{st.label}</span>
+                          <span className="stepper-label">{st.label}</span>
                         </button>
                       ) : (
-                        <div className="order-step-static">
-                          <span className="order-step-box">
+                        <>
+                          <span className="stepper-dot">
                             {isCompleted ? <CheckMarkIcon /> : st.num}
                           </span>
-                          <span className="order-step-label">{st.label}</span>
-                        </div>
+                          <span className="stepper-label">{st.label}</span>
+                        </>
                       )}
                     </li>
                   </React.Fragment>
@@ -701,30 +701,42 @@ export default function OrderFlow({
                 </div>
               </div>
 
-              {/* Material Picker */}
-              <fieldset className="order-fieldset">
-                <legend className="order-field-legend">Material</legend>
-                <div className="order-material-grid">
-                  {availableMaterials.map((mat) => {
-                    const isSelected = (newOrder.material || "").toLowerCase().trim() === mat.name.toLowerCase().trim();
-                    return (
-                      <button
-                        key={mat.key}
-                        type="button"
-                        disabled={!mat.inStock}
-                        aria-pressed={isSelected}
-                        onClick={() => setNewOrder((p) => ({ ...p, material: mat.name }))}
-                        className={`order-tile-btn ${isSelected ? "selected" : ""} ${!mat.inStock ? "disabled" : ""}`}
-                      >
-                        <span className="order-tile-main">{mat.name}</span>
-                        <span className="order-tile-sub">
-                          {mat.inStock ? `${mat.rate.toFixed(1)} EGP/g` : "Restocking"}
-                        </span>
-                      </button>
-                    );
-                  })}
+              {/* Material Dropdown */}
+              <div className="order-field-group order-material-field">
+                <div className="order-label-row">
+                  <label htmlFor="order-material" className="order-field-label">
+                    Material
+                  </label>
+                  <span className="order-legend-value">{orderSummary.activeRate.toFixed(2)} EGP/g</span>
                 </div>
-              </fieldset>
+                <div className="order-select-wrap">
+                  <select
+                    id="order-material"
+                    name="material"
+                    value={newOrder.material}
+                    onChange={(e) => setNewOrder((p) => ({ ...p, material: e.target.value }))}
+                    className="order-input order-select"
+                  >
+                    {availableMaterials.map((mat) => (
+                      <option key={mat.key} value={mat.name} disabled={!mat.inStock}>
+                        {mat.name}{mat.inStock ? ` (${mat.rate.toFixed(1)} EGP/g)` : " (Restocking soon)"}
+                      </option>
+                    ))}
+                  </select>
+                  <svg
+                    className="order-select-chevron"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </div>
+              </div>
 
               {/* Color Swatches (Rounded Squares) */}
               <fieldset className="order-fieldset">

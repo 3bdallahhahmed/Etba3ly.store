@@ -2384,108 +2384,71 @@ label {
   max-width: 540px;
 }
 
-/* 4-Step Rounded-Square Stepper */
+/* Classic Circular Progress Stepper */
 .order-stepper-nav {
-  margin: 20px auto 0;
+  margin: 24px auto 0;
   max-width: 560px;
 }
 
-.order-stepper {
+.order-classic-stepper {
   list-style: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   margin: 0;
   padding: 0;
 }
 
-.order-step-item {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
+.order-classic-stepper .stepper-dot svg {
+  width: 18px;
+  height: 18px;
 }
 
-.order-step-btn,
-.order-step-static {
-  display: inline-flex;
+.stepper-step-trigger {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
-  border-radius: var(--order-radius-sm);
+  gap: 10px;
+  width: 100%;
+  padding: 0;
   border: none;
   background: transparent;
   font: inherit;
   color: inherit;
-}
-
-.order-step-btn {
   cursor: pointer;
-  transition: background-color 0.15s ease;
 }
 
-.order-step-btn:hover {
-  background: var(--order-surface-hover);
+.stepper-step-trigger:hover .stepper-dot {
+  transform: scale(1.06);
 }
 
-.order-step-box {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--order-radius-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12.5px;
-  font-weight: 800;
-  background: var(--order-surface-nested);
-  border: 1.5px solid var(--order-border-strong);
-  color: var(--text-secondary);
-  transition: all 0.2s ease;
-}
-
-.order-step-box svg {
-  width: 14px;
-  height: 14px;
-}
-
-.order-step-label {
-  font-size: 12.5px;
-  font-weight: 700;
-  color: var(--text-tertiary);
-  letter-spacing: 0.01em;
-}
-
-.order-step-item.active .order-step-box {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #ffffff;
-}
-
-.order-step-item.active .order-step-label {
+.stepper-step-trigger:hover .stepper-label {
   color: var(--text-primary);
 }
 
-.order-step-item.completed .order-step-box {
-  background: var(--status-done);
-  border-color: var(--status-done);
-  color: #ffffff;
+/* Material Select Dropdown */
+.order-material-field {
+  margin-bottom: 16px;
 }
 
-.order-step-item.completed .order-step-label {
+.order-select-wrap {
+  position: relative;
+}
+
+.order-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 38px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.order-select-chevron {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
   color: var(--text-secondary);
-}
-
-.order-step-connector {
-  flex: 1;
-  min-width: 18px;
-  height: 2px;
-  margin: 0 6px;
-  background: var(--order-border-strong);
-  border-radius: 2px;
-  transition: background-color 0.25s ease;
-}
-
-.order-step-connector.filled {
-  background: var(--status-done);
+  pointer-events: none;
 }
 
 /* Main Workspace Layout */
@@ -2997,12 +2960,6 @@ label {
 .order-legend-value {
   color: var(--accent);
   font-weight: 700;
-}
-
-.order-material-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
-  gap: 8px;
 }
 
 .order-quality-grid {
@@ -3727,24 +3684,12 @@ dialog.order-preview-dialog::backdrop {
   .order-success-secondary-row {
     grid-template-columns: 1fr;
   }
-  .order-step-btn,
-  .order-step-static {
-    flex-direction: column;
-    gap: 4px;
-    padding: 2px 4px;
+  .order-classic-stepper .stepper-dot svg {
+    width: 14px;
+    height: 14px;
   }
-  .order-step-box {
-    width: 26px;
-    height: 26px;
-    font-size: 11.5px;
-  }
-  .order-step-label {
-    font-size: 11px;
-  }
-  .order-step-connector {
-    min-width: 8px;
-    margin: 0 3px;
-    margin-top: -16px;
+  .stepper-step-trigger {
+    gap: 6px;
   }
   .order-step-actions {
     flex-direction: column-reverse;
