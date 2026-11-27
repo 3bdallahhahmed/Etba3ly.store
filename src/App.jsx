@@ -1,4 +1,5 @@
 import AdminDashboard from "./components/AdminDashboard";
+import FloatingWhatsAppButton from "./components/FloatingWhatsAppButton";
 import OrderFlow from "./components/OrderFlow";
 import {
   calculateOrderQuote,
@@ -3653,6 +3654,14 @@ export default function App() {
         </div>
         <div className="footer-bottom">&copy; {new Date().getFullYear()} {brandName} Store. All rights reserved. | On-Demand 3D Printing Service Egypt</div>
       </footer>
+
+      {config.show_socials !== false && hash !== "#boss" && (
+        <FloatingWhatsAppButton
+          phoneNumber={config.whatsapp_number}
+          brandName={brandName}
+          hasFloatingCta={hash !== "#order" && hash !== "#boss"}
+        />
+      )}
 
       {/* Privacy Policy Modal */}
       {privacyModalOpen && (
