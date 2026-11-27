@@ -1,21 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import { buildWhatsAppUrl, DEFAULT_WHATSAPP_MESSAGE } from "../utils/whatsapp";
 
 const DISMISS_STORAGE_KEY = "etba3ly_whatsapp_dismissed";
-
-/**
- * Normalizes a local Egyptian or international phone string into a wa.me URL.
- */
-function buildWhatsAppUrl(rawNumber, message) {
-  const digits = String(rawNumber || "").replace(/\D/g, "");
-  let intl = digits;
-  if (intl.startsWith("00")) {
-    intl = intl.slice(2);
-  } else if (intl.startsWith("0")) {
-    intl = "2" + intl;
-  }
-  const base = intl ? `https://wa.me/${intl}` : "https://wa.me/";
-  return message ? `${base}?text=${encodeURIComponent(message)}` : base;
-}
 
 function readDismissedState() {
   try {
@@ -30,7 +16,6 @@ function readDismissedState() {
  */
 export default function FloatingWhatsAppButton({
   phoneNumber = "",
-  brandName = "Etba3ly",
   hasFloatingCta = false,
 }) {
   const [dismissed, setDismissed] = useState(readDismissedState);
@@ -47,10 +32,7 @@ export default function FloatingWhatsAppButton({
 
   if (dismissed) return null;
 
-  const whatsappHref = buildWhatsAppUrl(
-    phoneNumber,
-    `Hello ${brandName}! I have a question about 3D printing.`
-  );
+  const whatsappHref = buildWhatsAppUrl(phoneNumber, DEFAULT_WHATSAPP_MESSAGE);
 
   const handleClose = () => {
     if (closing) return;

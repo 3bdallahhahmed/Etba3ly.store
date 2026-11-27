@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import STLViewer from "../slicer/STLViewer.jsx";
 import { SERVICE_TIERS } from "./ServiceTierSelector.jsx";
+import { buildWhatsAppUrl } from "../utils/whatsapp.js";
 
 const QUALITY_OPTIONS = [
   {
@@ -1377,11 +1378,12 @@ export default function OrderFlow({
             <div className="order-success-actions">
               {config.whatsapp_number && (
                 <a
-                  href={`https://wa.me/${(config.whatsapp_number || "").replace(/\D/g, "").startsWith("0") ? "2" + (config.whatsapp_number || "").replace(/\D/g, "") : (config.whatsapp_number || "").replace(/\D/g, "")}?text=${encodeURIComponent(
+                  href={buildWhatsAppUrl(
+                    config.whatsapp_number,
                     `Hello Etba3ly! I just submitted an order:\n- Tracking: ${successModal}\n- Order: ${lastSubmittedQuote?.orderName || "Custom 3D Print"}\n- Specs: ${lastSubmittedQuote?.material || "PLA"} (${lastSubmittedQuote?.color || "Standard"})\n- Total: ${lastSubmittedQuote && lastSubmittedQuote.totalPrice > 0 ? `${lastSubmittedQuote.totalPrice} EGP` : "Pending quote"}\n- Client: ${lastSubmittedQuote?.name || ""}`
-                  )}`}
+                  )}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   className="order-btn order-btn-whatsapp order-btn-full"
                 >
                   Send Order on WhatsApp

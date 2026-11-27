@@ -1,6 +1,7 @@
 import AdminDashboard from "./components/AdminDashboard";
 import FloatingWhatsAppButton from "./components/FloatingWhatsAppButton";
 import OrderFlow from "./components/OrderFlow";
+import { buildWhatsAppUrl } from "./utils/whatsapp";
 import {
   calculateOrderQuote,
   DEFAULT_PRICING_SETTINGS,
@@ -3426,7 +3427,7 @@ export default function App() {
               <h3 style={{ marginBottom: 12 }}>Need Direct Assistance?</h3>
               <p style={{ fontSize: 14, marginBottom: 24 }}>Contact our print engineers directly for urgent tolerances or custom requests.</p>
               <div className="contact-buttons" style={{ justifyContent: "center" }}>
-                <a href={config.whatsapp_number ? `https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}` : "https://wa.me/"} target="_blank" rel="noreferrer" className="btn btn-accent"><WhatsAppIcon /> WhatsApp</a>
+                <a href={buildWhatsAppUrl(config.whatsapp_number)} target="_blank" rel="noopener noreferrer" className="btn btn-accent"><WhatsAppIcon /> WhatsApp</a>
                 <a href={`mailto:${config.email_address || "support@etba3ly.store"}`} className="btn btn-glass"><EmailIcon /> Email Us</a>
               </div>
             </div>
@@ -3460,7 +3461,7 @@ export default function App() {
             <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
               <a href="/order" className="btn btn-accent" onClick={(e) => { e.preventDefault(); navigateTo("order"); }}>Place an Order</a>
               {config.whatsapp_number && (
-                <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}?text=${encodeURIComponent("Hello! I'd like to place an order.")}`} target="_blank" rel="noreferrer" className="btn btn-glass" style={{ gap: 8 }}>
+                <a href={buildWhatsAppUrl(config.whatsapp_number)} target="_blank" rel="noopener noreferrer" className="btn btn-glass" style={{ gap: 8 }}>
                   <WhatsAppIcon /> Order via WhatsApp
                 </a>
               )}
@@ -3528,15 +3529,9 @@ export default function App() {
             <p>Need a custom order or have questions? We're here to help.</p>
             {config.show_socials !== false && (
               <div className="contact-buttons">
-                {config.whatsapp_number ? (
-                  <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="btn btn-accent" style={{ gap: 10 }}>
-                    <WhatsAppIcon /> WhatsApp
-                  </a>
-                ) : (
-                  <a href="https://wa.me/" target="_blank" rel="noreferrer" className="btn btn-accent" style={{ gap: 10 }}>
-                    <WhatsAppIcon /> WhatsApp
-                  </a>
-                )}
+                <a href={buildWhatsAppUrl(config.whatsapp_number)} target="_blank" rel="noopener noreferrer" className="btn btn-accent" style={{ gap: 10 }}>
+                  <WhatsAppIcon /> WhatsApp
+                </a>
                 {config.email_address ? (
                   <a href={`mailto:${config.email_address}`} className="btn btn-glass" style={{ gap: 10 }}>
                     <EmailIcon /> Email Us
@@ -3639,11 +3634,7 @@ export default function App() {
             <h4>Connect</h4>
             {config.show_socials !== false ? (
               <div className="social-links">
-                {config.whatsapp_number ? (
-                  <a href={`https://wa.me/${config.whatsapp_number.replace(/[^0-9]/g, '')}`} target="_blank" rel="noreferrer" className="social-link" aria-label="WhatsApp" title="WhatsApp"><WhatsAppIcon /></a>
-                ) : (
-                  <a href="https://wa.me/" target="_blank" rel="noreferrer" className="social-link" aria-label="WhatsApp" title="WhatsApp"><WhatsAppIcon /></a>
-                )}
+                <a href={buildWhatsAppUrl(config.whatsapp_number)} target="_blank" rel="noopener noreferrer" className="social-link" aria-label="WhatsApp" title="WhatsApp"><WhatsAppIcon /></a>
                 <a href={config.instagram_link || "https://www.instagram.com/etba3ly_3d/"} target="_blank" rel="noreferrer" className="social-link" aria-label="Instagram @etba3ly_3d" title="Instagram @etba3ly_3d"><InstagramIcon /></a>
                 <a href={`mailto:${config.email_address || "support@etba3ly.store"}`} className="social-link" aria-label="Email" title="Email"><EmailIcon /></a>
               </div>
@@ -3658,7 +3649,6 @@ export default function App() {
       {config.show_socials !== false && hash !== "#boss" && (
         <FloatingWhatsAppButton
           phoneNumber={config.whatsapp_number}
-          brandName={brandName}
           hasFloatingCta={hash !== "#order" && hash !== "#boss"}
         />
       )}
